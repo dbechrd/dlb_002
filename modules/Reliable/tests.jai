@@ -68,11 +68,64 @@ test_sequence_buffer :: () {
     reliable_sequence_buffer_destroy(sequence_buffer);
 }
 
-run_tests :: () {
+test_generate_ack_bits :: () {}
+
+test_packet_header :: () {}
+
+test_default_context :: () {}
+
+test_transmit_packet_function :: () {}
+
+test_process_packet_function :: () {}
+
+test_acks :: () {}
+
+test_acks_packet_loss :: () {}
+
+test_process_packet_function_validate :: () {}
+
+test_process_packet_function_validate_large :: () {}
+
+test_packets :: () {}
+
+test_large_packets :: () {}
+
+test_sequence_buffer_rollover :: () {}
+
+test_tracking_allocate_function :: () {}
+
+test_tracking_free_function :: () {}
+
+test_fragment_cleanup :: () {}
+
+reliable_test :: () {
     print("--------------------------------------------------------------------------------\n");
     print("[Reliable] Running tests... ");
     test_endian();
     test_sequence_buffer();
+    test_generate_ack_bits();
+    test_packet_header();
+    
+    // NOTE(dlb): The commented test functions are not tests, they are helper functions.
+    // TODO(dlb): Rename the helper functions?
+
+    // test_default_context();
+    // test_transmit_packet_function();
+    // test_process_packet_function();
+    test_acks();
+    test_acks_packet_loss();
+    
+    // test_process_packet_function_validate();
+    // test_process_packet_function_validate_large();
+    test_packets();
+    test_large_packets();
+    
+    test_sequence_buffer_rollover();
+    
+    // test_tracking_allocate_function();
+    // test_tracking_free_function();
+    test_fragment_cleanup();
+    
     print("Passed!\n");
     print("--------------------------------------------------------------------------------\n");
 }

@@ -1157,5 +1157,5 @@ reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_
 
 #if RUN_TESTS {
     #load "tests.jai";
-    #run run_tests();
+    #run reliable_test();
 }
