@@ -53,7 +53,7 @@ state: State;
 InputCommand :: struct {
     primary_action: bool;
     motion: Vector2;
-};
+}
 
 capture_input_command :: (using inputCmd: *InputCommand) {
     primary_action = Input.input_button_states[Input.Key_Code.MOUSE_BUTTON_LEFT] == .DOWN;

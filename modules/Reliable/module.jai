@@ -131,7 +131,7 @@ reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *
     assert(config.process_packet_function != null);
 
     endpoint := New(reliable_endpoint_t);
-    assert(endpoint);
+    assert(endpoint != null);
     endpoint.config = config;
     endpoint.time = time;
     endpoint.acks = NewArray(config.ack_buffer_size, u16);
@@ -142,7 +142,7 @@ reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *
 }
 
 reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t) {
-    assert(endpoint);
+    assert(endpoint != null);
     assert(endpoint.acks);
     assert(endpoint.sent_packets);
     assert(endpoint.received_packets);
@@ -164,13 +164,13 @@ reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t) {
 
 // TODO(dlb): Just read the sequence member.. Why is this a function?
 reliable_endpoint_next_packet_sequence :: inline (endpoint: *reliable_endpoint_t) -> u16 {
-    assert(endpoint);
+    assert(endpoint != null);
 
     return endpoint.sequence;
 }
 
 reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8) {
-    assert(endpoint);
+    assert(endpoint != null);
     assert(packet_data.count > 0);
 
     if packet_data.count > endpoint.config.max_packet_size {
@@ -258,7 +258,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
 }
 
 reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8) {
-    assert(endpoint);
+    assert(endpoint != null);
     assert(packet_data.count > 0);
 
     if packet_data.count > endpoint.config.max_packet_size + RELIABLE_MAX_PACKET_HEADER_BYTES + RELIABLE_FRAGMENT_HEADER_BYTES {
@@ -441,14 +441,14 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 }
 
 reliable_endpoint_free_packet :: (endpoint: *reliable_endpoint_t, packet: *void) {
-    assert(endpoint);
+    assert(endpoint != null);
     assert(packet);
 
     free(packet);
 }
 
 reliable_endpoint_get_acks :: (endpoint: *reliable_endpoint_t) -> [] u16 {
-    assert(endpoint);
+    assert(endpoint != null);
 
     acks := endpoint.acks;
     acks.count = endpoint.num_acks;
@@ -456,13 +456,13 @@ reliable_endpoint_get_acks :: (endpoint: *reliable_endpoint_t) -> [] u16 {
 }
 
 reliable_endpoint_clear_acks :: (endpoint: *reliable_endpoint_t) {
-    assert(endpoint);
+    assert(endpoint != null);
 
     endpoint.num_acks = 0;
 }
 
 reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t) {
-    assert(endpoint);
+    assert(endpoint != null);
 
     endpoint.num_acks = 0;
     endpoint.sequence = 0;
@@ -483,7 +483,7 @@ reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t) {
 }
 
 reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) {
-    assert(endpoint);
+    assert(endpoint != null);
 
     endpoint.time = time;
 
@@ -602,19 +602,19 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
 }
 
 reliable_endpoint_rtt :: (using endpoint: *reliable_endpoint_t) -> float {
-    assert(endpoint);
+    assert(endpoint != null);
 
     return rtt;
 }
 
 reliable_endpoint_packet_loss :: (using endpoint: *reliable_endpoint_t ) -> float {
-    assert(endpoint);
+    assert(endpoint != null);
 
     return packet_loss;
 }
 
 reliable_endpoint_bandwidth :: (using endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float {
-    assert(endpoint);
+    assert(endpoint != null);
     assert(sent_bandwidth_kbps);
     assert(acked_bandwidth_kbps);
     assert(received_bandwidth_kbps);
@@ -623,7 +623,7 @@ reliable_endpoint_bandwidth :: (using endpoint: *reliable_endpoint_t) -> sent_ba
 }
 
 reliable_endpoint_counters :: (using endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64 {
-    assert(endpoint);
+    assert(endpoint != null);
 
     return counters;
 }
@@ -631,15 +631,15 @@ reliable_endpoint_counters :: (using endpoint: *reliable_endpoint_t) -> [RELIABL
 // TODO(dlb): Use Jai's copy_string
 //void reliable_copy_string( char * dest, RELIABLE_CONST char * source, size_t dest_size );
 
-#scope_file
+#scope_module
 
 #import "Basic";
 
-array_fill :: (array: [..] $T, value: T) {
+array_fill :: (array: [] $T, value: u8) {
     memset(array.data, value, size_of(T) * array.count);
 }
 
-array_zero :: (array: [..] $T) {
+array_zero :: (array: [] $T) {
     memset(array.data, 0, size_of(T) * array.count);
 }
 
@@ -695,10 +695,10 @@ reliable_sequence_buffer_create :: (num_entries: int, entry_stride: int) -> *rel
     sequence_buffer.entry_stride = entry_stride;
 
     sequence_buffer.entry_sequence = NewArray(num_entries, u32, initialized = false);
-    assert(sequence_buffer.entry_sequence);
+    assert(sequence_buffer.entry_sequence.count > 0);
 
     sequence_buffer.entry_data = NewArray(num_entries * entry_stride, u8);
-    assert(sequence_buffer.entry_data);
+    assert(sequence_buffer.entry_data.count > 0);
 
     // TODO(dlb)[REL-1]
     array_fill(sequence_buffer.entry_sequence, 0xFF);
@@ -707,7 +707,7 @@ reliable_sequence_buffer_create :: (num_entries: int, entry_stride: int) -> *rel
 }
 
 reliable_sequence_buffer_destroy :: (sequence_buffer: *reliable_sequence_buffer_t) {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     array_free(sequence_buffer.entry_sequence);
     array_free(sequence_buffer.entry_data);
@@ -715,7 +715,7 @@ reliable_sequence_buffer_destroy :: (sequence_buffer: *reliable_sequence_buffer_
 }
 
 reliable_sequence_buffer_reset :: (sequence_buffer: *reliable_sequence_buffer_t) {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     // TODO(dlb)[REL-1]
     sequence_buffer.sequence = 0;
@@ -723,7 +723,7 @@ reliable_sequence_buffer_reset :: (sequence_buffer: *reliable_sequence_buffer_t)
 }
 
 reliable_sequence_buffer_remove_entries :: (sequence_buffer: *reliable_sequence_buffer_t, start_sequence: int, finish_sequence: int, $cleanup: bool = false) {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     if finish_sequence < start_sequence {
         finish_sequence += 65536;
@@ -745,7 +745,7 @@ reliable_sequence_buffer_remove_entries :: (sequence_buffer: *reliable_sequence_
                     sequence_buffer.entry_data.data + sequence_buffer.entry_stride * it
                 );
             }
-            sequence_buffer.entry_sequence[i] = 0xFFFFFFFF;
+            sequence_buffer.entry_sequence[it] = 0xFFFFFFFF;
         }
     }
 }
@@ -755,7 +755,7 @@ reliable_sequence_buffer_test_insert :: (sequence_buffer: *reliable_sequence_buf
 }
 
 reliable_sequence_buffer_insert :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, $cleanup: bool = false) -> *void {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     if reliable_sequence_less_than(sequence, sequence_buffer.sequence - (cast(u16) sequence_buffer.num_entries)) {
         return null;
@@ -778,7 +778,7 @@ reliable_sequence_buffer_insert :: (sequence_buffer: *reliable_sequence_buffer_t
 
 reliable_sequence_buffer_advance :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, cleanup: bool = false)
 {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     if reliable_sequence_greater_than(sequence + 1, sequence_buffer.sequence) {
         reliable_sequence_buffer_remove_entries(sequence_buffer, sequence_buffer.sequence, sequence, cleanup);
@@ -788,7 +788,7 @@ reliable_sequence_buffer_advance :: (sequence_buffer: *reliable_sequence_buffer_
 
 // NOTE(dlb): cleanup = false variant is never actually called
 reliable_sequence_buffer_remove :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, $cleanup: bool = false) {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     index: int = sequence % sequence_buffer.num_entries;
     #if cleanup {
@@ -800,19 +800,19 @@ reliable_sequence_buffer_remove :: (sequence_buffer: *reliable_sequence_buffer_t
 }
 
 reliable_sequence_buffer_available :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16) -> bool {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     return sequence_buffer.entry_sequence[sequence % sequence_buffer.num_entries] == 0xFFFFFFFF;
 }
 
 reliable_sequence_buffer_exists :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16) -> bool {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     return sequence_buffer.entry_sequence[sequence % sequence_buffer.num_entries] == cast(u32) sequence;
 }
 
 reliable_sequence_buffer_find :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16) -> *void {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     index: int = sequence % sequence_buffer.num_entries;
     return ifx sequence_buffer.entry_sequence[index] == cast(u32) sequence
@@ -821,7 +821,7 @@ reliable_sequence_buffer_find :: (sequence_buffer: *reliable_sequence_buffer_t, 
 }
 
 reliable_sequence_buffer_at_index :: (sequence_buffer: *reliable_sequence_buffer_t, index: int) -> *reliable_fragment_reassembly_data_t {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
     assert(index >= 0);
     assert(index < sequence_buffer.num_entries);
 
@@ -831,7 +831,7 @@ reliable_sequence_buffer_at_index :: (sequence_buffer: *reliable_sequence_buffer
 }
 
 reliable_sequence_buffer_generate_ack_bits :: (sequence_buffer: *reliable_sequence_buffer_t) -> ack: u16, ack_bits: u32 {
-    assert(sequence_buffer);
+    assert(sequence_buffer != null);
 
     ack: u16 = sequence_buffer.sequence - 1;
     ack_bits: u32 = 0;
@@ -1157,4 +1157,5 @@ reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_
 
 #if RUN_TESTS {
     #load "tests.jai";
+    #run run_tests();
 }
