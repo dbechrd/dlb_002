@@ -30,10 +30,6 @@
 
 #load "tests.jai";
 
-#if RUN_TESTS {
-    #run reliable_test();
-}
-
 // TODO(dlb): This is kind of stupid.. just make it a struct
 RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT                 :: 0;
 RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED             :: 1;
@@ -496,7 +492,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
     // calculate packet loss
     {
         base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
-        num_dropped := 0;
+        num_dropped := 0.0;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
         for 0..num_samples-1 {
             sequence := cast(u16) (base_sequence + it);
@@ -505,7 +501,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
                 num_dropped += 1;
             }
         }
-        packet_loss: float = cast(float) num_dropped / num_samples * 100;
+        packet_loss: float = num_dropped / num_samples * 100;
         if abs(endpoint.packet_loss - packet_loss) > 0.00001 {
             endpoint.packet_loss += (packet_loss - endpoint.packet_loss) * endpoint.config.packet_loss_smoothing_factor;
         } else {
@@ -516,7 +512,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
     // calculate sent bandwidth
     {
         base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
-        bytes_sent := 0;
+        bytes_sent := 0.0;
         start_time := APOLLO_MAX;  // was FLT_MAX
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
@@ -535,7 +531,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
             }
         }
         if start_time != APOLLO_MAX && finish_time != APOLLO_ZERO {
-            sent_bandwidth_kbps: float = (cast(float) bytes_sent) / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
+            sent_bandwidth_kbps := bytes_sent / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
             if abs(endpoint.sent_bandwidth_kbps - sent_bandwidth_kbps) > 0.00001 {
                 endpoint.sent_bandwidth_kbps += (sent_bandwidth_kbps - endpoint.sent_bandwidth_kbps) * endpoint.config.bandwidth_smoothing_factor;
             } else {
@@ -547,7 +543,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
     // calculate received bandwidth
     {
         base_sequence: u32 = (endpoint.received_packets.sequence - endpoint.config.received_packets_buffer_size + 1) + 0xFFFF;
-        bytes_sent := 0;
+        bytes_sent := 0.0;
         start_time := APOLLO_MAX;
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.received_packets_buffer_size / 2;
@@ -566,7 +562,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
             }
         }
         if start_time != APOLLO_MAX && finish_time != APOLLO_ZERO {
-            received_bandwidth_kbps: float = (cast(float) bytes_sent) / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
+            received_bandwidth_kbps := bytes_sent / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
             if abs(endpoint.received_bandwidth_kbps - received_bandwidth_kbps) > 0.00001 {
                 endpoint.received_bandwidth_kbps += (received_bandwidth_kbps - endpoint.received_bandwidth_kbps) * endpoint.config.bandwidth_smoothing_factor;
             } else {
@@ -578,7 +574,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
     // calculate acked bandwidth
     {
         base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
-        bytes_sent := 0;
+        bytes_sent := 0.0;
         start_time := APOLLO_MAX;
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
@@ -597,7 +593,7 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
             }
         }
         if start_time != APOLLO_MAX && finish_time != APOLLO_ZERO {
-            acked_bandwidth_kbps: float = (cast(float) bytes_sent) / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
+            acked_bandwidth_kbps := bytes_sent / to_milliseconds(finish_time - start_time) * 8.0 / 1000.0;
             if abs(endpoint.acked_bandwidth_kbps - acked_bandwidth_kbps) > 0.00001 {
                 endpoint.acked_bandwidth_kbps += (acked_bandwidth_kbps - endpoint.acked_bandwidth_kbps) * endpoint.config.bandwidth_smoothing_factor;
             } else {
@@ -650,7 +646,7 @@ array_zero :: (array: [] $T) {
 }
 
 pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
-    return cast(s64)(cast(*u8) a - cast(*u8) b);
+    return cast(s64)((cast(*u8) a) - (cast(*u8) b));
 }
 
 log_level: int = 0;
@@ -862,28 +858,28 @@ reliable_write_uint8 :: (p: **u8, value: u8) {
 }
 
 reliable_write_uint16 :: (p: **u8, value: u16) {
-    p.*[0] = value & 0xFF;
-    p.*[1] = value >> 8;
+    p.*[0] = cast(u8) (value & 0xFF);
+    p.*[1] = cast(u8) (value >> 8);
     p.* += 2;
 }
 
 reliable_write_uint32 :: (p: **u8, value: u32) {
-    p.*[0] = value & 0xFF;
-    p.*[1] = (value >> 8 ) & 0xFF;
-    p.*[2] = (value >> 16) & 0xFF;
-    p.*[3] = value >> 24;
+    p.*[0] = cast(u8) (value & 0xFF);
+    p.*[1] = cast(u8) ((value >> 8 ) & 0xFF);
+    p.*[2] = cast(u8) ((value >> 16) & 0xFF);
+    p.*[3] = cast(u8) (value >> 24);
     p.* += 4;
 }
 
 reliable_write_uint64 :: (p: **u8, value: u64) {
-    p.*[0] = value & 0xFF;
-    p.*[1] = (value >> 8 ) & 0xFF;
-    p.*[2] = (value >> 16) & 0xFF;
-    p.*[3] = (value >> 24) & 0xFF;
-    p.*[4] = (value >> 32) & 0xFF;
-    p.*[5] = (value >> 40) & 0xFF;
-    p.*[6] = (value >> 48) & 0xFF;
-    p.*[7] = value >> 56;
+    p.*[0] = cast(u8) (value & 0xFF);
+    p.*[1] = cast(u8) ((value >> 8 ) & 0xFF);
+    p.*[2] = cast(u8) ((value >> 16) & 0xFF);
+    p.*[3] = cast(u8) ((value >> 24) & 0xFF);
+    p.*[4] = cast(u8) ((value >> 32) & 0xFF);
+    p.*[5] = cast(u8) ((value >> 40) & 0xFF);
+    p.*[6] = cast(u8) ((value >> 48) & 0xFF);
+    p.*[7] = cast(u8) (value >> 56);
     p.* += 8;
 }
 
@@ -955,8 +951,8 @@ reliable_fragment_reassembly_data_cleanup :: (data: *void) {
 
 // ---------------------------------------------------------------
 
-reliable_write_packet_header :: (packet_data: *u8, sequence: u16, ack: u16, ack_bits: u32) -> int {
-    p := packet_data;
+reliable_write_packet_header :: (packet_data: [] u8, sequence: u16, ack: u16, ack_bits: u32) -> int {
+    p := packet_data.data;
 
     prefix_byte: u8 = 0;
 
@@ -965,7 +961,7 @@ reliable_write_packet_header :: (packet_data: *u8, sequence: u16, ack: u16, ack_
     if (ack_bits & 0x00FF0000) != 0x00FF0000 prefix_byte |= (1 << 3);
     if (ack_bits & 0xFF000000) != 0xFF000000 prefix_byte |= (1 << 4);
 
-    sequence_difference: int = cast(int) sequence - ack;
+    sequence_difference: int = (cast(int) sequence) - ack;
     if sequence_difference < 0 {
         sequence_difference += 65536;
     }
@@ -986,40 +982,40 @@ reliable_write_packet_header :: (packet_data: *u8, sequence: u16, ack: u16, ack_
     if (ack_bits & 0x00FF0000) != 0x00FF0000 reliable_write_uint8(*p, cast(u8) (ack_bits & 0x00FF0000) >> 16);
     if (ack_bits & 0xFF000000) != 0xFF000000 reliable_write_uint8(*p, cast(u8) (ack_bits & 0xFF000000) >> 24);
 
-    header_size := pointer_diff(p, packet_data);
+    header_size := pointer_diff(p, packet_data.data);
     assert(header_size <= RELIABLE_MAX_PACKET_HEADER_BYTES);
 
     return header_size;
 }
 
-reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size: int, sequence: u16, ack: u16, ack_bits: u32 {
-    if packet_bytes < 3 {
+reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size: int = -1, sequence: u16 = 0, ack: u16 = 0, ack_bits: u32 = 0 {
+    if packet_data.count < 3 {
         log("[%] packet too small for packet header (1)\n", name, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+        return;
     }
 
-    p: *u8 = packet_data;
+    p: *u8 = packet_data.data;
     prefix_byte: u8 = reliable_read_uint8(*p);
 
     if (prefix_byte & 1) != 0 {
         log("[%] prefix byte does not indicate a regular packet\n", name, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+        return;
     }
 
     sequence: u16 = reliable_read_uint16(*p);
     ack: u16;
 
     if prefix_byte & (1 << 5) {
-        if packet_bytes < 3 + 1 {
+        if packet_data.count < 3 + 1 {
             log("[%] packet too small for packet header (2)\n", name, flags=.VERY_VERBOSE_ONLY);
-            return -1;
+            return;
         }
         sequence_difference: u8 = reliable_read_uint8(*p);
         ack = sequence - sequence_difference;
     } else {
-        if packet_bytes < 3 + 2 {
+        if packet_data.count < 3 + 2 {
             log("[%] packet too small for packet header (3)\n", name, flags=.VERY_VERBOSE_ONLY);
-            return -1;
+            return;
         }
         ack = reliable_read_uint16(*p);
     }
@@ -1029,9 +1025,9 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
         if prefix_byte & (1 << it)
             expected_bytes += 1;
     }
-    if packet_bytes < pointer_diff(p, packet_data) + expected_bytes {
+    if packet_data.count < pointer_diff(p, packet_data.data) + expected_bytes {
         log("[%] packet too small for packet header (4)\n", name, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+        return;
     }
 
     ack_bits: u32 = 0xFFFFFFFF;
@@ -1043,20 +1039,20 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
 
     if prefix_byte & (1 << 2) {
         ack_bits &= 0xFFFF00FF;
-        ack_bits |= cast(u32) reliable_read_uint8(*p) << 8;
+        ack_bits |= (cast(u32) reliable_read_uint8(*p)) << 8;
     }
 
     if prefix_byte & (1 << 3) {
         ack_bits &= 0xFF00FFFF;
-        ack_bits |= cast(u32) reliable_read_uint8(*p) << 16;
+        ack_bits |= (cast(u32) reliable_read_uint8(*p)) << 16;
     }
 
     if prefix_byte & (1 << 4) {
         ack_bits &= 0x00FFFFFF;
-        ack_bits |= cast(u32) reliable_read_uint8(*p) << 24;
+        ack_bits |= (cast(u32) reliable_read_uint8(*p)) << 24;
     }
 
-    return pointer_diff(p, packet_data);
+    return pointer_diff(p, packet_data.data), sequence, ack, ack_bits;
 }
 
 

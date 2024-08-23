@@ -105,7 +105,73 @@ test_generate_ack_bits :: () {
     reliable_sequence_buffer_destroy(sequence_buffer);
 }
 
-test_packet_header :: () {}
+test_packet_header :: () {
+    write_sequence: u16;
+    write_ack: u16;
+    write_ack_bits: u32;
+
+    packet_data: [RELIABLE_MAX_PACKET_HEADER_BYTES] u8;
+
+    // worst case, sequence and ack are far apart, no packets acked.
+
+    write_sequence = 10000;
+    write_ack = 100;
+    write_ack_bits = 0;
+
+    bytes_written := reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
+    assert(bytes_written == RELIABLE_MAX_PACKET_HEADER_BYTES);
+
+    bytes_read, read_sequence, read_ack, read_ack_bits := reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
+    assert(bytes_read == bytes_written);
+    assert(read_sequence == write_sequence);
+    assert(read_ack == write_ack);
+    assert(read_ack_bits == write_ack_bits);
+
+    // rare case. sequence and ack are far apart, significant # of acks are missing
+
+    write_sequence = 10000;
+    write_ack = 100;
+    write_ack_bits = 0xFEFEFFFE;
+
+    bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
+    assert(bytes_written == 1 + 2 + 2 + 3);
+
+    bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
+    assert(bytes_read == bytes_written);
+    assert(read_sequence == write_sequence);
+    assert(read_ack == write_ack);
+    assert(read_ack_bits == write_ack_bits);
+
+    // common case under packet loss. sequence and ack are close together, some acks are missing
+
+    write_sequence = 200;
+    write_ack = 100;
+    write_ack_bits = 0xFFFEFFFF;
+
+    bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
+    assert(bytes_written == 1 + 2 + 1 + 1);
+
+    bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
+    assert(bytes_read == bytes_written);
+    assert(read_sequence == write_sequence);
+    assert(read_ack == write_ack);
+    assert(read_ack_bits == write_ack_bits);
+
+    // ideal case. no packet loss.
+
+    write_sequence = 200;
+    write_ack = 100;
+    write_ack_bits = 0xFFFFFFFF;
+
+    bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
+    assert(bytes_written == 1 + 2 + 1);
+
+    bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
+    assert(bytes_read == bytes_written);
+    assert(read_sequence == write_sequence);
+    assert(read_ack == write_ack);
+    assert(read_ack_bits == write_ack_bits);
+}
 
 test_default_context :: () {}
 
@@ -134,6 +200,10 @@ test_tracking_free_function :: () {}
 test_fragment_cleanup :: () {}
 
 #scope_export
+
+#if RUN_TESTS {
+    #run reliable_test();
+}
 
 reliable_test :: () {
     print("--------------------------------------------------------------------------------\n");

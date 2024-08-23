@@ -3,3 +3,5 @@
 *.pdb
 dlb_002
 dlb_002.dSYM
+*.rdi
+*.raddbg
