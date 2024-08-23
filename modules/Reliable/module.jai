@@ -28,6 +28,12 @@
 // Enable DEBUG for extra checking.
 #module_parameters(ENABLE_LOGGING := true, DEBUG := false, RUN_TESTS := false, LITTLE_ENDIAN := true);
 
+#load "tests.jai";
+
+#if RUN_TESTS {
+    #run reliable_test();
+}
+
 // TODO(dlb): This is kind of stupid.. just make it a struct
 RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT                 :: 0;
 RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED             :: 1;
@@ -835,10 +841,12 @@ reliable_sequence_buffer_generate_ack_bits :: (sequence_buffer: *reliable_sequen
 
     ack: u16 = sequence_buffer.sequence - 1;
     ack_bits: u32 = 0;
+    mask: u32 = 1;
+
     for 0..31 {
         sequence := ack - (cast(u16) it);
         if reliable_sequence_buffer_exists(sequence_buffer, sequence) {
-            ack_bits |= 1;
+            ack_bits |= mask;
         }
         mask <<= 1;
     }
@@ -1153,9 +1161,4 @@ reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_
         fragment_data.data,
         fragment_data.count
     );
-}
-
-#if RUN_TESTS {
-    #load "tests.jai";
-    #run reliable_test();
 }

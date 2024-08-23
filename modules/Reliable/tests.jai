@@ -1,3 +1,5 @@
+#scope_file
+
 test_endian :: () {
     value: u32 = 0x11223344;
 
@@ -30,10 +32,12 @@ test_sequence_buffer :: () {
     assert(sequence_buffer.num_entries == TEST_SEQUENCE_BUFFER_SIZE);
     assert(sequence_buffer.entry_stride == size_of(test_sequence_data_t));
 
+    // Check that all buffer slots are initially empty
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
         assert(reliable_sequence_buffer_find(sequence_buffer, (cast(u16) it)) == null);
-    }                                                                      
+    }
 
+    // Insert enough things to overwrite the buffer entries multiple times, ensuring sequence # keeps going up
     for 0..TEST_SEQUENCE_BUFFER_SIZE*4 {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
         assert(entry != null);
@@ -41,17 +45,19 @@ test_sequence_buffer :: () {
         assert(sequence_buffer.sequence == it + 1);
     }
 
+    // Check that older sequenced things do not get inserted into the buffer
     for 0..TEST_SEQUENCE_BUFFER_SIZE {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
         assert(entry == null);
-    }    
+    }
 
-    index := TEST_SEQUENCE_BUFFER_SIZE * 4;
+    // Check that the N (where N == BUFFER_SIZE) most recent entries are in the buffer and have the last N sequence numbers
+    sequence := TEST_SEQUENCE_BUFFER_SIZE * 4;
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
-        entry := cast(*test_sequence_data_t) reliable_sequence_buffer_find(sequence_buffer, cast(u16) index);
+        entry := cast(*test_sequence_data_t) reliable_sequence_buffer_find(sequence_buffer, cast(u16) sequence);
         assert(entry != null);
-        assert(entry.sequence == cast(u32) index);
-        index -= 1;
+        assert(entry.sequence == cast(u32) sequence);
+        sequence -= 1;
     }
 
     reliable_sequence_buffer_reset(sequence_buffer);
@@ -61,6 +67,7 @@ test_sequence_buffer :: () {
     assert(sequence_buffer.num_entries == TEST_SEQUENCE_BUFFER_SIZE);
     assert(sequence_buffer.entry_stride == size_of(test_sequence_data_t));
 
+    // Check that all of the entries were cleared
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
         assert(reliable_sequence_buffer_find(sequence_buffer, cast(u16) it) == null);
     }
@@ -68,7 +75,35 @@ test_sequence_buffer :: () {
     reliable_sequence_buffer_destroy(sequence_buffer);
 }
 
-test_generate_ack_bits :: () {}
+test_generate_ack_bits :: () {
+     sequence_buffer := reliable_sequence_buffer_create(TEST_SEQUENCE_BUFFER_SIZE, size_of(test_sequence_data_t));
+
+    ack, ack_bits := reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
+    assert(ack == 0xFFFF);
+    assert(ack_bits == 0);
+
+    for 0..TEST_SEQUENCE_BUFFER_SIZE {
+        reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
+    }
+
+    ack, ack_bits = reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
+    assert(ack == TEST_SEQUENCE_BUFFER_SIZE);
+    assert(ack_bits == 0xFFFFFFFF);
+
+    reliable_sequence_buffer_reset(sequence_buffer);
+
+    input_acks: [] u16 = .[ 1, 5, 9, 11 ];
+    for input_acks {
+        reliable_sequence_buffer_insert(sequence_buffer, it);
+    }
+
+    ack, ack_bits = reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
+
+    assert(ack == 11);
+    assert(ack_bits == ( 1 | (1<<(11-9)) | (1<<(11-5)) | (1<<(11-1)) ));
+
+    reliable_sequence_buffer_destroy(sequence_buffer);
+}
 
 test_packet_header :: () {}
 
@@ -98,14 +133,16 @@ test_tracking_free_function :: () {}
 
 test_fragment_cleanup :: () {}
 
+#scope_export
+
 reliable_test :: () {
     print("--------------------------------------------------------------------------------\n");
-    print("[Reliable] Running tests... ");
+    print("[Reliable] Running tests...\n");
     test_endian();
     test_sequence_buffer();
     test_generate_ack_bits();
     test_packet_header();
-    
+
     // NOTE(dlb): The commented test functions are not tests, they are helper functions.
     // TODO(dlb): Rename the helper functions?
 
@@ -114,18 +151,18 @@ reliable_test :: () {
     // test_process_packet_function();
     test_acks();
     test_acks_packet_loss();
-    
+
     // test_process_packet_function_validate();
     // test_process_packet_function_validate_large();
     test_packets();
     test_large_packets();
-    
+
     test_sequence_buffer_rollover();
-    
+
     // test_tracking_allocate_function();
     // test_tracking_free_function();
     test_fragment_cleanup();
-    
+
     print("Passed!\n");
     print("--------------------------------------------------------------------------------\n");
 }

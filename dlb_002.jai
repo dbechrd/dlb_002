@@ -1,4 +1,4 @@
-Reliable :: #import "Reliable"(DEBUG=true, RUN_TESTS=true);
+Reliable :: #import "Reliable"(DEBUG=true); //, RUN_TESTS=true);
 
 main :: () {
     print("--- CPU Info -------------------------------------------------------------------\n");
@@ -8,6 +8,8 @@ main :: () {
     print("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
     print("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
     print("--------------------------------------------------------------------------------\n");
+
+    Reliable.reliable_test();
 
     run_game();
 }
