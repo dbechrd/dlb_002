@@ -26,40 +26,7 @@
 */
 
 // Enable DEBUG for extra checking.
-#module_parameters(ENABLE_LOGGING := true, DEBUG := false, LITTLE_ENDIAN := true);
-
-reliable_dbg :: () {
-    print("--- Reliable -------------------------------------------------------------------\n");
-    print("sizeof(reliable_sequence_buffer_t) == %\n", size_of(reliable_sequence_buffer_t));
-
-    // a: u32 = 5;
-    // b: u32 = 7;
-    // c := *a;
-    // d := *b;
-    // e := c - d;
-    // f := pointer_diff(c, d);
-    // print("c = %\n", c);
-    // print("d = %\n", d);
-    // print("e = %\n", e);
-    // print("f = %\n", f);
-
-    // a := u32.[1, 2, 3];
-    // b := *a;
-    // c := *b;
-    // d := *a[0];
-    // print("a[0] = %\n", a[0]);
-    // print("b = %\n", b);
-    // print("b.*[0] = %\n", b.*[0]);
-    // print("c = %\n", c);
-    // print("c.* = %\n", c.*);
-    // print("c.*.*[0] = %\n", c.*.*[0]);
-    // print("d.* = %\n", d.*);
-    // d.* += 1;
-    // print("d.* = %\n", d.*);
-    // d.* += 1;
-    // print("d.* = %\n", d.*);
-    print("--------------------------------------------------------------------------------\n");
-}
+#module_parameters(ENABLE_LOGGING := true, DEBUG := false, RUN_TESTS := false, LITTLE_ENDIAN := true);
 
 // TODO(dlb): This is kind of stupid.. just make it a struct
 RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT                 :: 0;
@@ -1186,4 +1153,8 @@ reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_
         fragment_data.data,
         fragment_data.count
     );
+}
+
+#if RUN_TESTS {
+    #load "tests.jai";
 }

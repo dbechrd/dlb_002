@@ -1,4 +1,4 @@
-Reliable :: #import "Reliable";
+Reliable :: #import "Reliable"(DEBUG=true, RUN_TESTS=true);
 
 main :: () {
     print("--- CPU Info -------------------------------------------------------------------\n");
@@ -10,7 +10,6 @@ main :: () {
     print("--------------------------------------------------------------------------------\n");
 
     run_game();
-    Reliable.reliable_dbg();
 }
 
 #scope_file
