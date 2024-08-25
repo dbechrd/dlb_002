@@ -29,7 +29,7 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
     USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 -----------------------------------------------------------------------------------------------------------------------
-| Documentation
+| Documentation (Quick Reference)
 -----------------------------------------------------------------------------------------------------------------------
 
 // Provide these via config when calling `reliable_endpoint_create` to receive
@@ -79,10 +79,9 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
 // Query current performance counters
 
     reliable_endpoint_counters :: inline (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64
-
 */
 
-#module_parameters(ENABLE_LOGGING := true, RUN_TESTS_AT_COMPILE_TIME := false, LITTLE_ENDIAN := true);
+#module_parameters(ENABLE_LOGGING := true, LITTLE_ENDIAN := true);
 
 #load "tests.jai";
 
@@ -190,8 +189,7 @@ reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t) {
 
     for 0..endpoint.config.fragment_reassembly_buffer_size-1 {
         reassembly_data := reliable_sequence_buffer_at_index(endpoint.fragment_reassembly, it);
-
-        if reassembly_data && reassembly_data.packet_data {
+        if reassembly_data != null && reassembly_data.packet_data.data != null {
             array_free(reassembly_data.packet_data);
         }
     }
@@ -353,10 +351,9 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
             reliable_log(.VERY_VERBOSE_ONLY, "[%] process packet % successful\n", endpoint.config.name, sequence);
 
             received_packet_data := cast(*reliable_received_packet_data_t) reliable_sequence_buffer_insert(endpoint.received_packets, sequence);
+            assert(received_packet_data != null);
 
             reliable_sequence_buffer_advance(endpoint.fragment_reassembly, sequence, cleanup = true);
-
-            assert(received_packet_data != null);
 
             received_packet_data.time = endpoint.time;
             received_packet_data.packet_bytes = endpoint.config.packet_header_size + packet_data.count;
@@ -513,7 +510,7 @@ reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t) {
 
     for 0..endpoint.config.fragment_reassembly_buffer_size-1 {
         reassembly_data := reliable_sequence_buffer_at_index(endpoint.fragment_reassembly, it);
-        if reassembly_data && reassembly_data.packet_data.count {
+        if reassembly_data != null && reassembly_data.packet_data.data != null {
             array_reset(*reassembly_data.packet_data);
         }
     }
