@@ -56,11 +56,12 @@ RELIABLE_LOG_LEVEL_DEBUG :: 3;
 RELIABLE_OK    :: 1;
 RELIABLE_ERROR :: 0;
 
-TransmitPacketFunction :: #type (id: u64, sequence: u16, packet_data: [] u8);
-ProcessPacketFunction :: #type (id: u64, sequence: u16, packet_data: [] u8) -> int;
+TransmitPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8);
+ProcessPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
 
 reliable_config_t :: struct {
     name                            : string = "Endpoint";  // TODO(dlb): Assert that this has count < 256
+    ctx                             : *void;
     id                              : u64;
     max_packet_size                 : int = 16 * 1024;
     fragment_above                  : int = 1024;
@@ -98,12 +99,12 @@ reliable_endpoint_t :: struct {
 reliable_sent_packet_data_t :: struct {
     time: Apollo_Time;
     acked: bool;
-    packet_bytes: u32;
+    packet_bytes: int;
 };
 
 reliable_received_packet_data_t :: struct {
     time: Apollo_Time;
-    packet_bytes: u32;
+    packet_bytes: int;
 };
 
 reliable_log_level :: inline (level: int) {
@@ -118,7 +119,7 @@ reliable_term :: inline () {
 }
 
 reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *reliable_endpoint_t {
-    assert(config);
+    assert(config != null);
     // NOTE(dlb): This is probably more than we need, but the C impl used char[256] so we'll just set that as max for now.
     assert(config.name.count < 256);
     assert(config.max_packet_size > 0);
@@ -145,9 +146,9 @@ reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *
 
 reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t) {
     assert(endpoint != null);
-    assert(endpoint.acks);
-    assert(endpoint.sent_packets);
-    assert(endpoint.received_packets);
+    assert(endpoint.acks.count > 0);
+    assert(endpoint.sent_packets != null);
+    assert(endpoint.received_packets != null);
 
     for 0..endpoint.config.fragment_reassembly_buffer_size-1 {
         reassembly_data := reliable_sequence_buffer_at_index(endpoint.fragment_reassembly, it);
@@ -181,18 +182,18 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
         return;
     }
 
-    endpoint.sequence += 1;
     sequence: u16 = endpoint.sequence;
+    endpoint.sequence += 1;
     ack, ack_bits := reliable_sequence_buffer_generate_ack_bits(endpoint.received_packets);
 
     log("[%] sending packet %\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
 
     sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_insert(endpoint.sent_packets, sequence);
-    assert(sent_packet_data);
+    assert(sent_packet_data != null);
 
     sent_packet_data.time = endpoint.time;
     sent_packet_data.packet_bytes = endpoint.config.packet_header_size + packet_data.count;
-    sent_packet_data.acked = 0;
+    sent_packet_data.acked = false;
 
     // --- vvv --------- Temp Allocator --------- vvv ---
     push_allocator(temp);
@@ -206,13 +207,14 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
         packet_header_bytes := reliable_write_packet_header(transmit_packet_data, sequence, ack, ack_bits);
         memcpy(transmit_packet_data.data + packet_header_bytes, packet_data.data, packet_data.count);
 
-        endpoint.config.transmit_packet_function(endpoint.config.id, sequence, transmit_packet_data, packet_header_bytes + packet_bytes);
+        transmit_packet_data.count = packet_header_bytes + packet_data.count;
+        endpoint.config.transmit_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, transmit_packet_data);
     } else {
         // fragmented packet
         packet_header: [RELIABLE_MAX_PACKET_HEADER_BYTES] u8 = ---;
 
         packet_header_bytes := reliable_write_packet_header(packet_header, sequence, ack, ack_bits);
-        num_fragments: int = (packet_bytes / endpoint.config.fragment_size) + (ifx packet_bytes % endpoint.config.fragment_size != 0 then 1 else 0);
+        num_fragments: int = (packet_data.count / endpoint.config.fragment_size) + (ifx packet_data.count % endpoint.config.fragment_size != 0 then 1 else 0);
 
         log("[%] sending packet % as % fragments\n", endpoint.config.name, sequence, num_fragments, flags=.VERY_VERBOSE_ONLY);
 
@@ -224,7 +226,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
         fragment_packet_data: [] u8 = NewArray(fragment_buffer_size, u8, initialized = false);
 
         src: *u8 = packet_data.data;
-        end: *u8 = src + packet_bytes;
+        end: *u8 = src + packet_data.count;
 
         for fragment_id: 0..num_fragments-1 {
             dst: *u8 = fragment_packet_data.data;  // Reset to start of temp buffer
@@ -236,7 +238,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
 
             // Prepend header into first fragment
             if fragment_id == 0 {
-                memcpy(dst, packet_header, packet_header_bytes);
+                memcpy(dst, packet_header.data, packet_header_bytes);
                 dst += packet_header_bytes;
             }
 
@@ -249,8 +251,8 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
             dst += bytes_to_copy;
             src += bytes_to_copy;
 
-            fragment_packet_bytes := dst - fragment_packet_data;
-            endpoint.config.transmit_packet_function(endpoint.config.id, sequence, fragment_packet_data, fragment_packet_bytes);
+            fragment_packet_data.count = pointer_diff(dst, fragment_packet_data.data);
+            endpoint.config.transmit_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, fragment_packet_data);
 
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_SENT] += 1;
         }
@@ -280,7 +282,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         // regular packet
         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED] += 1;
 
-        packet_header_bytes, sequence, ack, ack_bits := reliable_read_packet_header(endpoint.config.name, packet_data, packet_data.count);
+        packet_header_bytes, sequence, ack, ack_bits := reliable_read_packet_header(endpoint.config.name, packet_data);
         if packet_header_bytes < 0 {
             log("[%] ignoring invalid packet. could not read packet header\n", endpoint.config.name, flags=.VERY_VERBOSE_ONLY);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_INVALID] += 1;
@@ -309,14 +311,14 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         packet_body := packet_data;
         packet_body.data += packet_header_bytes;
         packet_body.count -= packet_header_bytes;
-        if endpoint.config.process_packet_function(endpoint.config.id, sequence, packet_body) {
+        if endpoint.config.process_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, packet_body) {
             log("[%] process packet % successful\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
 
             received_packet_data := cast(*reliable_received_packet_data_t) reliable_sequence_buffer_insert(endpoint.received_packets, sequence);
 
-            reliable_sequence_buffer_advance_with_cleanup(endpoint.fragment_reassembly, sequence, reliable_fragment_reassembly_data_cleanup);
+            reliable_sequence_buffer_advance(endpoint.fragment_reassembly, sequence, cleanup = true);
 
-            assert(received_packet_data);
+            assert(received_packet_data != null);
 
             received_packet_data.time = endpoint.time;
             received_packet_data.packet_bytes = endpoint.config.packet_header_size + packet_data.count;
@@ -332,7 +334,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
                         endpoint.acks[endpoint.num_acks] = ack_sequence;
                         endpoint.num_acks += 1;
                         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED] += 1;
-                        sent_packet_data.acked = 1;
+                        sent_packet_data.acked = true;
 
                         rtt := cast(float) to_milliseconds(endpoint.time - sent_packet_data.time);
                         assert(rtt >= 0.0);
@@ -378,7 +380,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_find(endpoint.fragment_reassembly, sequence);
 
         if !reassembly_data {
-            reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, sequence, reliable_fragment_reassembly_data_cleanup, cleanup = true);
+            reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, sequence, cleanup = true);
 
             if !reassembly_data {
                 log("[%] ignoring invalid fragment. could not insert in reassembly buffer (stale)\n", endpoint.config.name, flags=.ERROR);
@@ -431,11 +433,11 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 
             packet_body := reassembly_data.packet_data;
             packet_body.data += RELIABLE_MAX_PACKET_HEADER_BYTES - reassembly_data.packet_header_bytes;
-            packet_body.count = reassembly_data.packet_header_bytes + reassembly_data.packet_bytes;
+            packet_body.count = reassembly_data.packet_header_bytes + reassembly_data.packet_data.count;
 
             reliable_endpoint_receive_packet(endpoint, packet_body);
 
-            reliable_sequence_buffer_remove_with_cleanup(endpoint.fragment_reassembly, sequence, reliable_fragment_reassembly_data_cleanup);
+            reliable_sequence_buffer_remove(endpoint.fragment_reassembly, sequence, cleanup = true);
         }
 
         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_RECEIVED] += 1;
@@ -491,11 +493,11 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
 
     // calculate packet loss
     {
-        base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
+        base_sequence := cast (int) endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1 + 0xFFFF;
         num_dropped := 0.0;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
         for 0..num_samples-1 {
-            sequence := cast(u16) (base_sequence + it);
+            sequence := cast,no_check(u16) (base_sequence + it);
             sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, sequence);
             if sent_packet_data && !sent_packet_data.acked {
                 num_dropped += 1;
@@ -511,13 +513,13 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
 
     // calculate sent bandwidth
     {
-        base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
+        base_sequence := cast (int) endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1 + 0xFFFF;
         bytes_sent := 0.0;
         start_time := APOLLO_MAX;  // was FLT_MAX
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
         for 0..num_samples-1 {
-            sequence := cast(u16) (base_sequence + it);
+            sequence := cast,no_check(u16) (base_sequence + it);
             sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, sequence);
             if !sent_packet_data {
                 continue;
@@ -542,13 +544,13 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
 
     // calculate received bandwidth
     {
-        base_sequence: u32 = (endpoint.received_packets.sequence - endpoint.config.received_packets_buffer_size + 1) + 0xFFFF;
+        base_sequence := cast (int) endpoint.received_packets.sequence - endpoint.config.received_packets_buffer_size + 1 + 0xFFFF;
         bytes_sent := 0.0;
         start_time := APOLLO_MAX;
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.received_packets_buffer_size / 2;
         for 0..num_samples-1 {
-            sequence := cast(u16) (base_sequence + it);
+            sequence := cast,no_check(u16) (base_sequence + it);
             received_packet_data := cast(*reliable_received_packet_data_t) reliable_sequence_buffer_find(endpoint.received_packets, sequence);
             if !received_packet_data {
                 continue;
@@ -573,13 +575,13 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
 
     // calculate acked bandwidth
     {
-        base_sequence: u32 = (endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1) + 0xFFFF;
+        base_sequence := cast (int) endpoint.sent_packets.sequence - endpoint.config.sent_packets_buffer_size + 1 + 0xFFFF;
         bytes_sent := 0.0;
         start_time := APOLLO_MAX;
         finish_time := APOLLO_ZERO;
         num_samples := endpoint.config.sent_packets_buffer_size / 2;
         for 0..num_samples-1 {
-            sequence := cast(u16) (base_sequence + it);
+            sequence := cast,no_check(u16) (base_sequence + it);
             sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, sequence);
             if !sent_packet_data || !sent_packet_data.acked {
                 continue;
@@ -636,6 +638,7 @@ reliable_endpoint_counters :: (using endpoint: *reliable_endpoint_t) -> [RELIABL
 #scope_module
 
 #import "Basic";
+#import "Math";
 
 array_fill :: (array: [] $T, value: u8) {
     memset(array.data, value, size_of(T) * array.count);
@@ -753,7 +756,7 @@ reliable_sequence_buffer_remove_entries :: (sequence_buffer: *reliable_sequence_
 }
 
 reliable_sequence_buffer_test_insert :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16) -> bool {
-    return reliable_sequence_greater_than(sequence_buffer.sequence - cast(u16) sequence_buffer.num_entries, sequence);
+    return reliable_sequence_greater_than(sequence, sequence_buffer.sequence - cast(u16) sequence_buffer.num_entries);
 }
 
 reliable_sequence_buffer_insert :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, $cleanup: bool = false) -> *void {
@@ -778,7 +781,7 @@ reliable_sequence_buffer_insert :: (sequence_buffer: *reliable_sequence_buffer_t
     return sequence_buffer.entry_data.data + index * sequence_buffer.entry_stride;
 }
 
-reliable_sequence_buffer_advance :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, cleanup: bool = false)
+reliable_sequence_buffer_advance :: (sequence_buffer: *reliable_sequence_buffer_t, sequence: u16, $cleanup: bool = false)
 {
     assert(sequence_buffer != null);
 
@@ -828,7 +831,7 @@ reliable_sequence_buffer_at_index :: (sequence_buffer: *reliable_sequence_buffer
     assert(index < sequence_buffer.num_entries);
 
     return ifx sequence_buffer.entry_sequence[index] != 0xFFFFFFFF
-        then sequence_buffer.entry_data.data + index * sequence_buffer.entry_stride
+        then cast (*reliable_fragment_reassembly_data_t) (sequence_buffer.entry_data.data + index * sequence_buffer.entry_stride)
         else null;
 }
 
@@ -946,7 +949,7 @@ reliable_fragment_reassembly_data_t :: struct {
 reliable_fragment_reassembly_data_cleanup :: (data: *void) {
     reassembly_data := cast(*reliable_fragment_reassembly_data_t) data;
     free(reassembly_data.packet_data.data);
-    reassembly_data = .{};
+    reassembly_data.* = .{};
 }
 
 // ---------------------------------------------------------------
@@ -1056,14 +1059,14 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
 }
 
 
-reliable_read_fragment_header :: (name: *string, packet_data: [] u8, max_fragments: int, fragment_size: int, fragment_id: *int,
+reliable_read_fragment_header :: (name: string, packet_data: [] u8, max_fragments: int, fragment_size: int, fragment_id: *int,
                                   num_fragments: *int, fragment_bytes: *int, sequence: *u16, ack: *u16, ack_bits: *u32) -> int {
     if packet_data.count < RELIABLE_FRAGMENT_HEADER_BYTES {
         log("[%] packet is too small to read fragment header\n", name, flags=.VERY_VERBOSE_ONLY);
         return -1;
     }
 
-    p: *u8 = packet_data;
+    p: *u8 = packet_data.data;
 
     prefix_byte: u8 = reliable_read_uint8(*p);
     if prefix_byte != 1 {
@@ -1126,15 +1129,17 @@ reliable_read_fragment_header :: (name: *string, packet_data: [] u8, max_fragmen
         return -1;
     }
 
-    return pointer_diff(p, packet_data);
+    return pointer_diff(p, packet_data.data);
 }
 
 reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_data_t, sequence: u16, ack: u16, ack_bits: u32,
                                  fragment_id: int,  fragment_size: int,  fragment_data: [] u8) {
+    frag_data := fragment_data;
+
     if fragment_id == 0 {
         packet_header: [RELIABLE_MAX_PACKET_HEADER_BYTES] u8;
 
-        reassembly_data.packet_header_bytes = reliable_write_packet_header(packet_header.data, sequence, ack, ack_bits);
+        reassembly_data.packet_header_bytes = reliable_write_packet_header(packet_header, sequence, ack, ack_bits);
 
         // NOTE(dlb): I don't really understand why it's writing the packet header at the *end* of the MAX_PACKET_HEADER_BYTES section.
         // This is only for the first fragment, so I guess it just doesn't want to make a variable-width header? Why put it at the end though?
@@ -1144,17 +1149,17 @@ reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_
             reassembly_data.packet_header_bytes
         );
 
-        fragment_data.data += reassembly_data.packet_header_bytes;
-        fragment_data.count -= reassembly_data.packet_header_bytes;
+        frag_data.data += reassembly_data.packet_header_bytes;
+        frag_data.count -= reassembly_data.packet_header_bytes;
     }
 
     if fragment_id == reassembly_data.num_fragments_total - 1 {
-        reassembly_data.packet_data.count = (reassembly_data.num_fragments_total - 1) * fragment_size + fragment_data.count;
+        reassembly_data.packet_data.count = (reassembly_data.num_fragments_total - 1) * fragment_size + frag_data.count;
     }
 
     memcpy(
         reassembly_data.packet_data.data + RELIABLE_MAX_PACKET_HEADER_BYTES + fragment_id * fragment_size,
-        fragment_data.data,
-        fragment_data.count
+        frag_data.data,
+        frag_data.count
     );
 }

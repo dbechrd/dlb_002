@@ -173,13 +173,101 @@ test_packet_header :: () {
     assert(read_ack_bits == write_ack_bits);
 }
 
-test_default_context :: () {}
+test_context_t :: struct {
+    drop          : int;
+    allow_packets : int = -1;
+    sender        : *reliable_endpoint_t;
+    receiver      : *reliable_endpoint_t;
+}
 
-test_transmit_packet_function :: () {}
+test_transmit_packet_function :: (_ctx: *void, id: u64, sequence: u16, packet_data: [] u8) {
+    ctx := cast (*test_context_t) _ctx;
 
-test_process_packet_function :: () {}
+    if ctx.drop {
+        return;
+    }
 
-test_acks :: () {}
+    if ctx.allow_packets >= 0 {
+        if ctx.allow_packets == 0 {
+            return;
+        }
+
+        ctx.allow_packets -= 1;
+    }
+
+    if id == 0 {
+        reliable_endpoint_receive_packet(ctx.receiver, packet_data);
+    } else if id == 1 {
+        reliable_endpoint_receive_packet(ctx.sender, packet_data);
+    }
+}
+
+test_process_packet_function :: (_ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
+    return 1;
+}
+
+TEST_ACKS_NUM_ITERATIONS :: 256;
+
+test_acks :: () {
+    time := seconds_to_apollo(100);
+
+    ctx: test_context_t;
+
+    sender_config: reliable_config_t;
+    receiver_config: reliable_config_t;
+
+    sender_config.ctx = *ctx;
+    sender_config.id = 0;
+    sender_config.transmit_packet_function = test_transmit_packet_function;
+    sender_config.process_packet_function = test_process_packet_function;
+
+    receiver_config.ctx = *ctx;
+    receiver_config.id = 1;
+    receiver_config.transmit_packet_function = test_transmit_packet_function;
+    receiver_config.process_packet_function = test_process_packet_function;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    delta_time := milliseconds_to_apollo(10);
+
+    for 0..TEST_ACKS_NUM_ITERATIONS-1 {
+        dummy_packet: [8] u8;
+
+        reliable_endpoint_send_packet(ctx.sender, dummy_packet);
+        reliable_endpoint_send_packet(ctx.receiver, dummy_packet);
+
+        reliable_endpoint_update(ctx.sender, time);
+        reliable_endpoint_update(ctx.receiver, time);
+
+        time += delta_time;
+    }
+
+    sender_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
+    sender_acks := reliable_endpoint_get_acks(ctx.sender);
+    for sender_acks {
+        if it < TEST_ACKS_NUM_ITERATIONS {
+            sender_acked_packet[it] = true;
+        }
+    }
+    for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
+        assert(sender_acked_packet[it]);
+    }
+
+    receiver_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
+    receiver_acks := reliable_endpoint_get_acks(ctx.receiver);
+    for receiver_acks {
+        if it < TEST_ACKS_NUM_ITERATIONS {
+            receiver_acked_packet[it] = true;
+        }
+    }
+    for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
+        assert(receiver_acked_packet[it]);
+    }
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+}
 
 test_acks_packet_loss :: () {}
 
