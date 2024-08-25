@@ -165,7 +165,6 @@ reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t) {
     free(endpoint);
 }
 
-// TODO(dlb): Just read the sequence member.. Why is this a function?
 reliable_endpoint_next_packet_sequence :: inline (endpoint: *reliable_endpoint_t) -> u16 {
     assert(endpoint != null);
 
@@ -380,7 +379,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_find(endpoint.fragment_reassembly, sequence);
 
         if !reassembly_data {
-            reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, sequence, cleanup = true);
+            reassembly_data = cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, sequence, cleanup = true);
 
             if !reassembly_data {
                 log("[%] ignoring invalid fragment. could not insert in reassembly buffer (stale)\n", endpoint.config.name, flags=.ERROR);
@@ -605,35 +604,29 @@ reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) 
     }
 }
 
-reliable_endpoint_rtt :: (using endpoint: *reliable_endpoint_t) -> float {
+reliable_endpoint_rtt :: inline (endpoint: *reliable_endpoint_t) -> float {
     assert(endpoint != null);
 
-    return rtt;
+    return endpoint.rtt;
 }
 
-reliable_endpoint_packet_loss :: (using endpoint: *reliable_endpoint_t ) -> float {
+reliable_endpoint_packet_loss :: inline (endpoint: *reliable_endpoint_t ) -> float {
     assert(endpoint != null);
 
-    return packet_loss;
+    return endpoint.packet_loss;
 }
 
-reliable_endpoint_bandwidth :: (using endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float {
-    assert(endpoint != null);
-    assert(sent_bandwidth_kbps);
-    assert(acked_bandwidth_kbps);
-    assert(received_bandwidth_kbps);
-
-    return sent_bandwidth_kbps, received_bandwidth_kbps, acked_bandwidth_kbps;
-}
-
-reliable_endpoint_counters :: (using endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64 {
+reliable_endpoint_bandwidth :: inline (endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float {
     assert(endpoint != null);
 
-    return counters;
+    return endpoint.sent_bandwidth_kbps, endpoint.received_bandwidth_kbps, endpoint.acked_bandwidth_kbps;
 }
 
-// TODO(dlb): Use Jai's copy_string
-//void reliable_copy_string( char * dest, RELIABLE_CONST char * source, size_t dest_size );
+reliable_endpoint_counters :: inline (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64 {
+    assert(endpoint != null);
+
+    return endpoint.counters;
+}
 
 #scope_module
 

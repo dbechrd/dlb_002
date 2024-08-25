@@ -174,7 +174,7 @@ test_packet_header :: () {
 }
 
 test_context_t :: struct {
-    drop          : int;
+    drop          : bool;
     allow_packets : int = -1;
     sender        : *reliable_endpoint_t;
     receiver      : *reliable_endpoint_t;
@@ -269,15 +269,233 @@ test_acks :: () {
     reliable_endpoint_destroy(ctx.receiver);
 }
 
-test_acks_packet_loss :: () {}
+test_acks_packet_loss :: () {
+    time := seconds_to_apollo(100);
 
-test_process_packet_function_validate :: () {}
+    ctx: test_context_t;
 
-test_process_packet_function_validate_large :: () {}
+    sender_config: reliable_config_t;
+    receiver_config: reliable_config_t;
 
-test_packets :: () {}
+    sender_config.ctx = *ctx;
+    sender_config.id = 0;
+    sender_config.transmit_packet_function = test_transmit_packet_function;
+    sender_config.process_packet_function = test_process_packet_function;
 
-test_large_packets :: () {}
+    receiver_config.ctx = *ctx;
+    receiver_config.id = 1;
+    receiver_config.transmit_packet_function = test_transmit_packet_function;
+    receiver_config.process_packet_function = test_process_packet_function;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    delta_time := milliseconds_to_apollo(100);
+
+    for 0..TEST_ACKS_NUM_ITERATIONS-1 {
+        dummy_packet: [8] u8;
+
+        ctx.drop = cast(bool) (it % 2);
+
+        reliable_endpoint_send_packet(ctx.sender, dummy_packet);
+        reliable_endpoint_send_packet(ctx.receiver, dummy_packet);
+
+        reliable_endpoint_update(ctx.sender, time);
+        reliable_endpoint_update(ctx.receiver, time);
+
+        time += delta_time;
+    }
+
+    sender_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
+    sender_acks := reliable_endpoint_get_acks(ctx.sender);
+    for sender_acks {
+        if it < TEST_ACKS_NUM_ITERATIONS {
+            sender_acked_packet[it] = true;
+        }
+    }
+    for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
+        assert(sender_acked_packet[it] == cast(bool) ((it+1) % 2));
+    }
+
+    receiver_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
+    receiver_acks := reliable_endpoint_get_acks(ctx.receiver);
+    for receiver_acks {
+        if it < TEST_ACKS_NUM_ITERATIONS {
+            receiver_acked_packet[it] = true;
+        }
+    }
+    for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
+        assert(receiver_acked_packet[it] == cast(bool) ((it+1) % 2));
+    }
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+}
+
+TEST_MAX_PACKET_BYTES :: 4 * 1024;
+
+generate_packet_data_with_size :: (sequence: u16, packet_data: [] u8) {
+    assert(packet_data.count >= 2);
+    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+
+    packet_data.data[0] = cast(u8) (sequence & 0xFF);
+    packet_data.data[1] = cast(u8) ((sequence >> 8) & 0xFF);
+    for 2..packet_data.count-1 {
+        packet_data[it] = cast(u8) ((it + sequence) % 256);
+    }
+}
+
+generate_packet_data :: (sequence: u16, packet_data: [] u8) -> int {
+    packet_bytes := (((cast(int) sequence) * 1023) % (packet_data.count - 2)) + 2;
+    generate_packet_data_with_size(sequence, .{ packet_bytes, packet_data.data });
+    return packet_bytes;
+}
+
+validate_packet_data :: (packet_data: [] u8) {
+    assert(packet_data.count >= 2);
+    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+    sequence: u16 = 0;
+    sequence |= cast(u16) packet_data[0];
+    sequence |= (cast(u16) packet_data[1]) << 8;
+    assert(packet_data.count == (((cast(int)sequence) * 1023) % (TEST_MAX_PACKET_BYTES - 2)) + 2);
+    for 2..packet_data.count-1 {
+        assert(packet_data[it] == cast(u8) ((it + sequence) % 256));
+    }
+}
+
+test_process_packet_function_validate :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
+    assert(packet_data.data != null);
+    assert(packet_data.count > 0);
+    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+
+    validate_packet_data(packet_data);
+
+    return 1;
+}
+
+generate_packet_data_large :: (packet_data: [] u8) -> int {
+    data_bytes := TEST_MAX_PACKET_BYTES - 2;
+    assert(data_bytes >= 2);
+    assert(data_bytes <= (1 << 16));
+
+    packet_data.data[0] = cast(u8) (data_bytes & 0xFF);
+    packet_data.data[1] = cast(u8) ((data_bytes >> 8) & 0xFF);
+    for 2..data_bytes-1 {
+        packet_data[it] = cast(u8) (it % 256);
+    }
+    return data_bytes + 2;
+}
+
+test_process_packet_function_validate_large :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
+    assert(packet_data.data != null);
+    assert(packet_data.count >= 2);
+    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+
+    data_bytes: u16 = 0;
+    data_bytes |= cast(u16) packet_data[0];
+    data_bytes |= (cast(u16) packet_data[1]) << 8;
+    assert(packet_data.count == data_bytes + 2);
+    for 2..data_bytes-1 {
+        assert(packet_data[it] == cast(u8) (it % 256));
+    }
+
+    return 1;
+}
+
+test_packets :: () {
+    time := seconds_to_apollo(100);
+
+    ctx: test_context_t;
+
+    sender_config := reliable_config_t.{
+        name = "sender",
+        ctx = *ctx,
+        id = 0,
+        fragment_above = 500,
+        transmit_packet_function = test_transmit_packet_function,
+        process_packet_function = test_process_packet_function_validate
+    };
+
+    receiver_config := sender_config;
+    receiver_config.name = "receiver";
+    receiver_config.id = 1;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    delta_time := milliseconds_to_apollo(100);
+
+    for 0..15 {
+        {
+            packet_data: [TEST_MAX_PACKET_BYTES] u8;
+            sequence := reliable_endpoint_next_packet_sequence(ctx.sender);
+            packet_bytes := generate_packet_data(sequence, packet_data);
+            reliable_endpoint_send_packet(ctx.sender, .{ packet_bytes, packet_data.data });
+        }
+
+        {
+            packet_data: [TEST_MAX_PACKET_BYTES] u8;
+            sequence := reliable_endpoint_next_packet_sequence(ctx.sender);
+            packet_bytes := generate_packet_data(sequence, packet_data);
+            // NOTE(dlb): Changed from `ctx.sender` to `ctx.receiver`, see: https://github.com/mas-bandwidth/reliable/issues/31
+            reliable_endpoint_send_packet(ctx.receiver, .{ packet_bytes, packet_data.data });
+        }
+
+        reliable_endpoint_update(ctx.sender, time);
+        reliable_endpoint_update(ctx.receiver, time);
+
+        reliable_endpoint_clear_acks(ctx.sender);
+        reliable_endpoint_clear_acks(ctx.receiver);
+
+        time += delta_time;
+    }
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+}
+
+test_large_packets :: () {
+    time := seconds_to_apollo(100);
+
+    ctx: test_context_t;
+
+    sender_config := reliable_config_t.{
+        name = "sender",
+        ctx = *ctx,
+        id = 0,
+        max_packet_size = TEST_MAX_PACKET_BYTES,
+        fragment_above = TEST_MAX_PACKET_BYTES,
+        transmit_packet_function = test_transmit_packet_function,
+        process_packet_function = test_process_packet_function_validate_large
+    };
+
+    receiver_config := sender_config;
+    receiver_config.name = "receiver";
+    receiver_config.id = 1;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    {
+        packet_data: [TEST_MAX_PACKET_BYTES] u8;
+        packet_bytes := generate_packet_data_large(packet_data);
+        assert(packet_bytes == TEST_MAX_PACKET_BYTES);
+        reliable_endpoint_send_packet(ctx.sender, .{ packet_bytes, packet_data.data });
+    }
+
+    reliable_endpoint_update(ctx.sender, time);
+    reliable_endpoint_update(ctx.receiver, time);
+
+    reliable_endpoint_clear_acks(ctx.sender);
+    reliable_endpoint_clear_acks(ctx.receiver);
+
+    receiver_counters := reliable_endpoint_counters(ctx.receiver);
+    assert(receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_TOO_LARGE_TO_RECEIVE] == 0);
+    assert(receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED] == 1);
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+}
 
 test_sequence_buffer_rollover :: () {}
 
@@ -304,7 +522,6 @@ reliable_test :: () {
     // NOTE(dlb): The commented test functions are not tests, they are helper functions.
     // TODO(dlb): Rename the helper functions?
 
-    // test_default_context();
     // test_transmit_packet_function();
     // test_process_packet_function();
     test_acks();
