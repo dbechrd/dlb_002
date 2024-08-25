@@ -1,5 +1,7 @@
-// Native Jai port of Glenn Fiedler's "reliable" C library (https://github.com/mas-bandwidth/reliable).
-// Original BSD-3 license retained here for legal reasons:
+/*
+    Native Jai port of Glenn Fiedler's "reliable" C library (https://github.com/mas-bandwidth/reliable).
+    Original BSD-3 license retained here for legal reasons:
+*/
 
 /*
     reliable
@@ -25,7 +27,6 @@
     USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-// Enable DEBUG for extra checking.
 #module_parameters(ENABLE_LOGGING := true, RUN_TESTS_AT_COMPILE_TIME := false, LITTLE_ENDIAN := true);
 
 #load "tests.jai";
@@ -166,7 +167,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
     assert(packet_data.count > 0);
 
     if packet_data.count > endpoint.config.max_packet_size {
-        reliable_log("[%] packet too large to send. packet is % bytes, maximum is %\n", endpoint.config.name, packet_data.count, endpoint.config.max_packet_size, flags=.ERROR);
+        reliable_log(.ERROR, "[%] packet too large to send. packet is % bytes, maximum is %\n", endpoint.config.name, packet_data.count, endpoint.config.max_packet_size);
         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_TOO_LARGE_TO_SEND] += 1;
         return;
     }
@@ -175,7 +176,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
     endpoint.sequence += 1;
     ack, ack_bits := reliable_sequence_buffer_generate_ack_bits(endpoint.received_packets);
 
-    reliable_log("[%] sending packet %\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+    reliable_log(.VERY_VERBOSE_ONLY, "[%] sending packet %\n", endpoint.config.name, sequence);
 
     sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_insert(endpoint.sent_packets, sequence);
     assert(sent_packet_data != null);
@@ -189,7 +190,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
 
     if packet_data.count <= endpoint.config.fragment_above {
         // regular packet
-        reliable_log("[%] sending packet % without fragmentation\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] sending packet % without fragmentation\n", endpoint.config.name, sequence);
 
         transmit_packet_data: [] u8 = NewArray(RELIABLE_MAX_PACKET_HEADER_BYTES + packet_data.count, u8, initialized = false);
 
@@ -205,7 +206,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
         packet_header_bytes := reliable_write_packet_header(packet_header, sequence, ack, ack_bits);
         num_fragments: int = (packet_data.count / endpoint.config.fragment_size) + (ifx packet_data.count % endpoint.config.fragment_size != 0 then 1 else 0);
 
-        reliable_log("[%] sending packet % as % fragments\n", endpoint.config.name, sequence, num_fragments, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] sending packet % as % fragments\n", endpoint.config.name, sequence, num_fragments);
 
         assert(num_fragments >= 1);
         assert(num_fragments <= endpoint.config.max_fragments);
@@ -255,11 +256,11 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
     assert(packet_data.count > 0);
 
     if packet_data.count > endpoint.config.max_packet_size + RELIABLE_MAX_PACKET_HEADER_BYTES + RELIABLE_FRAGMENT_HEADER_BYTES {
-        reliable_log("[%] packet too large to receive. packet is at least % bytes, maximum is %\n",
+        reliable_log(.VERY_VERBOSE_ONLY,
+            "[%] packet too large to receive. packet is at least % bytes, maximum is %\n",
             endpoint.config.name,
             packet_data.count - (RELIABLE_MAX_PACKET_HEADER_BYTES + RELIABLE_FRAGMENT_HEADER_BYTES),
-            endpoint.config.max_packet_size,
-            flags=.VERY_VERBOSE_ONLY
+            endpoint.config.max_packet_size
         );
         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_TOO_LARGE_TO_RECEIVE] += 1;
         return;
@@ -273,7 +274,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 
         packet_header_bytes, sequence, ack, ack_bits := reliable_read_packet_header(endpoint.config.name, packet_data);
         if packet_header_bytes < 0 {
-            reliable_log("[%] ignoring invalid packet. could not read packet header\n", endpoint.config.name, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] ignoring invalid packet. could not read packet header\n", endpoint.config.name);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_INVALID] += 1;
             return;
         }
@@ -283,25 +284,26 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         packet_payload_bytes: int = packet_data.count - packet_header_bytes;
 
         if packet_payload_bytes > endpoint.config.max_packet_size {
-            reliable_log("[%] packet too large to receive. packet is at % bytes, maximum is %\n",
-                endpoint.config.name, packet_payload_bytes, endpoint.config.max_packet_size, flags=.ERROR);
+            reliable_log(.ERROR,
+                "[%] packet too large to receive. packet is at % bytes, maximum is %\n",
+                endpoint.config.name, packet_payload_bytes, endpoint.config.max_packet_size);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_TOO_LARGE_TO_RECEIVE] += 1;
             return;
         }
 
         if !reliable_sequence_buffer_test_insert(endpoint.received_packets, sequence) {
-            reliable_log("[%] ignoring stale packet %\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] ignoring stale packet %\n", endpoint.config.name, sequence);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_STALE] += 1;
             return;
         }
 
-        reliable_log("[%] processing packet %\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] processing packet %\n", endpoint.config.name, sequence);
 
         packet_body := packet_data;
         packet_body.data += packet_header_bytes;
         packet_body.count -= packet_header_bytes;
         if endpoint.config.process_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, packet_body) {
-            reliable_log("[%] process packet % successful\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] process packet % successful\n", endpoint.config.name, sequence);
 
             received_packet_data := cast(*reliable_received_packet_data_t) reliable_sequence_buffer_insert(endpoint.received_packets, sequence);
 
@@ -319,7 +321,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
                     sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, ack_sequence);
 
                     if (sent_packet_data && !sent_packet_data.acked && endpoint.num_acks < endpoint.config.ack_buffer_size) {
-                        reliable_log("[%] acked packet %\n", endpoint.config.name, ack_sequence, flags=.VERY_VERBOSE_ONLY);
+                        reliable_log(.VERY_VERBOSE_ONLY, "[%] acked packet %\n", endpoint.config.name, ack_sequence);
                         endpoint.acks[endpoint.num_acks] = ack_sequence;
                         endpoint.num_acks += 1;
                         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED] += 1;
@@ -337,88 +339,74 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
                 ack_bits >>= 1;
             }
         } else {
-            reliable_log("[%] process packet failed\n", endpoint.config.name, flags=.ERROR);
+            reliable_log(.ERROR, "[%] process packet failed\n", endpoint.config.name);
         }
     } else {
         // fragment packet
-        fragment_id: int;
-        num_fragments: int;
-        fragment_bytes: int;
+        fragment_header := reliable_read_fragment_header(endpoint.config.name, packet_data, endpoint.config.max_fragments, endpoint.config.fragment_size);
 
-        sequence: u16;
-        ack: u16;
-        ack_bits: u32;
-
-        fragment_header_bytes := reliable_read_fragment_header(endpoint.config.name,
-                                                               packet_data,
-                                                               endpoint.config.max_fragments,
-                                                               endpoint.config.fragment_size,
-                                                               *fragment_id,
-                                                               *num_fragments,
-                                                               *fragment_bytes,
-                                                               *sequence,
-                                                               *ack,
-                                                               *ack_bits);
-
-        if fragment_header_bytes < 0 {
-            reliable_log("[%] ignoring invalid fragment. could not read fragment header\n", endpoint.config.name, flags=.VERY_VERBOSE_ONLY);
+        if fragment_header.fragment_header_bytes < 0 {
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] ignoring invalid fragment. could not read fragment header\n", endpoint.config.name);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] += 1;
             return;
         }
 
-        reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_find(endpoint.fragment_reassembly, sequence);
+        reassembly_data := cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_find(endpoint.fragment_reassembly, fragment_header.sequence);
 
         if !reassembly_data {
-            reassembly_data = cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, sequence, cleanup = true);
+            reassembly_data = cast(*reliable_fragment_reassembly_data_t) reliable_sequence_buffer_insert(endpoint.fragment_reassembly, fragment_header.sequence, cleanup = true);
 
             if !reassembly_data {
-                reliable_log("[%] ignoring invalid fragment. could not insert in reassembly buffer (stale)\n", endpoint.config.name, flags=.ERROR);
+                reliable_log(.ERROR, "[%] ignoring invalid fragment. could not insert in reassembly buffer (stale)\n", endpoint.config.name);
                 endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] += 1;
                 return;
             }
 
-            reliable_sequence_buffer_advance(endpoint.received_packets, sequence);
+            reliable_sequence_buffer_advance(endpoint.received_packets, fragment_header.sequence);
 
-            packet_buffer_size: int = RELIABLE_MAX_PACKET_HEADER_BYTES + num_fragments * endpoint.config.fragment_size;
+            packet_buffer_size: int = RELIABLE_MAX_PACKET_HEADER_BYTES + fragment_header.num_fragments * endpoint.config.fragment_size;
 
-            reassembly_data.sequence = sequence;
-            reassembly_data.num_fragments_total = num_fragments;
+            reassembly_data.sequence = fragment_header.sequence;
+            reassembly_data.num_fragments_total = fragment_header.num_fragments;
             reassembly_data.packet_data = NewArray(packet_buffer_size, u8);
         }
 
-        if num_fragments != reassembly_data.num_fragments_total {
-            reliable_log("[%] ignoring invalid fragment. fragment count mismatch. expected %, got %\n",
-                endpoint.config.name, reassembly_data.num_fragments_total, num_fragments, flags=.ERROR);
+        if fragment_header.num_fragments != reassembly_data.num_fragments_total {
+            reliable_log(.ERROR,
+                "[%] ignoring invalid fragment. fragment count mismatch. expected %, got %\n",
+                endpoint.config.name, reassembly_data.num_fragments_total, fragment_header.num_fragments);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] += 1;
             return;
         }
 
-        if reassembly_data.fragment_received[fragment_id] {
-            reliable_log("[%] ignoring fragment % of packet %. fragment already received\n",
-                endpoint.config.name, fragment_id, sequence, flags=.ERROR);
+        if reassembly_data.fragment_received[fragment_header.fragment_id] {
+            reliable_log(.ERROR,
+                "[%] ignoring fragment % of packet %. fragment already received\n",
+                endpoint.config.name, fragment_header.fragment_id, fragment_header.sequence);
             return;
         }
 
-        reliable_log("[%] received fragment % of packet % (%/%)\n",
-            endpoint.config.name, fragment_id, sequence, reassembly_data.num_fragments_received + 1, num_fragments, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY,
+            "[%] received fragment % of packet % (%/%)\n",
+            endpoint.config.name, fragment_header.fragment_id, fragment_header.sequence, reassembly_data.num_fragments_received + 1, fragment_header.num_fragments);
 
         reassembly_data.num_fragments_received += 1;
-        reassembly_data.fragment_received[fragment_id] = 1;
+        reassembly_data.fragment_received[fragment_header.fragment_id] = 1;
 
         fragment_body := packet_data;
-        fragment_body.data += fragment_header_bytes;
-        fragment_body.count -= fragment_header_bytes;
+        fragment_body.data += fragment_header.fragment_header_bytes;
+        fragment_body.count -= fragment_header.fragment_header_bytes;
 
         reliable_store_fragment_data(reassembly_data,
-                                     sequence,
-                                     ack,
-                                     ack_bits,
-                                     fragment_id,
+                                     fragment_header.sequence,
+                                     fragment_header.ack,
+                                     fragment_header.ack_bits,
+                                     fragment_header.fragment_id,
                                      endpoint.config.fragment_size,
                                      fragment_body);
 
         if reassembly_data.num_fragments_received == reassembly_data.num_fragments_total {
-            reliable_log("[%] completed reassembly of packet %\n", endpoint.config.name, sequence, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] completed reassembly of packet %\n", endpoint.config.name, fragment_header.sequence);
 
             packet_body := reassembly_data.packet_data;
             packet_body.data += RELIABLE_MAX_PACKET_HEADER_BYTES - reassembly_data.packet_header_bytes;
@@ -426,7 +414,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 
             reliable_endpoint_receive_packet(endpoint, packet_body);
 
-            reliable_sequence_buffer_remove(endpoint.fragment_reassembly, sequence, cleanup = true);
+            reliable_sequence_buffer_remove(endpoint.fragment_reassembly, fragment_header.sequence, cleanup = true);
         }
 
         endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_RECEIVED] += 1;
@@ -638,7 +626,7 @@ pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
 APOLLO_ZERO :: Apollo_Time.{0, 0};
 APOLLO_MAX :: Apollo_Time.{0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF};
 
-reliable_log :: (format_string: string, args: .. Any, loc := #caller_location, flags := Log_Flags.NONE) {
+reliable_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
     #if ENABLE_LOGGING {
         log(format_string, ..args, loc, flags,, temp);
     }
@@ -967,7 +955,7 @@ reliable_write_packet_header :: (packet_data: [] u8, sequence: u16, ack: u16, ac
 
 reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size: int = -1, sequence: u16 = 0, ack: u16 = 0, ack_bits: u32 = 0 {
     if packet_data.count < 3 {
-        reliable_log("[%] packet too small for packet header (1)\n", name, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] packet too small for packet header (1)\n", name);
         return;
     }
 
@@ -975,7 +963,7 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
     prefix_byte: u8 = reliable_read_uint8(*p);
 
     if (prefix_byte & 1) != 0 {
-        reliable_log("[%] prefix byte does not indicate a regular packet\n", name, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] prefix byte does not indicate a regular packet\n", name);
         return;
     }
 
@@ -984,14 +972,14 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
 
     if prefix_byte & (1 << 5) {
         if packet_data.count < 3 + 1 {
-            reliable_log("[%] packet too small for packet header (2)\n", name, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] packet too small for packet header (2)\n", name);
             return;
         }
         sequence_difference: u8 = reliable_read_uint8(*p);
         ack = sequence - sequence_difference;
     } else {
         if packet_data.count < 3 + 2 {
-            reliable_log("[%] packet too small for packet header (3)\n", name, flags=.VERY_VERBOSE_ONLY);
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] packet too small for packet header (3)\n", name);
             return;
         }
         ack = reliable_read_uint16(*p);
@@ -1003,7 +991,7 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
             expected_bytes += 1;
     }
     if packet_data.count < pointer_diff(p, packet_data.data) + expected_bytes {
-        reliable_log("[%] packet too small for packet header (4)\n", name, flags=.VERY_VERBOSE_ONLY);
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] packet too small for packet header (4)\n", name);
         return;
     }
 
@@ -1032,43 +1020,54 @@ reliable_read_packet_header :: (name: string, packet_data: [] u8) -> header_size
     return pointer_diff(p, packet_data.data), sequence, ack, ack_bits;
 }
 
+reliable_fragment_header_t :: struct {
+    fragment_header_bytes: int;
+    fragment_id: int;
+    num_fragments: int;
+    fragment_bytes: int;
 
-reliable_read_fragment_header :: (name: string, packet_data: [] u8, max_fragments: int, fragment_size: int, fragment_id: *int,
-                                  num_fragments: *int, fragment_bytes: *int, sequence: *u16, ack: *u16, ack_bits: *u32) -> int {
+    sequence: u16;
+    ack: u16;
+    ack_bits: u32;
+}
+
+reliable_read_fragment_header :: (name: string, packet_data: [] u8, max_fragments: int, fragment_size: int) -> reliable_fragment_header_t {
+    fragment_header: reliable_fragment_header_t;
+
     if packet_data.count < RELIABLE_FRAGMENT_HEADER_BYTES {
-        reliable_log("[%] packet is too small to read fragment header\n", name, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] packet is too small to read fragment header\n", name);
+        return fragment_header;
     }
 
     p: *u8 = packet_data.data;
 
     prefix_byte: u8 = reliable_read_uint8(*p);
     if prefix_byte != 1 {
-        reliable_log("[%] prefix byte is not a fragment\n", name, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] prefix byte is not a fragment\n", name);
+        return fragment_header;
     }
 
-    sequence.* = reliable_read_uint16(*p);
-    fragment_id.* = cast(int) reliable_read_uint8(*p);
-    num_fragments.* = (cast(int) reliable_read_uint8(*p)) + 1;
+    fragment_header.sequence = reliable_read_uint16(*p);
+    fragment_header.fragment_id = cast(int) reliable_read_uint8(*p);
+    fragment_header.num_fragments = (cast(int) reliable_read_uint8(*p)) + 1;
 
-    if num_fragments.* > max_fragments {
-        reliable_log("[%] num fragments % outside of range of max fragments %\n", name, num_fragments.*, max_fragments, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+    if fragment_header.num_fragments > max_fragments {
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] num fragments % outside of range of max fragments %\n", name, fragment_header.num_fragments, max_fragments);
+        return fragment_header;
     }
 
-    if fragment_id.* >= num_fragments.* {
-        reliable_log("[%] fragment id % outside of range of num fragments %\n", name, fragment_id.*, num_fragments.*, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+    if fragment_header.fragment_id >= fragment_header.num_fragments {
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] fragment id % outside of range of num fragments %\n", name, fragment_header.fragment_id, fragment_header.num_fragments);
+        return fragment_header;
     }
 
-    fragment_bytes.* = packet_data.count - RELIABLE_FRAGMENT_HEADER_BYTES;
+    fragment_header.fragment_bytes = packet_data.count - RELIABLE_FRAGMENT_HEADER_BYTES;
 
     packet_sequence: u16;
     packet_ack: u16;
     packet_ack_bits: u32;
 
-    if fragment_id.* == 0 {
+    if fragment_header.fragment_id == 0 {
         packet_body := packet_data;
         packet_body.data += RELIABLE_FRAGMENT_HEADER_BYTES;
         packet_body.count -= RELIABLE_FRAGMENT_HEADER_BYTES;
@@ -1077,37 +1076,39 @@ reliable_read_fragment_header :: (name: string, packet_data: [] u8, max_fragment
         packet_header_bytes, packet_sequence, packet_ack, packet_ack_bits = reliable_read_packet_header(name, packet_body);
 
         if packet_header_bytes < 0 {
-            reliable_log("[%] bad packet header in fragment\n", name, flags=.VERY_VERBOSE_ONLY);
-            return -1;
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] bad packet header in fragment\n", name);
+            return fragment_header;
         }
 
-        if packet_sequence != sequence.* {
-            reliable_log("[%] bad packet sequence in fragment. expected %, got %\n", name, sequence.*, packet_sequence, flags=.VERY_VERBOSE_ONLY);
-            return -1;
+        if packet_sequence != fragment_header.sequence {
+            reliable_log(.VERY_VERBOSE_ONLY, "[%] bad packet sequence in fragment. expected %, got %\n", name, fragment_header.sequence, packet_sequence);
+            return fragment_header;
         }
 
-        fragment_bytes.* = packet_data.count - packet_header_bytes - RELIABLE_FRAGMENT_HEADER_BYTES;
+        fragment_header.fragment_bytes = packet_data.count - packet_header_bytes - RELIABLE_FRAGMENT_HEADER_BYTES;
     }
 
-    ack.* = packet_ack;
-    ack_bits.* = packet_ack_bits;
+    fragment_header.ack = packet_ack;
+    fragment_header.ack_bits = packet_ack_bits;
 
-    if fragment_bytes.* > fragment_size {
-        reliable_log("[%] fragment bytes % > fragment size %\n", name, *fragment_bytes, fragment_size, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+    if fragment_header.fragment_bytes > fragment_size {
+        reliable_log(.VERY_VERBOSE_ONLY, "[%] fragment bytes % > fragment size %\n", name, fragment_header.fragment_bytes, fragment_size);
+        return fragment_header;
     }
 
-    if fragment_id.* != num_fragments.* - 1 && fragment_bytes.* != fragment_size {
-        reliable_log("[%] fragment % is % bytes, which is not the expected fragment size %\n",
-            name, *fragment_id, *fragment_bytes, fragment_size, flags=.VERY_VERBOSE_ONLY);
-        return -1;
+    if fragment_header.fragment_id != fragment_header.num_fragments - 1 && fragment_header.fragment_bytes != fragment_size {
+        reliable_log(.VERY_VERBOSE_ONLY,
+            "[%] fragment % is % bytes, which is not the expected fragment size %\n",
+            name, fragment_header.fragment_id, fragment_header.fragment_bytes, fragment_size);
+        return fragment_header;
     }
 
-    return pointer_diff(p, packet_data.data);
+    fragment_header.fragment_header_bytes = pointer_diff(p, packet_data.data);
+    return fragment_header;
 }
 
 reliable_store_fragment_data :: (reassembly_data: *reliable_fragment_reassembly_data_t, sequence: u16, ack: u16, ack_bits: u32,
-                                 fragment_id: int,  fragment_size: int,  fragment_data: [] u8) {
+                                 fragment_id: int, fragment_size: int, fragment_data: [] u8) {
     frag_data := fragment_data;
 
     if fragment_id == 0 {

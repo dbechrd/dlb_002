@@ -139,6 +139,7 @@ run_game :: () {
 
         reset_temporary_storage();
         memory_visualizer_per_frame_update();
+
         sleep_milliseconds(10);
     }
 
