@@ -497,22 +497,173 @@ test_large_packets :: () {
     reliable_endpoint_destroy(ctx.receiver);
 }
 
-test_sequence_buffer_rollover :: () {}
+test_sequence_buffer_rollover :: () {
+    time := seconds_to_apollo(100);
 
-test_tracking_allocate_function :: () {}
+    ctx: test_context_t;
 
-test_tracking_free_function :: () {}
+    sender_config := reliable_config_t.{
+        name = "sender",
+        ctx = *ctx,
+        id = 0,
+        fragment_above = 500,
+        transmit_packet_function = test_transmit_packet_function,
+        process_packet_function = test_process_packet_function
+    };
 
-test_fragment_cleanup :: () {}
+    receiver_config := sender_config;
+    receiver_config.name = "receiver";
+    receiver_config.id = 1;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    num_packets_sent: int = 0;
+    for 0..32767 {
+        packet_data: [16] u8;
+        reliable_endpoint_send_packet(ctx.sender, packet_data);
+        num_packets_sent += 1;
+    }
+
+    // NOTE(dlb): Not sure why we send one max-sized packet after the loop.. but ok.
+    packet_data: [TEST_MAX_PACKET_BYTES] u8;
+    reliable_endpoint_send_packet(ctx.sender, packet_data);
+    num_packets_sent += 1;
+
+    receiver_counters := reliable_endpoint_counters(ctx.receiver);
+
+    assert(cast(int) receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED] == num_packets_sent);
+    assert(receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] == 0);
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+}
+
+
+test_tracking_allocate_context_t :: struct {
+    active_allocations: [1024] *void;
+}
+
+test_tracking_allocate_function :: (ctx: *void, pointer: *void) {
+    tracking_context := cast(*test_tracking_allocate_context_t) ctx;
+    tracking_index := tracking_context.active_allocations.count;
+    for tracking_context.active_allocations {
+        if (it == null) {
+            tracking_index = it_index;
+            break;
+        }
+    }
+
+    assert(tracking_index < tracking_context.active_allocations.count);
+    tracking_context.active_allocations[tracking_index] = pointer;
+}
+
+test_tracking_free_function :: (ctx: *void, pointer: *void) {
+    tracking_context := cast(*test_tracking_allocate_context_t) ctx;
+    tracking_index := tracking_context.active_allocations.count;
+    for tracking_context.active_allocations {
+        if (it == pointer) {
+            tracking_index = it_index;
+            break;
+        }
+    }
+
+    assert(tracking_index < tracking_context.active_allocations.count);
+    tracking_context.active_allocations[tracking_index] = null;
+}
+
+test_fragment_cleanup :: () {
+    tracking_alloc_context: test_tracking_allocate_context_t;
+
+    tracking_allocator_proc :: (mode: Allocator_Mode, requested_size: s64, old_size: s64, old_memory: *void, allocator_data: *void) -> *void {
+        default_allocator :: #import "Default_Allocator";
+        ptr := default_allocator.allocator.proc(mode, requested_size, old_size, old_memory, allocator_data);
+
+        if mode == {
+            case .ALLOCATE;
+                test_tracking_allocate_function(allocator_data, ptr);
+            case .FREE;
+                test_tracking_free_function(allocator_data, old_memory);
+        }
+
+        return ptr;
+    }
+
+    push_allocator(Allocator.{ tracking_allocator_proc, cast(*void) *tracking_alloc_context });
+
+    time := seconds_to_apollo(100);
+
+    ctx: test_context_t;
+
+    sender_config := reliable_config_t.{
+        name = "sender",
+        ctx = *ctx,
+        id = 0,
+        transmit_packet_function = test_transmit_packet_function,
+        process_packet_function = test_process_packet_function
+    };
+
+    receiver_config := sender_config;
+    receiver_config.name = "receiver";
+    receiver_config.id = 1;
+    receiver_config.fragment_reassembly_buffer_size = 4;
+
+    ctx.sender = reliable_endpoint_create(*sender_config, time);
+    ctx.receiver = reliable_endpoint_create(*receiver_config, time);
+
+    delta_time := milliseconds_to_apollo(100);
+
+    packet_sizes := int.[
+        sender_config.fragment_size + sender_config.fragment_size/2,
+        10,
+        10,
+        10,
+        10,
+    ];
+
+    // Make sure we're sending more than receiver_config.fragment_reassembly_buffer_size packets, so the buffer wraps around.
+    assert(packet_sizes.count > receiver_config.fragment_reassembly_buffer_size);
+
+    for 0..packet_sizes.count-1 {
+        // Only allow one packet per transmit, so that our fragmented packets are only partially
+        // delivered.
+        ctx.allow_packets = 1;
+        {
+            packet_data: [TEST_MAX_PACKET_BYTES] u8;
+            packet_data_used: [] u8 = packet_data;
+            packet_data_used.count = packet_sizes[it];
+
+            sequence := reliable_endpoint_next_packet_sequence(ctx.sender);
+            generate_packet_data_with_size(sequence, packet_data_used);
+            reliable_endpoint_send_packet(ctx.sender, packet_data_used);
+        }
+
+        reliable_endpoint_update(ctx.sender, time);
+        reliable_endpoint_update(ctx.receiver, time);
+
+        reliable_endpoint_clear_acks(ctx.sender);
+        reliable_endpoint_clear_acks(ctx.receiver);
+
+        time += delta_time;
+    }
+
+    reliable_endpoint_destroy(ctx.sender);
+    reliable_endpoint_destroy(ctx.receiver);
+
+    // Make sure that there is no memory that hasn't been freed.
+    for tracking_alloc_context.active_allocations {
+        assert(it == null);
+    }
+}
 
 #scope_export
 
-#if RUN_TESTS {
+#if RUN_TESTS_AT_COMPILE_TIME {
     #run reliable_test();
 }
 
 reliable_test :: () {
-    print("--------------------------------------------------------------------------------\n");
+    log("--------------------------------------------------------------------------------\n");
     print("[Reliable] Running tests...\n");
     test_endian();
     test_sequence_buffer();

@@ -1,13 +1,35 @@
-Reliable :: #import "Reliable"(DEBUG=true); //, RUN_TESTS=true);
+Reliable :: #import "Reliable"(ENABLE_LOGGING=false, RUN_TESTS_AT_COMPILE_TIME=false);
+
+logger :: (message: string, data: *void, info: Log_Info) {
+    if !message then return;
+
+    if info.common_flags & .VERY_VERBOSE_ONLY && context.log_level < .VERY_VERBOSE {
+        return;
+    }
+    if info.common_flags & .VERBOSE_ONLY && context.log_level < .VERBOSE {
+        return;
+    }
+
+    to_standard_error := (info.common_flags & .ERROR) != 0;
+
+    if message[message.count-1] != #char "\n" {
+        write_strings(message, "\n", to_standard_error = to_standard_error);
+    } else {
+        write_string(message, to_standard_error = to_standard_error);
+    }
+}
 
 main :: () {
-    print("--- CPU Info -------------------------------------------------------------------\n");
+    context.logger = logger;
+    context.log_level = .VERY_VERBOSE;
+
+    log("--- CPU Info -------------------------------------------------------------------\n");
     cpu_info := get_cpu_info();
-    print("Vendor: %\n", cpu_info.vendor);
-    print("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
-    print("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
-    print("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
-    print("--------------------------------------------------------------------------------\n");
+    log("Vendor: %\n", cpu_info.vendor);
+    log("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
+    log("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
+    log("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
+    log("--------------------------------------------------------------------------------\n");
 
     Reliable.reliable_test();
 
@@ -35,7 +57,7 @@ Input :: #import "Input";
 #import "Window_Creation";
 #import "Machine_X64";
 
-#import "Basic";
+#import "Basic"()(MEMORY_DEBUGGER=true);
 #import "Random";
 #import "Math";
 #import "Thread";
@@ -115,13 +137,14 @@ run_game :: () {
         }
 
         draw_one_frame(inputCmd);
-
         Simp.swap_buffers(window);
-        sleep_milliseconds(10);
+
         reset_temporary_storage();
+        memory_visualizer_per_frame_update();
+        sleep_milliseconds(10);
     }
 
-    print("Thanks for playing!\n");
+    log("Thanks for playing!\n");
 }
 
 draw_one_frame :: (inputCmd: InputCommand) {
