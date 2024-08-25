@@ -638,22 +638,9 @@ pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
 APOLLO_ZERO :: Apollo_Time.{0, 0};
 APOLLO_MAX :: Apollo_Time.{0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF};
 
-// log_level: int = 0;
-
-// reliable_printf :: (level: int, format_string: string, args: .. Any) {
-//     #if ENABLE_LOGGING {
-//         if (level > log_level)
-//             return;
-
-//         is_error := level == RELIABLE_LOG_LEVEL_ERROR;
-//         print(format_string, args, is_error);
-//     }
-// }
-
 reliable_log :: (format_string: string, args: .. Any, loc := #caller_location, flags := Log_Flags.NONE) {
     #if ENABLE_LOGGING {
-        push_allocator(temp);
-        log(format_string, ..args, loc, flags);
+        log(format_string, ..args, loc, flags,, temp);
     }
 }
 

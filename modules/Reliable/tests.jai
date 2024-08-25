@@ -664,7 +664,7 @@ test_fragment_cleanup :: () {
 
 reliable_test :: () {
     log("--------------------------------------------------------------------------------\n");
-    print("[Reliable] Running tests...\n");
+    log("[Reliable] Running tests...\n");
     test_endian();
     test_sequence_buffer();
     test_generate_ack_bits();
@@ -675,6 +675,6 @@ reliable_test :: () {
     test_large_packets();
     test_sequence_buffer_rollover();
     test_fragment_cleanup();
-    print("Passed!\n");
-    print("--------------------------------------------------------------------------------\n");
+    log("Passed!\n");
+    log("--------------------------------------------------------------------------------\n");
 }

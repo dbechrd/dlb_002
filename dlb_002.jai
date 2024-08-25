@@ -1,3 +1,34 @@
+main :: () {
+    context.logger = logger;
+    context.log_level = .VERY_VERBOSE;
+
+    log_cpu_info();
+    //Reliable.reliable_test();
+    run_game();
+}
+
+#scope_file
+
+// NOTE: Set DEFAULT_EDITOR_COMMAND to `start /b code -g %2:%1` in codex_view's settings.jai file.
+MEMORY_DEBUGGER :: true;
+
+/*
+Player :: struct {
+    transform: Transform;
+    transform.position.y = 20;  // fun thing with default values in structs
+}
+*/
+
+log_cpu_info :: () {
+    log("--- CPU Info -------------------------------------------------------------------\n");
+    cpu_info := get_cpu_info();
+    log("Vendor: %\n", cpu_info.vendor);
+    log("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
+    log("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
+    log("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
+    log("--------------------------------------------------------------------------------\n");
+}
+
 Reliable :: #import "Reliable"(ENABLE_LOGGING=true, RUN_TESTS_AT_COMPILE_TIME=false);
 
 logger :: (message: string, data: *void, info: Log_Info) {
@@ -19,45 +50,12 @@ logger :: (message: string, data: *void, info: Log_Info) {
     }
 }
 
-main :: () {
-    context.logger = logger;
-    context.log_level = .VERY_VERBOSE;
-
-    log("--- CPU Info -------------------------------------------------------------------\n");
-    cpu_info := get_cpu_info();
-    log("Vendor: %\n", cpu_info.vendor);
-    log("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
-    log("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
-    log("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
-    log("--------------------------------------------------------------------------------\n");
-
-    Reliable.reliable_test();
-
-    run_game();
-}
-
-#scope_file
-
-/*
-FLOOR_HEIGHT :: 20.0;
-
-Transform :: struct {
-    position: Vector3;
-    orientation: Quaternion;
-}
-
-Player :: struct {
-    transform: Transform;
-    transform.position.y = FLOOR_HEIGHT;  // fun thing with default values in structs
-}
-*/
-
 Input :: #import "Input";
 
 #import "Window_Creation";
 #import "Machine_X64";
 
-#import "Basic"()(MEMORY_DEBUGGER=true);
+#import "Basic"()(MEMORY_DEBUGGER=MEMORY_DEBUGGER);
 #import "Random";
 #import "Math";
 #import "Thread";
@@ -87,7 +85,7 @@ capture_input_command :: (using inputCmd: *InputCommand) {
 run_game :: () {
     dlb_init_common();
 
-    window := create_window(state.window_size.x, state.window_size.y, "A Window");
+    window := create_window(state.window_size.x, state.window_size.y, "dlb_002");
     state.window_size.x, state.window_size.y = Simp.get_render_dimensions(window);
     Simp.set_render_target(window);
 
