@@ -1,9 +1,11 @@
 /*
-    Native Jai port of Glenn Fiedler's "reliable" C library (https://github.com/mas-bandwidth/reliable).
-    Original BSD-3 license retained here for legal reasons:
-*/
+Native Jai port of Glenn Fiedler's "reliable" C library as of this commit:
+https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5dc185e07ee
 
-/*
+------------------------------------------------------------------------------------------------------------------------
+| Original BSD-3 license
+------------------------------------------------------------------------------------------------------------------------
+
     reliable
 
     Copyright © 2017 - 2024, Mas Bandwidth LLC
@@ -25,6 +27,59 @@
     SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
     WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
     USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+-----------------------------------------------------------------------------------------------------------------------
+| Documentation
+-----------------------------------------------------------------------------------------------------------------------
+
+// Provide these via config when calling `reliable_endpoint_create` to receive
+// callbacks when Reliable is ready to send/receive network traffic.
+
+    TransmitPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8);
+    ProcessPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
+
+// Create a new endpoint (e.g. client or server)
+
+    reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *reliable_endpoint_t
+
+// Destroy an existing endpoint
+
+    reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t)
+
+// Send a packet with acks (calls user-supplied `TransmitPacketFunction`)
+
+    reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8)
+
+// Receive a packet with acks (calls user-supplied `ProcessPacketFunction`)
+
+    reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8)
+
+// Get a list of sequence numbers that have been ack'd recently
+
+    reliable_endpoint_get_acks :: (endpoint: *reliable_endpoint_t) -> [] u16
+
+// Mark all of the acks as handled (i.e. clear the ack buffer for re-use)
+
+    reliable_endpoint_clear_acks :: (endpoint: *reliable_endpoint_t)
+
+// Reset the endpoint to its initial state (retaining the config and sequence buffer allocs)
+
+    reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t)
+
+// Update time and statistics
+
+    reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time)
+
+// Query current stats (with smoothing, see config)
+
+    reliable_endpoint_rtt :: inline (endpoint: *reliable_endpoint_t) -> float
+    reliable_endpoint_packet_loss :: inline (endpoint: *reliable_endpoint_t ) -> float
+    reliable_endpoint_bandwidth :: inline (endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float
+
+// Query current performance counters
+
+    reliable_endpoint_counters :: inline (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64
+
 */
 
 #module_parameters(ENABLE_LOGGING := true, RUN_TESTS_AT_COMPILE_TIME := false, LITTLE_ENDIAN := true);
@@ -55,23 +110,24 @@ TransmitPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data
 ProcessPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
 
 reliable_config_t :: struct {
-    name                            : string = "Endpoint";  // TODO(dlb): Assert that this has count < 256
-    ctx                             : *void;
-    id                              : u64;
-    max_packet_size                 : int = 16 * 1024;
-    fragment_above                  : int = 1024;
-    max_fragments                   : int = 16;
-    fragment_size                   : int = 1024;
-    ack_buffer_size                 : int = 256;
-    sent_packets_buffer_size        : int = 256;
-    received_packets_buffer_size    : int = 256;
-    fragment_reassembly_buffer_size : int = 64;
-    rtt_smoothing_factor            : float = 0.0025;
-    packet_loss_smoothing_factor    : float = 0.1;
-    bandwidth_smoothing_factor      : float = 0.1;
-    packet_header_size              : int = 28;             // UDP over IPv4 = 20 + 8 bytes, UDP over IPv6 = 40 + 8 bytes
-    transmit_packet_function        : TransmitPacketFunction;
-    process_packet_function         : ProcessPacketFunction;
+    name                            : string = "Endpoint";    // TODO(dlb): Assert that this has count < 256
+    ctx                             : *void;                  // Arbitrary user data to be supplied to Transmit/Process callbacks
+    id                              : u64;                    // Arbitrary id to be supplised to Transmit/Process callbacks
+    max_packet_size                 : int = 16 * 1024;        // Maximum packet size, in bytes
+    fragment_above                  : int = 1024;             // Size in bytes beyond which packets should be fragmented
+    max_fragments                   : int = 16;               // Maximum number of fragments to split a single packet into
+    fragment_size                   : int = 1024;             // Size of each fragment (except the last one, which is partial)
+    ack_buffer_size                 : int = 256;              // Maximum acks to store between each call to clear_acks()
+    sent_packets_buffer_size        : int = 256;              // Maximum sent packet stats to keep
+    received_packets_buffer_size    : int = 256;              // Maximum received packets stats to keep
+    fragment_reassembly_buffer_size : int = 64;               // Maximum fragments to be kept for reassembly at any given time
+    rtt_smoothing_factor            : float = 0.0025;         // Stats smoothing factor
+    packet_loss_smoothing_factor    : float = 0.1;            // Stats smoothing factor
+    bandwidth_smoothing_factor      : float = 0.1;            // Stats smoothing factor
+    // TODO(dlb): Make IPv6 a module parameter so that we can increase this to 48 in that case?
+    packet_header_size              : int = 28;               // UDP over IPv4 = 20 + 8 bytes, UDP over IPv6 = 40 + 8 bytes
+    transmit_packet_function        : TransmitPacketFunction; // User-supplied callback for transmitting packets
+    process_packet_function         : ProcessPacketFunction;  // User-supplied callback for processing packets
 };
 
 reliable_endpoint_t :: struct {
@@ -91,23 +147,13 @@ reliable_endpoint_t :: struct {
     counters                : [RELIABLE_ENDPOINT_NUM_COUNTERS] u64;
 };
 
-reliable_sent_packet_data_t :: struct {
-    time: Apollo_Time;
-    acked: bool;
-    packet_bytes: int;
-};
+// NOTE(dlb): These are.. pointless. Don't waste the user's time.
+// reliable_init :: inline () -> int {
+//     return RELIABLE_OK;
+// }
 
-reliable_received_packet_data_t :: struct {
-    time: Apollo_Time;
-    packet_bytes: int;
-};
-
-reliable_init :: inline () -> int {
-    return RELIABLE_OK;
-}
-
-reliable_term :: inline () {
-}
+// reliable_term :: inline () {
+// }
 
 reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *reliable_endpoint_t {
     assert(config != null);
@@ -124,6 +170,7 @@ reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *
     assert(config.transmit_packet_function != null);
     assert(config.process_packet_function != null);
 
+    // TODO(dlb): We could combine the allocs and update `reliable_endpoint_destroy` to do a single free()
     endpoint := New(reliable_endpoint_t);
     assert(endpoint != null);
     endpoint.config = config;
@@ -320,6 +367,8 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 
                     sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, ack_sequence);
 
+                    // TODO(dlb): What happens when endpoint.acks fills up?? Presumably whoever is using Realiable is responsible for
+                    // reading the acks and clearing them in a timely manner, otherwise we would stop acking packets altogether.
                     if (sent_packet_data && !sent_packet_data.acked && endpoint.num_acks < endpoint.config.ack_buffer_size) {
                         reliable_log(.VERY_VERBOSE_ONLY, "[%] acked packet %\n", endpoint.config.name, ack_sequence);
                         endpoint.acks[endpoint.num_acks] = ack_sequence;
@@ -345,7 +394,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         // fragment packet
         fragment_header := reliable_read_fragment_header(endpoint.config.name, packet_data, endpoint.config.max_fragments, endpoint.config.fragment_size);
 
-        if fragment_header.fragment_header_bytes < 0 {
+        if fragment_header.fragment_header_bytes == 0 {
             reliable_log(.VERY_VERBOSE_ONLY, "[%] ignoring invalid fragment. could not read fragment header\n", endpoint.config.name);
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] += 1;
             return;
@@ -421,12 +470,13 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
     }
 }
 
-reliable_endpoint_free_packet :: (endpoint: *reliable_endpoint_t, packet: *void) {
-    assert(endpoint != null);
-    assert(packet);
+// NOTE(dlb): What is this point of this method? Just call free()..
+// reliable_endpoint_free_packet :: (endpoint: *reliable_endpoint_t, packet: *void) {
+//     assert(endpoint != null);
+//     assert(packet);
 
-    free(packet);
-}
+//     free(packet);
+// }
 
 reliable_endpoint_get_acks :: (endpoint: *reliable_endpoint_t) -> [] u16 {
     assert(endpoint != null);
@@ -445,11 +495,21 @@ reliable_endpoint_clear_acks :: (endpoint: *reliable_endpoint_t) {
 reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t) {
     assert(endpoint != null);
 
+    // NOTE(dlb): The original code doesn't reset `time` or any of the statistics. Seems like a bug to me.
+    endpoint.time                    = APOLLO_ZERO;
+    endpoint.rtt                     = 0;
+    endpoint.packet_loss             = 0;
+    endpoint.sent_bandwidth_kbps     = 0;
+    endpoint.received_bandwidth_kbps = 0;
+    endpoint.acked_bandwidth_kbps    = 0;
+
     endpoint.num_acks = 0;
+    array_zero(endpoint.acks);
+
     endpoint.sequence = 0;
 
-    array_zero(endpoint.acks);
-    array_zero(endpoint.counters);
+    reliable_sequence_buffer_reset(endpoint.sent_packets);
+    reliable_sequence_buffer_reset(endpoint.received_packets);
 
     for 0..endpoint.config.fragment_reassembly_buffer_size-1 {
         reassembly_data := reliable_sequence_buffer_at_index(endpoint.fragment_reassembly, it);
@@ -457,10 +517,9 @@ reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t) {
             array_reset(*reassembly_data.packet_data);
         }
     }
-
-    reliable_sequence_buffer_reset(endpoint.sent_packets);
-    reliable_sequence_buffer_reset(endpoint.received_packets);
     reliable_sequence_buffer_reset(endpoint.fragment_reassembly);
+
+    array_zero(endpoint.counters);
 }
 
 reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time) {
@@ -640,6 +699,17 @@ reliable_sequence_greater_than :: (s1: u16, s2: u16) -> bool {
 reliable_sequence_less_than :: (s1: u16, s2: u16) -> bool {
     return reliable_sequence_greater_than(s2, s1);
 }
+
+reliable_sent_packet_data_t :: struct {
+    time: Apollo_Time;
+    acked: bool;
+    packet_bytes: int;
+};
+
+reliable_received_packet_data_t :: struct {
+    time: Apollo_Time;
+    packet_bytes: int;
+};
 
 // TODO(dlb): This could maybe be polymorphic to make entry_data strongly typed.
 reliable_sequence_buffer_t :: struct {
