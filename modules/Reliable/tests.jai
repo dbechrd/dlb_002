@@ -539,57 +539,57 @@ test_sequence_buffer_rollover :: () {
     reliable_endpoint_destroy(ctx.receiver);
 }
 
-
 test_tracking_allocate_context_t :: struct {
     active_allocations: [1024] *void;
 }
 
-test_tracking_allocate_function :: (ctx: *void, pointer: *void) {
-    tracking_context := cast(*test_tracking_allocate_context_t) ctx;
-    tracking_index := tracking_context.active_allocations.count;
-    for tracking_context.active_allocations {
+tracking_alloc_context: test_tracking_allocate_context_t;
+
+test_tracking_allocate_function :: (pointer: *void) {
+    ctx := *tracking_alloc_context;
+    tracking_index := ctx.active_allocations.count;
+    for ctx.active_allocations {
         if (it == null) {
             tracking_index = it_index;
             break;
         }
     }
 
-    assert(tracking_index < tracking_context.active_allocations.count);
-    tracking_context.active_allocations[tracking_index] = pointer;
+    assert(tracking_index < ctx.active_allocations.count);
+    ctx.active_allocations[tracking_index] = pointer;
 }
 
-test_tracking_free_function :: (ctx: *void, pointer: *void) {
-    tracking_context := cast(*test_tracking_allocate_context_t) ctx;
-    tracking_index := tracking_context.active_allocations.count;
-    for tracking_context.active_allocations {
+test_tracking_free_function :: (pointer: *void) {
+    ctx := *tracking_alloc_context;
+    tracking_index := ctx.active_allocations.count;
+    for ctx.active_allocations {
         if (it == pointer) {
             tracking_index = it_index;
             break;
         }
     }
 
-    assert(tracking_index < tracking_context.active_allocations.count);
-    tracking_context.active_allocations[tracking_index] = null;
+    assert(tracking_index < ctx.active_allocations.count);
+    ctx.active_allocations[tracking_index] = null;
 }
 
-test_fragment_cleanup :: () {
-    tracking_alloc_context: test_tracking_allocate_context_t;
 
+test_fragment_cleanup :: () {
     tracking_allocator_proc :: (mode: Allocator_Mode, requested_size: s64, old_size: s64, old_memory: *void, allocator_data: *void) -> *void {
         default_allocator :: #import "Default_Allocator";
         ptr := default_allocator.allocator.proc(mode, requested_size, old_size, old_memory, allocator_data);
 
         if mode == {
             case .ALLOCATE;
-                test_tracking_allocate_function(allocator_data, ptr);
+                test_tracking_allocate_function(ptr);
             case .FREE;
-                test_tracking_free_function(allocator_data, old_memory);
+                test_tracking_free_function(old_memory);
         }
 
         return ptr;
     }
 
-    push_allocator(Allocator.{ tracking_allocator_proc, cast(*void) *tracking_alloc_context });
+    push_allocator(Allocator.{ tracking_allocator_proc, null });
 
     time := seconds_to_apollo(100);
 
@@ -669,26 +669,12 @@ reliable_test :: () {
     test_sequence_buffer();
     test_generate_ack_bits();
     test_packet_header();
-
-    // NOTE(dlb): The commented test functions are not tests, they are helper functions.
-    // TODO(dlb): Rename the helper functions?
-
-    // test_transmit_packet_function();
-    // test_process_packet_function();
     test_acks();
     test_acks_packet_loss();
-
-    // test_process_packet_function_validate();
-    // test_process_packet_function_validate_large();
     test_packets();
     test_large_packets();
-
     test_sequence_buffer_rollover();
-
-    // test_tracking_allocate_function();
-    // test_tracking_free_function();
     test_fragment_cleanup();
-
     print("Passed!\n");
     print("--------------------------------------------------------------------------------\n");
 }

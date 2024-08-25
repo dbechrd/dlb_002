@@ -652,7 +652,8 @@ APOLLO_MAX :: Apollo_Time.{0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF};
 
 reliable_log :: (format_string: string, args: .. Any, loc := #caller_location, flags := Log_Flags.NONE) {
     #if ENABLE_LOGGING {
-        log(format_string, ..args, loc = loc, flags = flags);
+        push_allocator(temp);
+        log(format_string, ..args, loc, flags);
     }
 }
 

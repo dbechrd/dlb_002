@@ -1,4 +1,4 @@
-Reliable :: #import "Reliable"(ENABLE_LOGGING=false, RUN_TESTS_AT_COMPILE_TIME=false);
+Reliable :: #import "Reliable"(ENABLE_LOGGING=true, RUN_TESTS_AT_COMPILE_TIME=false);
 
 logger :: (message: string, data: *void, info: Log_Info) {
     if !message then return;
