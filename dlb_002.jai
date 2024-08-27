@@ -3,7 +3,7 @@ main :: () {
     context.log_level = .VERY_VERBOSE;
 
     log_cpu_info();
-    Reliable.reliable_test();
+    reliable_test();
     run_game();
 }
 
@@ -29,7 +29,7 @@ log_cpu_info :: () {
     log("--------------------------------------------------------------------------------\n");
 }
 
-Reliable :: #import "Reliable"(ENABLE_LOGGING=true);
+#import "Reliable"; //(ENABLE_LOGGING=true);
 
 logger :: (message: string, data: *void, info: Log_Info) {
     if !message then return;
