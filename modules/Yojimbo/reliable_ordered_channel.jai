@@ -12,6 +12,10 @@ class ReliableOrderedChannel : public Channel
 {
 public:
 
+    // TODO(dlb):
+    #as using base: Channel;
+    base.config.type = .ReliableOrdered;
+
     /**
         Reliable ordered channel constructor.
         @param allocator The allocator to use.

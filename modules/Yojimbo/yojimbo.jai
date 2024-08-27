@@ -27,12 +27,6 @@
 // USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //---------------------------------------------------------------------------------------------------------------------
 
-// TODO(dlb): Notes
-/*
-#as using base: Channel;
-base.type = UnorderedChannel;
-*/
-
 #module_parameters(
     YOJIMBO_ENABLE_LOGGING       := false,
     YOJIMBO_DEFAULT_TIMEOUT      := 10,

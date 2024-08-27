@@ -2,6 +2,45 @@ main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
+    AddressType :: enum {
+        None;  // Not an address. Set by the default constructor.
+        IPv4;  // An IPv4 address, eg: "146.95.129.237"
+        IPv6;  // An IPv6 address, eg: "48d9:4a08:b543:ae31:89d8:3226:b92c:cbba"
+    };
+
+    Address :: struct {
+        type: AddressType;  // The address type: IPv4 or IPv6.
+        union {
+            ipv4: [4] u8;   // IPv4 address data. Valid if type is ADDRESS_IPV4. Local byte order.
+            ipv6: [8] u16;  // IPv6 address data. Valid if type is ADDRESS_IPV6. Local byte order.
+        };
+        port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Local byte order.
+    };
+
+    address_create :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> Address {
+        result := Address.{
+            type = .IPv4,
+            ipv4[0] = a,
+            ipv4[1] = b,
+            ipv4[2] = c,
+            ipv4[3] = d,
+            port = port
+        };
+        return result;
+    }
+
+    address_create :: (address: [4] u8, port: u16 = 0) -> Address {
+        result := Address.{
+            type = .IPv4,
+            ipv4 = address,
+            port = port
+        };
+        return result;
+    }
+
+    a := address_create(.[1, 2, 3, 4], 80);
+    log("a = %, %\n", a, a.ipv4);
+
     log_cpu_info();
     reliable_test();
     run_game();
@@ -29,6 +68,7 @@ log_cpu_info :: () {
     log("--------------------------------------------------------------------------------\n");
 }
 
+#import "dlb";
 #import "Reliable"; //(ENABLE_LOGGING=true);
 
 logger :: (message: string, data: *void, info: Log_Info) {

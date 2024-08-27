@@ -6,38 +6,15 @@
     You can share the same adapter across a client/server pair if you have local multiplayer, eg. loopback.
     */
 
-class Adapter
-{
-public:
-
-    virtual ~Adapter() {}
-
-    /**
-        Override this function to specify your own custom allocator class.
-        @param allocator The base allocator that must be used to allocate your allocator instance.
-        @param memory The block of memory backing your allocator.
-        @param bytes The number of bytes of memory available to your allocator.
-        @returns A pointer to the allocator instance you created.
-        */
-
-    virtual Allocator * CreateAllocator( Allocator & allocator, void * memory, size_t bytes )
-    {
-        return YOJIMBO_NEW( allocator, TLSF_Allocator, memory, bytes );
-    }
+Adapter :: struct {
+    destroy :: #type (adapter: *Adapter);
 
     /**
         You must override this method to create the message factory used by the client and server.
         @param allocator The allocator that must be used to create your message factory instance via YOJIMBO_NEW
         @returns The message factory pointer you created.
-
         */
-
-    virtual MessageFactory * CreateMessageFactory( Allocator & allocator )
-    {
-        (void) allocator;
-        yojimbo_assert( false );
-        return NULL;
-    }
+    create_message_factory :: #type (adapter: *Adapter) -> *MessageFactory;
 
     /**
         Override this callback to process packets sent from client to server over loopback.
@@ -47,15 +24,7 @@ public:
         @param packetSequence The sequence number of the packet.
         @see Client::ConnectLoopback
         */
-
-    virtual void ClientSendLoopbackPacket( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence )
-    {
-        (void) clientIndex;
-        (void) packetData;
-        (void) packetBytes;
-        (void) packetSequence;
-        yojimbo_assert( false );
-    }
+    client_send_loopback_packet :: #type (clientIndex: int, packetData: [] u8, packetSequence: u64);
 
     /**
         Override this callback to process packets sent from client to server over loopback.
@@ -65,33 +34,17 @@ public:
         @param packetSequence The sequence number of the packet.
         @see Server::ConnectLoopbackClient
         */
-
-    virtual void ServerSendLoopbackPacket( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence )
-    {
-        (void) clientIndex;
-        (void) packetData;
-        (void) packetBytes;
-        (void) packetSequence;
-        yojimbo_assert( false );
-    }
+    server_send_loopback_packet :: #type (clientIndex: int, packetData: [] u8, packetSequence: u64);
 
     /**
         Override this to get a callback when a client connects on the server.
         */
-
-    virtual void OnServerClientConnected( int clientIndex )
-    {
-        (void) clientIndex;
-    }
+    on_server_client_connected :: #type (clientIndex: int);
 
     /**
         Override this to get a callback when a client disconnects from the server.
         */
-
-    virtual void OnServerClientDisconnected( int clientIndex )
-    {
-        (void) clientIndex;
-    }
+    on_server_client_disconnected :: #type (clientIndex: int);
 };
 
 

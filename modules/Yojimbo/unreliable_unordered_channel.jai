@@ -8,6 +8,8 @@
 class UnreliableUnorderedChannel : public Channel
 {
 public:
+    #as using base: Channel;
+    base.config.type = .UnreliableUnordered;
 
     /**
         Reliable ordered channel constructor.
