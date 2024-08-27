@@ -1,6 +1,6 @@
 #scope_module
 
-AddressType :: enum {
+AddressType :: enum u8 {
     None;  // Not an address. Set by the default constructor.
     IPv4;  // An IPv4 address, eg: "146.95.129.237"
     IPv6;  // An IPv6 address, eg: "48d9:4a08:b543:ae31:89d8:3226:b92c:cbba"
@@ -14,11 +14,11 @@ Identifies where a packet came from, and where a packet should be sent.
 */
 Address :: struct {
     type: AddressType;  // The address type: IPv4 or IPv6.
+    port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Local byte order.
     union {
         ipv4: [4] u8;   // IPv4 address data. Valid if type is ADDRESS_IPV4. Local byte order.
         ipv6: [8] u16;  // IPv6 address data. Valid if type is ADDRESS_IPV6. Local byte order.
     };
-    port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Local byte order.
 };
 
 /*
@@ -33,7 +33,7 @@ IMPORTANT: Pass in port in local byte order. The address class handles the conve
 @param port The IPv4 port (local byte order).
 */
 address_create :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> Address {
-    result := Address.{
+    address := Address.{
         type = .IPv4,
         ipv4[0] = a,
         ipv4[1] = b,
@@ -50,13 +50,13 @@ Create an IPv4 address.
 @param address Array of four address fields for the IPv4 address.
 @param port The port number (local byte order).
 */
-address_create :: (address: [4] u8, port: u16 = 0) -> Address {
-    result := Address.{
+address_create :: (ipv4_bytes: [4] u8, port: u16 = 0) -> Address {
+    address := Address.{
         type = .IPv4,
-        ipv4 = address,
+        ipv4 = ipv4_bytes,
         port = port
     };
-    return result;
+    return address;
 }
 
 /*
@@ -73,7 +73,21 @@ IMPORTANT: Pass in address fields and the port in local byte order. The address 
 @param h Eighth field of the IPv6 address (local byte order).
 @param port The port number (local byte order).
 */
-address_create :: (a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16, h: u16, port: u16 = 0) -> Address;
+address_create :: (a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16, h: u16, port: u16 = 0) -> Address {
+    address := Address.{
+        type = .IPv6,
+        ipv6[0] = a,
+        ipv6[1] = b,
+        ipv6[2] = c,
+        ipv6[3] = d,
+        ipv6[4] = e,
+        ipv6[5] = f,
+        ipv6[6] = g,
+        ipv6[7] = h,
+        port = port
+    };
+    return address;
+}
 
 /*
 Create an IPv6 address.
@@ -82,7 +96,14 @@ IMPORTANT: Pass in address fields and the port in local byte order. The address 
 @param address Array of 8 16 bit address fields for the IPv6 address (local byte order).
 @param port The IPv6 port (local byte order).
 */
-address_create :: (address: [8] u16, port: u16 = 0) -> Address;
+address_create :: (ipv6_bytes: [8] u16, port: u16 = 0) -> Address {
+    address := Address.{
+        type = .IPv6,
+        ipv6 = ipv6_bytes,
+        port = port
+    };
+    return address;
+}
 
 /*
 Parse a string to an address.
@@ -96,22 +117,135 @@ If the string is not recognized as a valid address, the address type is set to A
 @see Address::IsValid
 @see Address::GetType
 */
-address_create :: (address: string) -> Address;
+address_create :: (address_str: string) -> Address {
+    // first try to parse as an IPv6 address:
+    // 1. if the first character is '[' then it's probably an ipv6 in form "[addr6]:portnum"
+    // 2. otherwise try to parse as raw IPv6 address, parse using inet_pton
+
+    address: Address;
+
+    // I ported this logic.. but in hindsight, we should just always specify the port as its own parameter. Why complicate things?
+    /*
+    str := address_str;
+    if address[0] == #char "[" {
+        // Search bracketed IPv6 address for a port number (e.g. "[::1]:80").
+        for 0..str.count-1 {
+            if it == str.count-1 {
+                if address[i] != #char "]" {
+                    yojimbo_log(.ERROR, "IPv6 address starting with '[' must contain a closing bracket ']'.");
+                    return address;
+                }
+
+                // '[' is the last character, no port follows. This is fine.
+                break;
+            }
+
+            if address[it] == #char "]" {
+                // End-of-address marker. The port should follow in ":80" format.
+                it_delim = it + 1;  // index of ':' port delimiter
+                it_port =  it + 2;  // index of first digit of port #
+
+                // Check for weird cases to prevent out-of-bounds and provide a nicer error message.
+                if address[it_delim] != #char ":" {
+                    yojimbo_log(.ERROR, "Expected port delimiter ':', or nothing, after ']' in IPv6 address. Found '%' instead.", address[it_delim]);
+                    return address;
+                }
+                if it_port >= str.count {
+                    yojimbo_log(.ERROR, "Expected numeric port number to follow port delimiter ':'. Reached end of string instead.");
+                    return address;
+                }
+
+                port_str := string.{ str.count - it_port, str.data + it_port };
+
+                // Validate port only contains digits
+                for 0..port_str.count-1 {
+                    if !is_digit(address[it]) {
+                        yojimbo_log(.ERROR, "Expected port number to contain digits. Found '%' instead.", port_str[it]);
+                        return address;
+                    }
+                }
+
+                // Attempt to parse port as integer
+                port, success, remainder := to_integer(port_str);
+                if !success {
+                    yojimbo_log(.ERROR, "Failed to parse port string '%' as integer.", port_str);
+                    return address;
+                }
+                if remainder.count {
+                    yojimbo_log(.ERROR, "Successfully parsed port string '%' as integer '%', but there was unused trailing text '%'.", port_str, port, remainder);
+                    return address;
+                }
+                if port <= 0 || port > 65535 {
+                    yojimbo_log(.ERROR, "Successfully parsed port string '%' as integer '%', but the value was out of range (1-65535).", port_str, port);
+                    return address;
+                }
+
+                // Wow.. we actually did it.
+                address.port = cast (u16) port;
+            }
+        }
+    }
+    */
+}
 
 /*
 Parse a string to an address.
-This versions overrides any port read in the address with the port parameter. This lets you parse "127.0.0.1" and "[::1]" and pass in the port you want programmatically.
-Parsing is performed via inet_pton once the port # has been extracted from the string, so you may specify any IPv4 or IPv6 address formatted in any valid way, and it should work as you expect.
+This lets you parse "127.0.0.1" and "[::1]" and pass in the port you want programmatically.
+Parsing is performed via inet_pton, so you may specify any IPv4 or IPv6 address formatted in any valid way, and it should work as you expect.
 Depending on the type of data in the string the address will become ADDRESS_TYPE_IPV4 or ADDRESS_TYPE_IPV6.
-If the string is not recognized as a valid address, the address type is set to ADDRESS_TYPE_NONE, causing Address::IsValid to return false. Please check that after creating an address from a string.
+If the string is not recognized as a valid address, the address type is set to ADDRESS_TYPE_NONE. Please check that after creating an address from a string.
 
 @param address The string to parse to create the address.
-@param port Overrides the port number read from the string (if any).
-
-@see Address::IsValid
-@see Address::GetType
+@param port The port number.
 */
-address_create :: (address: string, port: u16);
+address_create :: (address: string, port: u16) -> Address {
+    address: Address;
+
+    struct in6_addr sockaddr6;
+    if ( inet_pton( AF_INET6, str, &sockaddr6 ) == 1 )
+    {
+        int i;
+        for ( i = 0; i < 8; ++i )
+        {
+            m_address.ipv6[i] = ntohs( ( (uint16_t*) &sockaddr6 ) [i] );
+        }
+        m_type = ADDRESS_IPV6;
+        return;
+    }
+
+    // otherwise it's probably an IPv4 address:
+    // 1. look for ":portnum", if found save the portnum and strip it out
+    // 2. parse remaining ipv4 address via inet_pton
+
+    addressLength = (int) strlen( address );
+    const int base_index = addressLength - 1;
+    for ( int i = 0; i < 6; ++i )
+    {
+        const int index = base_index - i;
+        if ( index < 0 )
+            break;
+        if ( address[index] == ':' )
+        {
+            m_port = (uint16_t) atoi( &address[index+1] );
+            address[index] = '\0';
+        }
+    }
+
+    struct sockaddr_in sockaddr4;
+    if ( inet_pton( AF_INET, address, &sockaddr4.sin_addr ) == 1 )
+    {
+        m_type = ADDRESS_IPV4;
+        m_address.ipv4[3] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0xFF000000 ) >> 24 );
+        m_address.ipv4[2] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x00FF0000 ) >> 16 );
+        m_address.ipv4[1] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x0000FF00 ) >> 8  );
+        m_address.ipv4[0] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x000000FF )       );
+    }
+    else
+    {
+        // Not a valid IPv4 address. Set address as invalid.
+        Clear();
+    }
+}
 
 // Convert the address to a string.
 address_to_string :: (address: Address) -> string;
@@ -171,16 +305,9 @@ operator == :: (a: Address, b: Address) -> bool {
     return false;
 }
 
-#scope_file
-
-/*
-Helper function to parse an address string.
-Used by the constructors that take a string parameter.
-
-@param address The string to parse.
-*/
-address_parse(address: string);
-
+/*--------------------------------------------------------------------------------------------------------------------*/
+                                                    #scope_file
+/*--------------------------------------------------------------------------------------------------------------------*/
 
 // #if YOJIMBO_PLATFORM == YOJIMBO_PLATFORM_WINDOWS
 
@@ -213,116 +340,6 @@ address_parse(address: string);
 //     #error yojimbo unknown platform!
 
 // #endif
-
-
-Address::Address( uint16_t a, uint16_t b, uint16_t c, uint16_t d, uint16_t e, uint16_t f, uint16_t g, uint16_t h, uint16_t port )
-    : m_type( ADDRESS_IPV6 )
-{
-    m_address.ipv6[0] = a;
-    m_address.ipv6[1] = b;
-    m_address.ipv6[2] = c;
-    m_address.ipv6[3] = d;
-    m_address.ipv6[4] = e;
-    m_address.ipv6[5] = f;
-    m_address.ipv6[6] = g;
-    m_address.ipv6[7] = h;
-    m_port = port;
-}
-
-Address::Address( const uint16_t address[], uint16_t port )
-    : m_type( ADDRESS_IPV6 )
-{
-    for ( int i = 0; i < 8; ++i )
-        m_address.ipv6[i] = address[i];
-    m_port = port;
-}
-
-Address::Address( const char * address )
-{
-    Parse( address );
-}
-
-Address::Address( const char * address, uint16_t port )
-{
-    Parse( address );
-    m_port = port;
-}
-
-void Address::Parse( const char * address_in )
-{
-    // first try to parse as an IPv6 address:
-    // 1. if the first character is '[' then it's probably an ipv6 in form "[addr6]:portnum"
-    // 2. otherwise try to parse as raw IPv6 address, parse using inet_pton
-
-    yojimbo_assert( address_in );
-
-    char buffer[MaxAddressLength];
-    char * address = buffer;
-    yojimbo_copy_string( address, address_in, MaxAddressLength );
-
-    int addressLength = (int) strlen( address );
-    m_port = 0;
-    if ( address[0] == '[' )
-    {
-        const int base_index = addressLength - 1;
-        for ( int i = 0; i < 6; ++i )                 // note: no need to search past 6 characters as ":65535" is longest port value
-        {
-            const int index = base_index - i;
-            if ( index < 3 )
-                break;
-            if ( address[index] == ':' )
-            {
-                m_port = uint16_t( atoi( &address[index + 1] ) );
-                address[index-1] = '\0';
-            }
-        }
-        address += 1;
-    }
-    struct in6_addr sockaddr6;
-    if ( inet_pton( AF_INET6, address, &sockaddr6 ) == 1 )
-    {
-        int i;
-        for ( i = 0; i < 8; ++i )
-        {
-            m_address.ipv6[i] = ntohs( ( (uint16_t*) &sockaddr6 ) [i] );
-        }
-        m_type = ADDRESS_IPV6;
-        return;
-    }
-
-    // otherwise it's probably an IPv4 address:
-    // 1. look for ":portnum", if found save the portnum and strip it out
-    // 2. parse remaining ipv4 address via inet_pton
-
-    addressLength = (int) strlen( address );
-    const int base_index = addressLength - 1;
-    for ( int i = 0; i < 6; ++i )
-    {
-        const int index = base_index - i;
-        if ( index < 0 )
-            break;
-        if ( address[index] == ':' )
-        {
-            m_port = (uint16_t) atoi( &address[index+1] );
-            address[index] = '\0';
-        }
-    }
-
-    struct sockaddr_in sockaddr4;
-    if ( inet_pton( AF_INET, address, &sockaddr4.sin_addr ) == 1 )
-    {
-        m_type = ADDRESS_IPV4;
-        m_address.ipv4[3] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0xFF000000 ) >> 24 );
-        m_address.ipv4[2] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x00FF0000 ) >> 16 );
-        m_address.ipv4[1] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x0000FF00 ) >> 8  );
-        m_address.ipv4[0] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x000000FF )       );
-    }
-    else
-    {
-        // Not a valid IPv4 address. Set address as invalid.
-        Clear();
-    }
-}
 
 const char * Address::ToString( char buffer[], int bufferSize ) const
 {
