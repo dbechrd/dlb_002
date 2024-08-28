@@ -1,17 +1,14 @@
-#import,file "modules/Yojimbo/address.jai";
-
 test_ipv4 :: (s: string) {
-    ipv4, remainder := string_to_ipv4(s);
-    log("%\n%, '%'\n", s, address_to_string(ipv4), remainder);
+    ipv4, remainder := address_create_ipv4(s);
+    log("%\n%, '%'\n\n", s, address_to_string(ipv4), remainder);
 }
 
 test_ipv6 :: (s: string) {
-    ipv6, remainder := string_to_ipv6(s,);
+    ipv6, remainder := address_create_ipv6(s,);
     log("%\n%, '%'\n\n", s, address_to_string(ipv6, canonical=true), remainder);
 }
 
 address_tests :: () {
-    /*
     // premature end-of-string in octet
     test_ipv4("");
     test_ipv4("1.");
@@ -55,7 +52,6 @@ address_tests :: () {
 
     // valid address
     test_ipv4("127.0.0.1");
-    */
 
     //-----------------------------------------------
 
@@ -124,6 +120,7 @@ log_cpu_info :: () {
 
 #import "dlb";
 #import "Reliable"; //(ENABLE_LOGGING=true);
+#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true);
 #import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {

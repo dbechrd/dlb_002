@@ -1,9 +1,5 @@
 #scope_export
 
-yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    log(format_string, ..args, loc, flags,, temp);
-}
-
 AddressType :: enum u8 {
     None;  // Not an address. Set by the default constructor.
     IPv4;  // An IPv4 address, eg: "146.95.129.237"
@@ -110,67 +106,15 @@ address_create :: (ipv6: [8] u16, port: u16 = 0) -> Address {
 }
 
 /*
-Parse a string to an address.
-This lets you parse "127.0.0.1" and "[::1]" and pass in the port you want programmatically.
-Parsing is performed via inet_pton, so you may specify any IPv4 or IPv6 address formatted in any valid way, and it should work as you expect.
-Depending on the type of data in the string the address will become ADDRESS_TYPE_IPV4 or ADDRESS_TYPE_IPV6.
-If the string is not recognized as a valid address, the address type is set to ADDRESS_TYPE_NONE. Please check that after creating an address from a string.
+Converts a canonical IPv4 string (e.g. "127.0.0.1") to a network byte order array.
 
-@param address The string to parse to create the address.
-@param port The port number.
+This function does not handle port numbers. It does return the remaining unused string after parsing an address,
+though, so you can parse e.g. "127.0.0.1:80" and it will return an IPv4 Address + ":80" as the remainder string,
+which you can parse yourself to retrieve the port number.
+
+Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
 */
-// address_create :: (address: string, port: u16) -> Address {
-//     address: Address;
-
-//     struct in6_addr sockaddr6;
-//     if ( inet_pton( AF_INET6, str, &sockaddr6 ) == 1 )
-//     {
-//         int i;
-//         for ( i = 0; i < 8; ++i )
-//         {
-//             m_address.ipv6[i] = ntohs( ( (uint16_t*) &sockaddr6 ) [i] );
-//         }
-//         m_type = ADDRESS_IPV6;
-//         return;
-//     }
-
-//     // otherwise it's probably an IPv4 address:
-//     // 1. look for ":portnum", if found save the portnum and strip it out
-//     // 2. parse remaining ipv4 address via inet_pton
-
-//     addressLength = (int) strlen( address );
-//     const int base_index = addressLength - 1;
-//     for ( int i = 0; i < 6; ++i )
-//     {
-//         const int index = base_index - i;
-//         if ( index < 0 )
-//             break;
-//         if ( address[index] == ':' )
-//         {
-//             m_port = (uint16_t) atoi( &address[index+1] );
-//             address[index] = '\0';
-//         }
-//     }
-
-//     struct sockaddr_in sockaddr4;
-//     if ( inet_pton( AF_INET, address, &sockaddr4.sin_addr ) == 1 )
-//     {
-//         m_type = ADDRESS_IPV4;
-//         m_address.ipv4[3] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0xFF000000 ) >> 24 );
-//         m_address.ipv4[2] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x00FF0000 ) >> 16 );
-//         m_address.ipv4[1] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x0000FF00 ) >> 8  );
-//         m_address.ipv4[0] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x000000FF )       );
-//     }
-//     else
-//     {
-//         // Not a valid IPv4 address. Set address as invalid.
-//         Clear();
-//     }
-// }
-
-// Converts a canonical IPv4 string (e.g. "127.0.0.1") to a network byte order array.
-// Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
-string_to_ipv4 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
+address_create_ipv4 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
     result := Address.{ type = .IPv4, port = port };
 
     octet_start := 0;
@@ -192,7 +136,7 @@ string_to_ipv4 :: (str: string, port: u16 = 0) -> result: Address, remainder: st
 
         if digits == 0 {
             if octet_start == str.count {
-                yojimbo_log(.ERROR, "Premature end-of-string before octet % while parsing '%' as IPv4 address. Expected digit (0-9).\n", octet + 1, str);
+                yojimbo_log(.ERROR, "Premature end-of-string in octet % while parsing '%' as IPv4 address. Expected digit (0-9).\n", octet + 1, str);
             } else {
                 yojimbo_log(.ERROR, "Unexpected character '%' in octet % while parsing '%' as IPv4 address. Expected digit (0-9).\n", string.{ 1, str.data + octet_start }, octet + 1, str);
             }
@@ -241,7 +185,7 @@ address that is equivalent to the result of calling `string_to_ipv6("::FFFF:7F00
 is the hexademical representation of 127.0.0.1, and the preceding FFFF denotes an IPv4-mapped IPv6 address as
 described in RFC 4291 Section 2.5.5.2 (https://datatracker.ietf.org/doc/html/rfc4291#section-2.5.5.2).
 */
-ipv4_to_ipv6 :: (address: Address) -> result: Address {
+address_ipv4_to_ipv6 :: (address: Address) -> result: Address {
     assert(address.type == .IPv4);
 
     if (address.type != .IPv4) {
@@ -264,8 +208,8 @@ We also handle the double-colon compression syntax for contiguous zeros; i.e."20
 in the same byte array as the full version of the address above.
 
 We DO NOT handle IPv4-mapped IPv6 addresses in string format (e.g. "::ffff:127.0.0.1"). If you would like to create
-such an address, call `string_to_ipv4`, check for success, then pass the resulting buffer of bytes to `ipv4_to_ipv6`
-to create an IPv6 address.
+such an address, call `string_to_ipv4` with the IPv4 string, check for success, then pass the resulting buffer of
+bytes to `ipv4_to_ipv6` to create an IPv6 address.
 
 Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
 Some example IPv6 variants:
@@ -281,7 +225,7 @@ Some example IPv6 variants:
 
     See https://datatracker.ietf.org/doc/html/rfc5952#section-1 for more context.
 */
-string_to_ipv6 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
+address_create_ipv6 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
     hexval :: (c: u8) -> int {
         if c == {
             case #char "0"; return 0;
@@ -442,7 +386,7 @@ Converts the address to a human-readable string.
 This does not include port, read that from the Address struct yourself if you want it.
 This also doesn't collapse zeroes using :: syntax right now.
 */
-address_to_string :: (address: Address, canonical := false) -> ip_str: string {
+address_to_string :: (address: Address, canonical := false) -> string {
     if address.type == {
         case .IPv4;
             a := address.ipv4[0];

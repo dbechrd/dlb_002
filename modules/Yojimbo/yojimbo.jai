@@ -30,34 +30,10 @@
 #module_parameters(
     YOJIMBO_ENABLE_LOGGING       := false,
     YOJIMBO_DEFAULT_TIMEOUT      := 10,
-    YOJIMBO_DEBUG_MEMORY_LEAKS   := #ifx DEBUG,  // then true else false,
-    YOJIMBO_DEBUG_MESSAGE_LEAKS  := #ifx DEBUG,  // then true else false,
-    YOJIMBO_DEBUG_MESSAGE_BUDGET := #ifx DEBUG   // then true else false,
-)
-
-#load "adapter.jai"
-#load "address.jai"
-#load "base_client.jai"
-#load "base_server.jai"
-#load "bit_array.jai"
-#load "channel.jai"
-#load "channel_packet_data.jai";
-#load "client_interface.jai"
-#load "client.jai"
-#load "config.jai"
-#load "connection.jai"
-#load "constants.jai"
-#load "message.jai"
-#load "network_info.jai"
-#load "network_simulator.jai"
-#load "queue.jai"
-#load "reliable_ordered_channel.jai"
-#load "sequence_buffer.jai"
-#load "serialize.jai"
-#load "server_interface.jai"
-#load "server.jai"
-#load "unreliable_unordered_channel.jai"
-#load "utils.jai"
+    YOJIMBO_DEBUG_MEMORY_LEAKS   := false,
+    YOJIMBO_DEBUG_MESSAGE_LEAKS  := false,
+    YOJIMBO_DEBUG_MESSAGE_BUDGET := false
+);
 
 /**
     Initialize the yojimbo library.
@@ -78,9 +54,31 @@ yojimbo_shutdown :: () {
 
 #scope_module
 
+// #load "adapter.jai";
+#load "address.jai";
+// #load "base_client.jai";
+// #load "base_server.jai";
+// #load "bit_array.jai";
+// #load "channel.jai";
+// #load "channel_packet_data.jai";;
+// #load "client_interface.jai";
+// #load "client.jai";
+// #load "config.jai";
+// #load "connection.jai";
+// #load "constants.jai";
+// #load "message.jai";
+// #load "network_info.jai";
+// #load "network_simulator.jai";
+// #load "queue.jai";
+// #load "reliable_ordered_channel.jai";
+// #load "sequence_buffer.jai";
+// #load "serialize.jai";
+// #load "server_interface.jai";
+// #load "server.jai";
+// #load "unreliable_unordered_channel.jai";
+// #load "utils.jai";
+
 #import "Basic";
-//TODO(dlb): import "Serialize";
-#import "dlb";
 
 yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
     #if YOJIMBO_ENABLE_LOGGING {
