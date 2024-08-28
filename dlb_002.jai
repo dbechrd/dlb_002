@@ -1,47 +1,101 @@
+#import,file "modules/Yojimbo/address.jai";
+
+test_ipv4 :: (s: string) {
+    ipv4, remainder := string_to_ipv4(s);
+    log("%\n%, '%'\n", s, address_to_string(ipv4), remainder);
+}
+
+test_ipv6 :: (s: string) {
+    ipv6, remainder := string_to_ipv6(s,);
+    log("%\n%, '%'\n\n", s, address_to_string(ipv6, canonical=true), remainder);
+}
+
+address_tests :: () {
+    /*
+    // premature end-of-string in octet
+    test_ipv4("");
+    test_ipv4("1.");
+    test_ipv4("1.0.");
+    test_ipv4("1.0.0.");
+
+    // unexpected character in octet
+    test_ipv4("?1.1.1.1");
+    test_ipv4("1?.1.1.1");
+    test_ipv4("1.?1.1.1");
+    test_ipv4("1.1?.1.1");
+    test_ipv4("1.1.?1.1");
+    test_ipv4("1.1.1?.1");
+    test_ipv4("1.1.1.?1");
+
+    // illegal leading zeros
+    test_ipv4("01");
+    test_ipv4("1.01");
+    test_ipv4("1.1.01");
+    test_ipv4("1.1.1.01");
+    test_ipv4("001");
+    test_ipv4("1.001");
+    test_ipv4("1.1.001");
+    test_ipv4("1.1.1.001");
+
+    // out-of-range octet value
+    test_ipv4("256.0.0.0");
+    test_ipv4("0.256.0.0");
+    test_ipv4("0.0.256.0");
+    test_ipv4("0.0.0.256");
+
+    // premature end-of-string instead of separator
+    test_ipv4("1");
+    test_ipv4("1.0");
+    test_ipv4("1.0.0");
+
+    // unexpected character instead of separator
+    test_ipv4("1?0.0.1");
+    test_ipv4("1.0?0.1");
+    test_ipv4("1.0.0?1");
+
+    // valid address
+    test_ipv4("127.0.0.1");
+    */
+
+    //-----------------------------------------------
+
+    test_ipv6("::1:2:3:4");
+
+     // should return 00000000 (the "unspecified" address)
+    test_ipv6("::");
+
+    // valid
+    test_ipv6("0:1:2:3:4:5:6:7");
+
+    // valid w/ trailing ::
+    test_ipv6("0:1:2:3:4:5:6::");
+
+    // valid (due to ::) w/ remainder
+    test_ipv6("0:1:2::?");
+    test_ipv6("0:1:2::4?");
+    test_ipv6("0:1:2::4:?");
+    test_ipv6("0:1:2::4:5?");
+
+    /*
+    ipv4 := string_to_ipv4("127.0.0.1");
+    if ipv4.type == .IPv4 {
+        ipv6 := ipv4_to_ipv6(ipv4);
+
+        ipv4str := address_to_string(ipv4);
+        ipv6str := address_to_string(ipv6);
+
+        log("% -> %\n", ipv4str, ipv6str);
+    }
+    */
+}
+
 main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
-    AddressType :: enum {
-        None;  // Not an address. Set by the default constructor.
-        IPv4;  // An IPv4 address, eg: "146.95.129.237"
-        IPv6;  // An IPv6 address, eg: "48d9:4a08:b543:ae31:89d8:3226:b92c:cbba"
-    };
-
-    Address :: struct {
-        type: AddressType;  // The address type: IPv4 or IPv6.
-        union {
-            ipv4: [4] u8;   // IPv4 address data. Valid if type is ADDRESS_IPV4. Local byte order.
-            ipv6: [8] u16;  // IPv6 address data. Valid if type is ADDRESS_IPV6. Local byte order.
-        };
-        port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Local byte order.
-    };
-
-    address_create :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> Address {
-        result := Address.{
-            type = .IPv4,
-            ipv4[0] = a,
-            ipv4[1] = b,
-            ipv4[2] = c,
-            ipv4[3] = d,
-            port = port
-        };
-        return result;
-    }
-
-    address_create :: (address: [4] u8, port: u16 = 0) -> Address {
-        result := Address.{
-            type = .IPv4,
-            ipv4 = address,
-            port = port
-        };
-        return result;
-    }
-
-    a := address_create(.[1, 2, 3, 4], 80);
-    log("a = %, %\n", a, a.ipv4);
-
     log_cpu_info();
+
+    address_tests();
     reliable_test();
     run_game();
 }
@@ -49,7 +103,7 @@ main :: () {
 #scope_file
 
 // NOTE: Set DEFAULT_EDITOR_COMMAND to `start /b code -g %2:%1` in codex_view's settings.jai file.
-MEMORY_DEBUGGER :: true;
+MEMORY_DEBUGGER :: false;
 
 /*
 Player :: struct {
@@ -70,6 +124,7 @@ log_cpu_info :: () {
 
 #import "dlb";
 #import "Reliable"; //(ENABLE_LOGGING=true);
+#import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {
     if !message then return;
@@ -81,7 +136,7 @@ logger :: (message: string, data: *void, info: Log_Info) {
         return;
     }
 
-    to_standard_error := (info.common_flags & .ERROR) != 0;
+    to_standard_error := false; //(info.common_flags & .ERROR) != 0;
 
     if message[message.count-1] != #char "\n" {
         write_strings(message, "\n", to_standard_error = to_standard_error);

@@ -1,4 +1,8 @@
-#scope_module
+#scope_export
+
+yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
+    log(format_string, ..args, loc, flags,, temp);
+}
 
 AddressType :: enum u8 {
     None;  // Not an address. Set by the default constructor.
@@ -14,23 +18,23 @@ Identifies where a packet came from, and where a packet should be sent.
 */
 Address :: struct {
     type: AddressType;  // The address type: IPv4 or IPv6.
-    port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Local byte order.
+    port: u16;          // The IP port. Valid for IPv4 and IPv6 address types. Host byte order.
     union {
-        ipv4: [4] u8;   // IPv4 address data. Valid if type is ADDRESS_IPV4. Local byte order.
-        ipv6: [8] u16;  // IPv6 address data. Valid if type is ADDRESS_IPV6. Local byte order.
+        ipv4: [4] u8;   // IPv4 address data. Valid if type is ADDRESS_IPV4. Network byte order.
+        ipv6: [8] u16;  // IPv6 address data. Valid if type is ADDRESS_IPV6. Network byte order.
     };
 };
 
 /*
 Create an IPv4 address.
 
-IMPORTANT: Pass in port in local byte order. The address class handles the conversion to network order for you.
+IMPORTANT: Pass in port in Host byte order. The address class handles the conversion to network order for you.
 
 @param a The first field of the IPv4 address.
 @param b The second field of the IPv4 address.
 @param c The third field of the IPv4 address.
 @param d The fourth field of the IPv4 address.
-@param port The IPv4 port (local byte order).
+@param port The IPv4 port (host byte order).
 */
 address_create :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> Address {
     address := Address.{
@@ -48,12 +52,12 @@ address_create :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> Address {
 Create an IPv4 address.
 
 @param address Array of four address fields for the IPv4 address.
-@param port The port number (local byte order).
+@param port The port number (host byte order).
 */
-address_create :: (ipv4_bytes: [4] u8, port: u16 = 0) -> Address {
+address_create :: (ipv4: [4] u8, port: u16 = 0) -> Address {
     address := Address.{
         type = .IPv4,
-        ipv4 = ipv4_bytes,
+        ipv4 = ipv4,
         port = port
     };
     return address;
@@ -61,17 +65,17 @@ address_create :: (ipv4_bytes: [4] u8, port: u16 = 0) -> Address {
 
 /*
 Create an IPv6 address.
-IMPORTANT: Pass in address fields and the port in local byte order. The address class handles the conversion to network order for you.
+IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network order for you.
 
-@param a First field of the IPv6 address (local byte order).
-@param b Second field of the IPv6 address (local byte order).
-@param c Third field of the IPv6 address (local byte order).
-@param d Fourth field of the IPv6 address (local byte order).
-@param e Fifth field of the IPv6 address (local byte order).
-@param f Sixth field of the IPv6 address (local byte order).
-@param g Seventh field of the IPv6 address (local byte order).
-@param h Eighth field of the IPv6 address (local byte order).
-@param port The port number (local byte order).
+@param a First field of the IPv6 address (host byte order).
+@param b Second field of the IPv6 address (host byte order).
+@param c Third field of the IPv6 address (host byte order).
+@param d Fourth field of the IPv6 address (host byte order).
+@param e Fifth field of the IPv6 address (host byte order).
+@param f Sixth field of the IPv6 address (host byte order).
+@param g Seventh field of the IPv6 address (host byte order).
+@param h Eighth field of the IPv6 address (host byte order).
+@param port The port number (host byte order).
 */
 address_create :: (a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16, h: u16, port: u16 = 0) -> Address {
     address := Address.{
@@ -91,101 +95,18 @@ address_create :: (a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16, h: u1
 
 /*
 Create an IPv6 address.
-IMPORTANT: Pass in address fields and the port in local byte order. The address class handles the conversion to network order for you.
+IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network order for you.
 
-@param address Array of 8 16 bit address fields for the IPv6 address (local byte order).
-@param port The IPv6 port (local byte order).
+@param address Array of 8 16 bit address fields for the IPv6 address (host byte order).
+@param port The IPv6 port (host byte order).
 */
-address_create :: (ipv6_bytes: [8] u16, port: u16 = 0) -> Address {
+address_create :: (ipv6: [8] u16, port: u16 = 0) -> Address {
     address := Address.{
         type = .IPv6,
-        ipv6 = ipv6_bytes,
+        ipv6 = ipv6,
         port = port
     };
     return address;
-}
-
-/*
-Parse a string to an address.
-This versions supports parsing a port included in the address string. For example, "127.0.0.1:4000" and "[::1]:40000".
-Parsing is performed via inet_pton once the port # has been extracted from the string, so you may specify any IPv4 or IPv6 address formatted in any valid way, and it should work as you expect.
-Depending on the type of data in the string the address will become ADDRESS_TYPE_IPV4 or ADDRESS_TYPE_IPV6.
-If the string is not recognized as a valid address, the address type is set to ADDRESS_TYPE_NONE, causing Address::IsValid to return false. Please check that after creating an address from a string.
-
-@param address The string to parse to create the address.
-
-@see Address::IsValid
-@see Address::GetType
-*/
-address_create :: (address_str: string) -> Address {
-    // first try to parse as an IPv6 address:
-    // 1. if the first character is '[' then it's probably an ipv6 in form "[addr6]:portnum"
-    // 2. otherwise try to parse as raw IPv6 address, parse using inet_pton
-
-    address: Address;
-
-    // I ported this logic.. but in hindsight, we should just always specify the port as its own parameter. Why complicate things?
-    /*
-    str := address_str;
-    if address[0] == #char "[" {
-        // Search bracketed IPv6 address for a port number (e.g. "[::1]:80").
-        for 0..str.count-1 {
-            if it == str.count-1 {
-                if address[i] != #char "]" {
-                    yojimbo_log(.ERROR, "IPv6 address starting with '[' must contain a closing bracket ']'.");
-                    return address;
-                }
-
-                // '[' is the last character, no port follows. This is fine.
-                break;
-            }
-
-            if address[it] == #char "]" {
-                // End-of-address marker. The port should follow in ":80" format.
-                it_delim = it + 1;  // index of ':' port delimiter
-                it_port =  it + 2;  // index of first digit of port #
-
-                // Check for weird cases to prevent out-of-bounds and provide a nicer error message.
-                if address[it_delim] != #char ":" {
-                    yojimbo_log(.ERROR, "Expected port delimiter ':', or nothing, after ']' in IPv6 address. Found '%' instead.", address[it_delim]);
-                    return address;
-                }
-                if it_port >= str.count {
-                    yojimbo_log(.ERROR, "Expected numeric port number to follow port delimiter ':'. Reached end of string instead.");
-                    return address;
-                }
-
-                port_str := string.{ str.count - it_port, str.data + it_port };
-
-                // Validate port only contains digits
-                for 0..port_str.count-1 {
-                    if !is_digit(address[it]) {
-                        yojimbo_log(.ERROR, "Expected port number to contain digits. Found '%' instead.", port_str[it]);
-                        return address;
-                    }
-                }
-
-                // Attempt to parse port as integer
-                port, success, remainder := to_integer(port_str);
-                if !success {
-                    yojimbo_log(.ERROR, "Failed to parse port string '%' as integer.", port_str);
-                    return address;
-                }
-                if remainder.count {
-                    yojimbo_log(.ERROR, "Successfully parsed port string '%' as integer '%', but there was unused trailing text '%'.", port_str, port, remainder);
-                    return address;
-                }
-                if port <= 0 || port > 65535 {
-                    yojimbo_log(.ERROR, "Successfully parsed port string '%' as integer '%', but the value was out of range (1-65535).", port_str, port);
-                    return address;
-                }
-
-                // Wow.. we actually did it.
-                address.port = cast (u16) port;
-            }
-        }
-    }
-    */
 }
 
 /*
@@ -198,65 +119,385 @@ If the string is not recognized as a valid address, the address type is set to A
 @param address The string to parse to create the address.
 @param port The port number.
 */
-address_create :: (address: string, port: u16) -> Address {
-    address: Address;
+// address_create :: (address: string, port: u16) -> Address {
+//     address: Address;
 
-    struct in6_addr sockaddr6;
-    if ( inet_pton( AF_INET6, str, &sockaddr6 ) == 1 )
-    {
-        int i;
-        for ( i = 0; i < 8; ++i )
-        {
-            m_address.ipv6[i] = ntohs( ( (uint16_t*) &sockaddr6 ) [i] );
+//     struct in6_addr sockaddr6;
+//     if ( inet_pton( AF_INET6, str, &sockaddr6 ) == 1 )
+//     {
+//         int i;
+//         for ( i = 0; i < 8; ++i )
+//         {
+//             m_address.ipv6[i] = ntohs( ( (uint16_t*) &sockaddr6 ) [i] );
+//         }
+//         m_type = ADDRESS_IPV6;
+//         return;
+//     }
+
+//     // otherwise it's probably an IPv4 address:
+//     // 1. look for ":portnum", if found save the portnum and strip it out
+//     // 2. parse remaining ipv4 address via inet_pton
+
+//     addressLength = (int) strlen( address );
+//     const int base_index = addressLength - 1;
+//     for ( int i = 0; i < 6; ++i )
+//     {
+//         const int index = base_index - i;
+//         if ( index < 0 )
+//             break;
+//         if ( address[index] == ':' )
+//         {
+//             m_port = (uint16_t) atoi( &address[index+1] );
+//             address[index] = '\0';
+//         }
+//     }
+
+//     struct sockaddr_in sockaddr4;
+//     if ( inet_pton( AF_INET, address, &sockaddr4.sin_addr ) == 1 )
+//     {
+//         m_type = ADDRESS_IPV4;
+//         m_address.ipv4[3] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0xFF000000 ) >> 24 );
+//         m_address.ipv4[2] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x00FF0000 ) >> 16 );
+//         m_address.ipv4[1] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x0000FF00 ) >> 8  );
+//         m_address.ipv4[0] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x000000FF )       );
+//     }
+//     else
+//     {
+//         // Not a valid IPv4 address. Set address as invalid.
+//         Clear();
+//     }
+// }
+
+// Converts a canonical IPv4 string (e.g. "127.0.0.1") to a network byte order array.
+// Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
+string_to_ipv4 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
+    result := Address.{ type = .IPv4, port = port };
+
+    octet_start := 0;
+    for octet: 0..3 {
+        digits := 0;
+        value := 0;
+        for 0..2 {
+            if octet_start + digits == str.count
+                break;
+
+            c := str[octet_start + digits];
+            if !is_digit(c)
+                break;
+
+            value *= 10;
+            value += c - #char "0";
+            digits += 1;
         }
-        m_type = ADDRESS_IPV6;
-        return;
-    }
 
-    // otherwise it's probably an IPv4 address:
-    // 1. look for ":portnum", if found save the portnum and strip it out
-    // 2. parse remaining ipv4 address via inet_pton
-
-    addressLength = (int) strlen( address );
-    const int base_index = addressLength - 1;
-    for ( int i = 0; i < 6; ++i )
-    {
-        const int index = base_index - i;
-        if ( index < 0 )
+        if digits == 0 {
+            if octet_start == str.count {
+                yojimbo_log(.ERROR, "Premature end-of-string before octet % while parsing '%' as IPv4 address. Expected digit (0-9).\n", octet + 1, str);
+            } else {
+                yojimbo_log(.ERROR, "Unexpected character '%' in octet % while parsing '%' as IPv4 address. Expected digit (0-9).\n", string.{ 1, str.data + octet_start }, octet + 1, str);
+            }
             break;
-        if ( address[index] == ':' )
-        {
-            m_port = (uint16_t) atoi( &address[index+1] );
-            address[index] = '\0';
         }
+        if digits > 1 && str[octet_start] == #char "0" {
+            // Note: Some tools (such as `ping` on Windows) will accept leading zeros and interpret the octect as
+            // an octal (base-8) number. This seems exceptionally stupid and confusing to me, so let's just throw an error.
+            yojimbo_log(.ERROR, "Illegal leading zero(s) in octet % ('%') while parsing '%' as IPv4 address.\n", octet + 1, string.{ digits, str.data + octet_start }, str);
+            break;
+        }
+        if value > 255 {
+            yojimbo_log(.ERROR, "Out-of-range value '%' in octet % ('%') while parsing '%' as IPv4 address. Expected octet in range (0-255).\n", value, octet + 1, string.{ digits, str.data + octet_start }, str);
+            break;
+        }
+
+        result.ipv4[octet] = cast(u8) value;
+
+        if octet == 3 {
+            // Success!
+            remainder := str;
+            advance(*remainder, octet_start + digits);
+            return result, remainder;
+        }
+
+        if octet_start + digits == str.count {
+            yojimbo_log(.ERROR, "Premature end-of-string after octet % ('%') while parsing '%' as IPv4 address. Expected dot (.) separator.\n", octet + 1, string.{ digits, str.data + octet_start }, str);
+            break;
+        }
+        if str[octet_start + digits] != #char "." {
+            yojimbo_log(.ERROR, "Unexpected character '%' after octet % ('%') while parsing '%' as IPv4 address. Expected dot (.) separator.\n", string.{ 1, str.data + octet_start + digits }, octet + 1, string.{ digits, str.data + octet_start }, str);
+            break;
+        }
+        octet_start += digits + 1;  // discard octet and dot separator
     }
 
-    struct sockaddr_in sockaddr4;
-    if ( inet_pton( AF_INET, address, &sockaddr4.sin_addr ) == 1 )
-    {
-        m_type = ADDRESS_IPV4;
-        m_address.ipv4[3] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0xFF000000 ) >> 24 );
-        m_address.ipv4[2] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x00FF0000 ) >> 16 );
-        m_address.ipv4[1] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x0000FF00 ) >> 8  );
-        m_address.ipv4[0] = (uint8_t) ( ( sockaddr4.sin_addr.s_addr & 0x000000FF )       );
+    return .{}, str;
+}
+
+/*
+Converts an IPv4 address to its corresponding IPv4-mapped IPv6 address.
+
+For example, the string "127.0.0.1" can be converted to an IPv4 address by calling `string_to_ipv4`.
+After checking for success, the resulting address can be passed into this function to convert it to an IPv6
+address that is equivalent to the result of calling `string_to_ipv6("::FFFF:7F00:1")`, where 7F00:0001
+is the hexademical representation of 127.0.0.1, and the preceding FFFF denotes an IPv4-mapped IPv6 address as
+described in RFC 4291 Section 2.5.5.2 (https://datatracker.ietf.org/doc/html/rfc4291#section-2.5.5.2).
+*/
+ipv4_to_ipv6 :: (address: Address) -> result: Address {
+    assert(address.type == .IPv4);
+
+    if (address.type != .IPv4) {
+        return .{};
     }
-    else
-    {
-        // Not a valid IPv4 address. Set address as invalid.
-        Clear();
+
+    result: Address;
+    result.type = .IPv6;
+    result.port = address.port;
+    result.ipv6[5] = 0xFFFF;
+    result.ipv6[6] = (cast(u16) address.ipv4[0]) << 8 | address.ipv4[1];
+    result.ipv6[7] = (cast(u16) address.ipv4[2]) << 8 | address.ipv4[3];
+    return result;
+}
+
+/*
+Converts a canonical IPv6 string (e.g. "2001:db8:0000:0000:0000:0000:7777:8888") to a network byte order array.
+
+We also handle the double-colon compression syntax for contiguous zeros; i.e."2001:db8::7777:8888" will result
+in the same byte array as the full version of the address above.
+
+We DO NOT handle IPv4-mapped IPv6 addresses in string format (e.g. "::ffff:127.0.0.1"). If you would like to create
+such an address, call `string_to_ipv4`, check for success, then pass the resulting buffer of bytes to `ipv4_to_ipv6`
+to create an IPv6 address.
+
+Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
+Some example IPv6 variants:
+
+    2001:db8:0:0:1:0:0:1
+    2001:0db8:0:0:1:0:0:1
+    2001:db8::1:0:0:1
+    2001:db8::0:1:0:0:1
+    2001:0db8::1:0:0:1
+    2001:db8:0:0:1::1
+    2001:db8:0000:0:1::1
+    2001:DB8:0:0:1::1
+
+    See https://datatracker.ietf.org/doc/html/rfc5952#section-1 for more context.
+*/
+string_to_ipv6 :: (str: string, port: u16 = 0) -> result: Address, remainder: string {
+    hexval :: (c: u8) -> int {
+        if c == {
+            case #char "0"; return 0;
+            case #char "1"; return 1;
+            case #char "2"; return 2;
+            case #char "3"; return 3;
+            case #char "4"; return 4;
+            case #char "5"; return 5;
+            case #char "6"; return 6;
+            case #char "7"; return 7;
+            case #char "8"; return 8;
+            case #char "9"; return 9;
+            case #char "A"; #through; case #char "a"; return 10;
+            case #char "B"; #through; case #char "b"; return 11;
+            case #char "C"; #through; case #char "c"; return 12;
+            case #char "D"; #through; case #char "d"; return 13;
+            case #char "E"; #through; case #char "e"; return 14;
+            case #char "F"; #through; case #char "f"; return 15;
+        }
+        return -1;
+    }
+
+    s := str;
+    result := Address.{ type = .IPv6, port = port };
+
+    // Note: I'm calling double-colons, which eat an arbitrary number of IPv6 segments, the "worm" because they are
+    // stretchy like a worm, force the parser to accept all kinds of garbage inputs (which I've dubbed "worm food"),
+    // and can be represented as an emoji in discord via ":worm:" (which is what I imagine when I see a double colon
+    // in an IPv6 address).
+    //
+    // And now, I present, the worm dance: "1111:2222:worm:6666:7777".
+    worm_segment: int = -1;
+
+    if s.count < 2 {
+        yojimbo_log(.ERROR, "Unable to parse '%' as IPv6 address. Not enough characters.\n", str);
+        return .{}, str;
+    }
+
+    if s[0] == #char ":" {
+        if s[1] != #char ":" {
+            yojimbo_log(.ERROR, "Unexpected character '%' while parsing '%' as IPv6 address. Addresses starting with a colon (:) must start with a double colon (::).\n", s[1], str);
+            return .{}, str;
+        }
+
+        if s.count == 2 {
+            // "::" is the IPv6 "unspecified address" (all zeros)
+            return result, "";
+        }
+
+        // discard first colon of "::"
+        advance(*s, 1);
+    }
+
+    segment := 0;
+	while segment <= 7 {
+		if s[0] == #char ":" && worm_segment < 0 {
+			worm_segment = segment;
+			result.ipv6[segment] = 0;
+
+            // discard second colon of "::"
+            advance(*s, 1);
+
+            if segment == 7 {
+                break;
+            }
+            segment += 1;
+			continue;
+		}
+
+        digits := 0;
+        value := 0;
+        for 0..3 {
+            if !s.count break;
+
+            hex_value := hexval(s[0]);
+            if hex_value < 0
+                break;
+
+            value *= 16;
+            value += hex_value;
+
+            digits += 1;
+            advance(*s, 1);
+        }
+
+		if digits == 0 {
+            if worm_segment >= 0 {
+                // We're in :worm: mode, anything goes in :worm: mode.
+                // Backtrack the last colon we read and assume it is part of the remainder string.
+                s.data -= 1;
+                s.count += 1;
+                segment -= 1;
+                break;
+            }
+
+            if !s.count {
+                // ERROR: premature end of string before segment
+                return .{}, str;
+            } else {
+                // ERROR: unexpected character in segment
+                return .{}, str;
+            }
+        }
+
+        result.ipv6[segment] = cast(u16) value;
+
+        if segment == 7 {
+            break;
+        }
+
+		if !s.count {
+            if worm_segment >= 0 {
+                // We reached a premature end-of-string, but the :worm: makes everything valid! It can stretch and fill
+                // the gaps with its worm-like body.
+                break;
+            } else {
+                // ERROR: Premature end-of-string after segment
+                return .{}, str;
+            }
+        }
+
+		if s[0] != #char ":" {
+            if worm_segment >= 0 {
+                // The next character isn't a delimiter, like we expect, but it's okay the :worm: is here to save the day!
+                break;
+            } else {
+                //yojimbo_log(.ERROR, "Unexpected character '%' after octet % ('%') while parsing '%' as IPv4 address. Expected dot (.) separator.\n", string.{ 1, str.data + octet_start + digits }, octet + 1, string.{ digits, str.data + octet_start }, str);
+                return .{}, str;
+            }
+            break;
+        }
+
+		advance(*s, 1);  // discard ':' separator
+        segment += 1;
+	}
+
+    // Fill the :worm: hole with zeroes and shift the other segments accordingly
+    // Note: If worm_segment is the last segment we read, we don't need to shift anything
+    // (the code would work in that case, but why run it?)
+	if worm_segment >= 0 && worm_segment < segment {
+        // ::E:F | [0,E,F,0,0,0,0,0] -> [0:0:0:0:0:0:E:F] | worm_segment = 0, segment = 3
+        // F::F  | [F,0,F,0,0,0,0,0] -> [F:0:0:0:0:0:0:F] | worm_segment = 1, segment = 3
+        // F::   | [F,0,0,0,0,0,0,0] -> [F:0:0:0:0:0:0:0] | worm_segment = 1, segment = 2
+        tail_start := worm_segment + 1;
+        tail_length := segment - tail_start + 1;
+        dest := 8 - tail_length;
+        for < tail_length-1..0 {
+            result.ipv6[dest + it] = result.ipv6[tail_start + it];
+            result.ipv6[tail_start + it] = 0;
+        }
+	}
+
+	return result, s;
+}
+
+/*
+Converts the address to a human-readable string.
+This does not include port, read that from the Address struct yourself if you want it.
+This also doesn't collapse zeroes using :: syntax right now.
+*/
+address_to_string :: (address: Address, canonical := false) -> ip_str: string {
+    if address.type == {
+        case .IPv4;
+            a := address.ipv4[0];
+            b := address.ipv4[1];
+            c := address.ipv4[2];
+            d := address.ipv4[3];
+
+            builder: String_Builder;
+            str := sprint("%.%.%.%", a, b, c, d);
+            return str;
+        case .IPv6;
+            digits := ifx canonical then 4 else 1;
+            words := cast,force([8] u16) address.ipv6;
+
+            builder: String_Builder;
+            print_to_builder(*builder, "%:%:%:%:%:%:%:%",
+                formatInt(words[0], 16, digits),
+                formatInt(words[1], 16, digits),
+                formatInt(words[2], 16, digits),
+                formatInt(words[3], 16, digits),
+                formatInt(words[4], 16, digits),
+                formatInt(words[5], 16, digits),
+                formatInt(words[6], 16, digits),
+                formatInt(words[7], 16, digits),
+            );
+
+            str := builder_to_string(*builder);
+            return str;
+        case;
+            return "(ADDRESS_NONE)";
     }
 }
 
-// Convert the address to a string.
-address_to_string :: (address: Address) -> string;
-
 /*
 Is this a loopback address?
-Corresponds to an IPv4 address of "127.0.0.1", or an IPv6 address of "::1".
+Corresponds to an IPv4 address of "127.*.*.*", or an IPv6 address of "::1".
 
 @returns True if this is the loopback address.
 */
-address_is_loopback :: (address: Address) -> bool;
+address_is_loopback :: (address: Address) -> bool {
+    return (
+        address.type == .IPv4
+        && address.ipv4[0] == 127
+    ) || (
+        address.type == .IPv6
+        && m_address.ipv6[0] == 0
+        && m_address.ipv6[1] == 0
+        && m_address.ipv6[2] == 0
+        && m_address.ipv6[3] == 0
+        && m_address.ipv6[4] == 0
+        && m_address.ipv6[5] == 0
+        && m_address.ipv6[6] == 0
+        && m_address.ipv6[7] == 0x0001
+    );
+}
 
 /*
 Is this an IPv6 link local address?
@@ -264,7 +505,11 @@ Corresponds to the first field of the address being 0xfe80
 
 @returns True if this address is a link local IPv6 address.
 */
-address_is_link_local :: (address: Address) -> bool;
+address_is_link_local :: (address: Address) -> bool {
+    assert(address.type == .IPv6);
+
+    return address.type == .IPv6 && address.ipv6[0] == 0xfe80;
+}
 
 /*
 Is this an IPv6 site local address?
@@ -272,7 +517,11 @@ Corresponds to the first field of the address being 0xfec0
 
 @returns True if this address is a site local IPv6 address.
 */
-address_is_site_local :: (address: Address) -> bool;
+address_is_site_local :: (address: Address) -> bool {
+    assert(address.type == .IPv6);
+
+    return address.type == .IPv6 && address.ipv6[0] == 0xfec0;
+}
 
 /*
 Is this an IPv6 multicast address?
@@ -280,7 +529,11 @@ Corresponds to the first field of the IPv6 address being 0xff00
 
 @returns True if this address is a multicast IPv6 address.
 */
-address_is_multicast :: (address: Address) -> bool;
+address_is_multicast :: (address: Address) -> bool {
+    assert(address.type == .IPv6);
+
+    return address.type == .IPv6 && address.ipv6[0] == 0xff00;
+}
 
 /*
 Is this in IPv6 global unicast address?
@@ -288,7 +541,15 @@ Corresponds to any IPv6 address that is not any of the following: Link Local, Si
 
 @returns True if this is a global unicast IPv6 address.
 */
-address_is_global_unicast :: (address: Address) -> bool;
+address_is_global_unicast :: (address: Address) -> bool {
+    assert(address.type == .IPv6);
+
+    return address.type == .IPv6
+        && !address_is_link_local(address)
+        && !address_is_site_local(address)
+        && !address_is_multicast(address)
+        && !address_is_loopback(address);
+}
 
 /*
 Check if two addresses are logically equivalent (same type, address and port).
@@ -305,146 +566,6 @@ operator == :: (a: Address, b: Address) -> bool {
     return false;
 }
 
-/*--------------------------------------------------------------------------------------------------------------------*/
-                                                    #scope_file
-/*--------------------------------------------------------------------------------------------------------------------*/
+#scope_file
 
-// #if YOJIMBO_PLATFORM == YOJIMBO_PLATFORM_WINDOWS
-
-//     #define NOMINMAX
-//     #define _WINSOCK_DEPRECATED_NO_WARNINGS
-//     #include <winsock2.h>
-//     #include <ws2tcpip.h>
-//     #include <ws2ipdef.h>
-//     #pragma comment( lib, "WS2_32.lib" )
-
-//     #ifdef SetPort
-//     #undef SetPort
-//     #endif // #ifdef SetPort
-
-// #elif YOJIMBO_PLATFORM == YOJIMBO_PLATFORM_MAC || YOJIMBO_PLATFORM == YOJIMBO_PLATFORM_UNIX
-
-//     #include <netdb.h>
-//     #include <sys/types.h>
-//     #include <sys/socket.h>
-//     #include <netinet/in.h>
-//     #include <net/if.h>
-//     #include <fcntl.h>
-//     #include <netdb.h>
-//     #include <arpa/inet.h>
-//     #include <unistd.h>
-//     #include <errno.h>
-
-// #else
-
-//     #error yojimbo unknown platform!
-
-// #endif
-
-const char * Address::ToString( char buffer[], int bufferSize ) const
-{
-    yojimbo_assert( bufferSize >= MaxAddressLength );
-
-    if ( m_type == ADDRESS_IPV4 )
-    {
-        const uint8_t a = m_address.ipv4[0];
-        const uint8_t b = m_address.ipv4[1];
-        const uint8_t c = m_address.ipv4[2];
-        const uint8_t d = m_address.ipv4[3];
-        if ( m_port != 0 )
-            snprintf( buffer, bufferSize, "%d.%d.%d.%d:%d", a, b, c, d, m_port );
-        else
-            snprintf( buffer, bufferSize, "%d.%d.%d.%d", a, b, c, d );
-        return buffer;
-    }
-    else if ( m_type == ADDRESS_IPV6 )
-    {
-        if ( m_port == 0 )
-        {
-            uint16_t address6[8];
-            for ( int i = 0; i < 8; ++i )
-                address6[i] = ntohs( ((uint16_t*) &m_address.ipv6)[i] );
-            inet_ntop( AF_INET6, address6, buffer, bufferSize );
-            return buffer;
-        }
-        else
-        {
-            char addressString[INET6_ADDRSTRLEN];
-            uint16_t address6[8];
-            for ( int i = 0; i < 8; ++i )
-                address6[i] = ntohs( ((uint16_t*) &m_address.ipv6)[i] );
-            inet_ntop( AF_INET6, address6, addressString, INET6_ADDRSTRLEN );
-            snprintf( buffer, bufferSize, "[%s]:%d", addressString, m_port );
-            return buffer;
-        }
-    }
-    else
-    {
-        snprintf( buffer, bufferSize, "%s", "NONE" );
-        return buffer;
-    }
-}
-
-bool Address::IsValid() const
-{
-    return m_type != ADDRESS_NONE;
-}
-
-bool Address::IsLinkLocal() const
-{
-    return m_type == ADDRESS_IPV6 && m_address.ipv6[0] == 0xfe80;
-}
-
-bool Address::IsSiteLocal() const
-{
-    return m_type == ADDRESS_IPV6 && m_address.ipv6[0] == 0xfec0;
-}
-
-bool Address::IsMulticast() const
-{
-    return m_type == ADDRESS_IPV6 && m_address.ipv6[0] == 0xff00;
-}
-
-bool Address::IsLoopback() const
-{
-    return ( m_type == ADDRESS_IPV4 && m_address.ipv4[0] == 127
-                                    && m_address.ipv4[1] == 0
-                                    && m_address.ipv4[2] == 0
-                                    && m_address.ipv4[3] == 1 )
-                                        ||
-            ( m_type == ADDRESS_IPV6 && m_address.ipv6[0] == 0
-                                    && m_address.ipv6[1] == 0
-                                    && m_address.ipv6[2] == 0
-                                    && m_address.ipv6[3] == 0
-                                    && m_address.ipv6[4] == 0
-                                    && m_address.ipv6[5] == 0
-                                    && m_address.ipv6[6] == 0
-                                    && m_address.ipv6[7] == 0x0001 );
-}
-
-bool Address::IsGlobalUnicast() const
-{
-    return m_type == ADDRESS_IPV6 && m_address.ipv6[0] != 0xfe80
-                                    && m_address.ipv6[0] != 0xfec0
-                                    && m_address.ipv6[0] != 0xff00
-                                    && !IsLoopback();
-}
-
-bool Address::operator ==( const Address & other ) const
-{
-    if ( m_type != other.m_type )
-        return false;
-    if ( m_port != other.m_port )
-        return false;
-    if ( m_type == ADDRESS_IPV4 && memcmp( m_address.ipv4, other.m_address.ipv4, sizeof( m_address.ipv4 ) ) == 0 )
-        return true;
-    else if ( m_type == ADDRESS_IPV6 && memcmp( m_address.ipv6, other.m_address.ipv6, sizeof( m_address.ipv6 ) ) == 0 )
-        return true;
-    else
-        return false;
-}
-
-bool Address::operator !=( const Address & other ) const
-{
-    return !( *this == other );
-}
+#import "Basic";

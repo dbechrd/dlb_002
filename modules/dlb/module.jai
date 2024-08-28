@@ -14,3 +14,7 @@ array_equal :: (a: [] $T, b: [] T) -> bool {
 pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
     return cast(s64)((cast(*u8) a) - (cast(*u8) b));
 }
+
+#scope_module
+
+DLB_FOO :: 42;
