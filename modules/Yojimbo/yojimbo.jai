@@ -52,6 +52,10 @@ yojimbo_shutdown :: () {
 
 }
 
+yojimbo_tests :: () {
+    address_tests();
+}
+
 #scope_module
 
 // #load "adapter.jai";

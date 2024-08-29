@@ -1,97 +1,9 @@
-test_ipv4 :: (s: string) {
-    ipv4, remainder := address_create_ipv4(s);
-    log("%\n%, '%'\n\n", s, address_to_string(ipv4), remainder);
-}
-
-test_ipv6 :: (s: string) {
-    ipv6, remainder := address_create_ipv6(s,);
-    log("%\n%, '%'\n\n", s, address_to_string(ipv6, canonical=true), remainder);
-}
-
-address_tests :: () {
-    // premature end-of-string in octet
-    test_ipv4("");
-    test_ipv4("1.");
-    test_ipv4("1.0.");
-    test_ipv4("1.0.0.");
-
-    // unexpected character in octet
-    test_ipv4("?1.1.1.1");
-    test_ipv4("1?.1.1.1");
-    test_ipv4("1.?1.1.1");
-    test_ipv4("1.1?.1.1");
-    test_ipv4("1.1.?1.1");
-    test_ipv4("1.1.1?.1");
-    test_ipv4("1.1.1.?1");
-
-    // illegal leading zeros
-    test_ipv4("01");
-    test_ipv4("1.01");
-    test_ipv4("1.1.01");
-    test_ipv4("1.1.1.01");
-    test_ipv4("001");
-    test_ipv4("1.001");
-    test_ipv4("1.1.001");
-    test_ipv4("1.1.1.001");
-
-    // out-of-range octet value
-    test_ipv4("256.0.0.0");
-    test_ipv4("0.256.0.0");
-    test_ipv4("0.0.256.0");
-    test_ipv4("0.0.0.256");
-
-    // premature end-of-string instead of separator
-    test_ipv4("1");
-    test_ipv4("1.0");
-    test_ipv4("1.0.0");
-
-    // unexpected character instead of separator
-    test_ipv4("1?0.0.1");
-    test_ipv4("1.0?0.1");
-    test_ipv4("1.0.0?1");
-
-    // valid address
-    test_ipv4("127.0.0.1");
-
-    //-----------------------------------------------
-
-    test_ipv6("::1:2:3:4");
-
-     // should return 00000000 (the "unspecified" address)
-    test_ipv6("::");
-
-    // valid
-    test_ipv6("0:1:2:3:4:5:6:7");
-
-    // valid w/ trailing ::
-    test_ipv6("0:1:2:3:4:5:6::");
-
-    // valid (due to ::) w/ remainder
-    test_ipv6("0:1:2::?");
-    test_ipv6("0:1:2::4?");
-    test_ipv6("0:1:2::4:?");
-    test_ipv6("0:1:2::4:5?");
-
-    /*
-    ipv4 := string_to_ipv4("127.0.0.1");
-    if ipv4.type == .IPv4 {
-        ipv6 := ipv4_to_ipv6(ipv4);
-
-        ipv4str := address_to_string(ipv4);
-        ipv6str := address_to_string(ipv6);
-
-        log("% -> %\n", ipv4str, ipv6str);
-    }
-    */
-}
-
 main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
     log_cpu_info();
-
-    address_tests();
+    yojimbo_tests();
     reliable_test();
     run_game();
 }
