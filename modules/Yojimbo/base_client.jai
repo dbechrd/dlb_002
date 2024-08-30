@@ -322,7 +322,6 @@ void BaseClient::AttachBlockToMessage( Message * message, uint8_t * block, int b
     yojimbo_assert( message );
     yojimbo_assert( block );
     yojimbo_assert( bytes > 0 );
-    yojimbo_assert( message->IsBlockMessage() );
     BlockMessage * blockMessage = (BlockMessage*) message;
     blockMessage->AttachBlock( *m_clientAllocator, block, bytes );
 }

@@ -1,24 +1,5 @@
 #scope_file
 
-// NOTE(dlb): What is the point of this test? Nothing else in the library uses the LITTLE_ENDIAN flag.
-test_endian :: () {
-    value: u32 = 0x11223344;
-
-    bytes := cast(*u8) *value;
-
-    #if LITTLE_ENDIAN {
-        assert(bytes[0] == 0x44);
-        assert(bytes[1] == 0x33);
-        assert(bytes[2] == 0x22);
-        assert(bytes[3] == 0x11);
-    } else {
-        assert(bytes[0] == 0x11);
-        assert(bytes[1] == 0x22);
-        assert(bytes[2] == 0x33);
-        assert(bytes[3] == 0x44);
-    }
-}
-
 test_sequence_data_t :: struct {
     sequence: u16;
 }
@@ -662,7 +643,6 @@ test_fragment_cleanup :: () {
 reliable_test :: () {
     log("--------------------------------------------------------------------------------\n");
     log("[Reliable] Running tests...\n");
-    test_endian();
     test_sequence_buffer();
     test_generate_ack_bits();
     test_packet_header();

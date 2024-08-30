@@ -5,7 +5,6 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
 ------------------------------------------------------------------------------------------------------------------------
 | Original BSD-3 license
 ------------------------------------------------------------------------------------------------------------------------
-
     reliable
 
     Copyright © 2017 - 2024, Mas Bandwidth LLC
@@ -79,11 +78,12 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
 // Query current performance counters
 
     reliable_endpoint_counters :: inline (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64
+
+-----------------------------------------------------------------------------------------------------------------------
 */
 
 #module_parameters(
-    ENABLE_LOGGING := false,
-    LITTLE_ENDIAN := true
+    ENABLE_LOGGING := false
 );
 
 #load "tests.jai";

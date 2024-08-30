@@ -32,7 +32,7 @@ log_cpu_info :: () {
 
 #import "dlb";
 #import "Reliable"; //(ENABLE_LOGGING=true);
-#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true);
+#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
 #import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {

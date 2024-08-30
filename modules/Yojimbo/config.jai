@@ -53,7 +53,7 @@ ChannelConfig :: struct {
     blockFragmentResendTime : float       = 0.25;              // Minimum delay between block fragment resends (seconds). Avoids sending the same fragment too frequently. Reliable-ordered channel only.
 };
 
-channel_config_get_fragments_per_block :: (using channelConfig: *ChannelConfig) -> int {
+channel_config_get_max_fragments_per_block :: (using channelConfig: *ChannelConfig) -> int {
     return maxBlockSize / blockFragmentSize;
 }
 

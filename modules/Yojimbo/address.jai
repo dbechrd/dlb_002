@@ -530,46 +530,47 @@ array_equal :: (a: [] $T, b: [] T) -> bool {
 
 #scope_module
 
-#add_context yojimbo: struct {
-    last_log_message: string;
-};
+#if YOJIMBO_ENABLE_TESTS {
+    #add_context yojimbo: struct {
+        last_log_message: string;
+    };
 
-address_tests :: () {
-    test_logger :: (message: string, data: *void, info: Log_Info) {
-        if !message
-            return;
+    address_tests :: () {
+        test_logger :: (message: string, data: *void, info: Log_Info) {
+            if !message
+                return;
 
-        context.yojimbo.last_log_message = message;
+            context.yojimbo.last_log_message = message;
 
-        if !info.user_flags & 1  // only log test output
-            return;
+            if !info.user_flags & 1  // only log test output
+                return;
 
-        write_string(message);
-    }
-
-    old_logger := context.logger;
-    context.logger = test_logger;
-    defer context.logger = old_logger;
-
-    test_ip :: (type: AddressType, s: string, expected_address: Address, expected_remainder: string = "", expected_log: string = "") {
-        ip: Address;
-        remainder: string;
-
-        context.yojimbo.last_log_message = .{};
-        if #complete type == {
-            case .None;
-                assert(false, "You must select a valid AddressType to test.");
-            case .IPv4;
-                ip, remainder = address_create_ipv4(s);
-            case .IPv6;
-                ip, remainder = address_create_ipv6(s);
+            write_string(message);
         }
 
-        PASS_MSG :: #string EOS
+        old_logger := context.logger;
+        context.logger = test_logger;
+        defer context.logger = old_logger;
+
+        test_ip :: (type: AddressType, s: string, expected_address: Address, expected_remainder: string = "", expected_log: string = "") {
+            ip: Address;
+            remainder: string;
+
+            context.yojimbo.last_log_message = .{};
+            if #complete type == {
+                case .None;
+                    assert(false, "You must select a valid AddressType to test.");
+                case .IPv4;
+                    ip, remainder = address_create_ipv4(s);
+                case .IPv6;
+                    ip, remainder = address_create_ipv6(s);
+            }
+
+            PASS_MSG :: #string EOS
 [SUCCESS] % "%"
 EOS
 
-        FAIL_MSG :: #string EOS
+            FAIL_MSG :: #string EOS
 ────────────────────────────────────────────────────────────────────────────────
 *** FAILURE ***
 
@@ -577,108 +578,109 @@ While trying to parse "%" as %.
 ┌──────────────────────────────────────┐
 │ Expected                             │
 └──────────────────────────────────────┘
-  %
-  "%"
-  "%"
+%
+"%"
+"%"
 ┌──────────────────────────────────────┐
 │ Actual                               │
 └──────────────────────────────────────┘
-  %
-  "%"
-  "%"
+%
+"%"
+"%"
 ────────────────────────────────────────────────────────────────────────────────
 EOS
 
-        pass := ip == expected_address && remainder == expected_remainder && context.yojimbo.last_log_message == expected_log;
-        if pass {
-            log(PASS_MSG, type, s, user_flags = 1);
-        } else {
-            log(FAIL_MSG, s, type,
-                address_to_string(expected_address, canonical=true), expected_remainder, expected_log,
-                address_to_string(ip, canonical=true), remainder, context.yojimbo.last_log_message,
-                user_flags = 1
-            );
+            pass := ip == expected_address && remainder == expected_remainder && context.yojimbo.last_log_message == expected_log;
+            if pass {
+                log(PASS_MSG, type, s, user_flags = 1);
+            } else {
+                log(FAIL_MSG, s, type,
+                    address_to_string(expected_address, canonical=true), expected_remainder, expected_log,
+                    address_to_string(ip, canonical=true), remainder, context.yojimbo.last_log_message,
+                    user_flags = 1
+                );
+            }
         }
+
+        log("[yojimbo] Running address tests...\n", user_flags = 1);
+
+        //--- ipv4 tests ----------------------------------------------------------
+
+        // premature end-of-string in octet
+        test_ip(.IPv4, "",       .{}, "",       "Premature end-of-string in octet 1 while parsing '' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1.",     .{}, "1.",     "Premature end-of-string in octet 2 while parsing '1.' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1.0.",   .{}, "1.0.",   "Premature end-of-string in octet 3 while parsing '1.0.' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1.0.0.", .{}, "1.0.0.", "Premature end-of-string in octet 4 while parsing '1.0.0.' as IPv4 address. Expected digit (0-9).\n");
+
+        // unexpected character in octet
+        test_ip(.IPv4, "?1.1.1.1", .{}, "?1.1.1.1", "Unexpected character '?' in octet 1 while parsing '?1.1.1.1' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1?.1.1.1", .{}, "1?.1.1.1", "Unexpected character '?' after octet 1 ('1') while parsing '1?.1.1.1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.?1.1.1", .{}, "1.?1.1.1", "Unexpected character '?' in octet 2 while parsing '1.?1.1.1' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1.1?.1.1", .{}, "1.1?.1.1", "Unexpected character '?' after octet 2 ('1') while parsing '1.1?.1.1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.1.?1.1", .{}, "1.1.?1.1", "Unexpected character '?' in octet 3 while parsing '1.1.?1.1' as IPv4 address. Expected digit (0-9).\n");
+        test_ip(.IPv4, "1.1.1?.1", .{}, "1.1.1?.1", "Unexpected character '?' after octet 3 ('1') while parsing '1.1.1?.1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.1.1.?1", .{}, "1.1.1.?1", "Unexpected character '?' in octet 4 while parsing '1.1.1.?1' as IPv4 address. Expected digit (0-9).\n");
+
+        // illegal leading zeros
+        test_ip(.IPv4, "01",        .{}, "01",        "Illegal leading zero(s) in octet 1 ('01') while parsing '01' as IPv4 address.\n");
+        test_ip(.IPv4, "1.01",      .{}, "1.01",      "Illegal leading zero(s) in octet 2 ('01') while parsing '1.01' as IPv4 address.\n");
+        test_ip(.IPv4, "1.1.01",    .{}, "1.1.01",    "Illegal leading zero(s) in octet 3 ('01') while parsing '1.1.01' as IPv4 address.\n");
+        test_ip(.IPv4, "1.1.1.01",  .{}, "1.1.1.01",  "Illegal leading zero(s) in octet 4 ('01') while parsing '1.1.1.01' as IPv4 address.\n");
+        test_ip(.IPv4, "001",       .{}, "001",       "Illegal leading zero(s) in octet 1 ('001') while parsing '001' as IPv4 address.\n");
+        test_ip(.IPv4, "1.001",     .{}, "1.001",     "Illegal leading zero(s) in octet 2 ('001') while parsing '1.001' as IPv4 address.\n");
+        test_ip(.IPv4, "1.1.001",   .{}, "1.1.001",   "Illegal leading zero(s) in octet 3 ('001') while parsing '1.1.001' as IPv4 address.\n");
+        test_ip(.IPv4, "1.1.1.001", .{}, "1.1.1.001", "Illegal leading zero(s) in octet 4 ('001') while parsing '1.1.1.001' as IPv4 address.\n");
+
+        // out-of-range octet value
+        test_ip(.IPv4, "256.0.0.0", .{}, "256.0.0.0", "Out-of-range value '256' in octet 1 ('256') while parsing '256.0.0.0' as IPv4 address. Expected octet in range (0-255).\n");
+        test_ip(.IPv4, "0.256.0.0", .{}, "0.256.0.0", "Out-of-range value '256' in octet 2 ('256') while parsing '0.256.0.0' as IPv4 address. Expected octet in range (0-255).\n");
+        test_ip(.IPv4, "0.0.256.0", .{}, "0.0.256.0", "Out-of-range value '256' in octet 3 ('256') while parsing '0.0.256.0' as IPv4 address. Expected octet in range (0-255).\n");
+        test_ip(.IPv4, "0.0.0.256", .{}, "0.0.0.256", "Out-of-range value '256' in octet 4 ('256') while parsing '0.0.0.256' as IPv4 address. Expected octet in range (0-255).\n");
+
+        // premature end-of-string instead of separator
+        test_ip(.IPv4, "1",     .{}, "1",     "Premature end-of-string after octet 1 ('1') while parsing '1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.0",   .{}, "1.0",   "Premature end-of-string after octet 2 ('0') while parsing '1.0' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.0.0", .{}, "1.0.0", "Premature end-of-string after octet 3 ('0') while parsing '1.0.0' as IPv4 address. Expected dot (.) separator.\n");
+
+        // unexpected character instead of separator
+        test_ip(.IPv4, "1?0.0.1", .{}, "1?0.0.1", "Unexpected character '?' after octet 1 ('1') while parsing '1?0.0.1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.0?0.1", .{}, "1.0?0.1", "Unexpected character '?' after octet 2 ('0') while parsing '1.0?0.1' as IPv4 address. Expected dot (.) separator.\n");
+        test_ip(.IPv4, "1.0.0?1", .{}, "1.0.0?1", "Unexpected character '?' after octet 3 ('0') while parsing '1.0.0?1' as IPv4 address. Expected dot (.) separator.\n");
+
+        // valid addresses
+        test_ip(.IPv4, "127.0.0.1",    .{ type = .IPv4, ipv4 = .[127, 0, 0, 1] });
+        test_ip(.IPv4, "127.0.0.1:80", .{ type = .IPv4, ipv4 = .[127, 0, 0, 1] }, ":80");
+
+        //--- ipv6 tests ----------------------------------------------------------
+
+        // not enough characters
+        test_ip(.IPv6, "",  .{}, "",  "Unable to parse '' as IPv6 address. Not enough characters.\n");
+        test_ip(.IPv6, "1", .{}, "1", "Unable to parse '1' as IPv6 address. Not enough characters.\n");
+        test_ip(.IPv6, ":", .{}, ":", "Unable to parse ':' as IPv6 address. Not enough characters.\n");
+
+        // cannot start with colon unless double colon
+        test_ip(.IPv6, ":1:2:3", .{}, ":1:2:3", "Unexpected character ':' in segment 1 while parsing ':1:2:3' as IPv6 address. Addresses starting with a colon (:) must start with a double colon (::).\n");
+
+        // premature end-of-string in segment
+        test_ip(.IPv6, "1:", .{}, "1:", "Premature end-of-string in segment 2 while parsing '1:' as IPv6 address. Expected hex digit (0-F).\n");
+
+        // unexpected character in segment
+        test_ip(.IPv6, "1:?", .{}, "1:?", "Unexpected character '?' in segment 2 while parsing '1:?' as IPv6 address. Expected hex digit (0-F).\n");
+
+        // premature end-of-string instead of separator
+        test_ip(.IPv6, "1:2", .{}, "1:2", "Premature end-of-string after segment 2 ('2') while parsing '1:2' as IPv6 address. Expected colon (:) separator.\n");
+
+        // unexpected character instead of separator
+        test_ip(.IPv6, "1:2?", .{}, "1:2?", "Unexpected character '?' after segment 2 ('2') while parsing '1:2?' as IPv6 address. Expected colon (:) separator.\n");
+
+        // valid addresses
+        test_ip(.IPv6, "::",              .{ type = .IPv6 });
+        test_ip(.IPv6, "::1:2:3:4",       .{ type = .IPv6, ipv6 = .[0, 0, 0, 0, 1, 2, 3, 4] });
+        test_ip(.IPv6, "0:1:2:3:4:5:6:7", .{ type = .IPv6, ipv6 = .[0, 1, 2, 3, 4, 5, 6, 7] });
+        test_ip(.IPv6, "0:1:2:3:4:5:6::", .{ type = .IPv6, ipv6 = .[0, 1, 2, 3, 4, 5, 6, 0] });
+        test_ip(.IPv6, "0:1:2::?",        .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 0] }, "?");
+        test_ip(.IPv6, "0:1:2::4?",       .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, "?");
+        test_ip(.IPv6, "0:1:2::4:?",      .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, ":?");
+        test_ip(.IPv6, "0:1:2::4:5?",     .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 4, 5] }, "?");
     }
-
-    log("[yojimbo] Running address.jai tests...\n", user_flags = 1);
-
-    //--- ipv4 tests ----------------------------------------------------------
-
-    // premature end-of-string in octet
-    test_ip(.IPv4, "",       .{}, "",       "Premature end-of-string in octet 1 while parsing '' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1.",     .{}, "1.",     "Premature end-of-string in octet 2 while parsing '1.' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1.0.",   .{}, "1.0.",   "Premature end-of-string in octet 3 while parsing '1.0.' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1.0.0.", .{}, "1.0.0.", "Premature end-of-string in octet 4 while parsing '1.0.0.' as IPv4 address. Expected digit (0-9).\n");
-
-    // unexpected character in octet
-    test_ip(.IPv4, "?1.1.1.1", .{}, "?1.1.1.1", "Unexpected character '?' in octet 1 while parsing '?1.1.1.1' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1?.1.1.1", .{}, "1?.1.1.1", "Unexpected character '?' after octet 1 ('1') while parsing '1?.1.1.1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.?1.1.1", .{}, "1.?1.1.1", "Unexpected character '?' in octet 2 while parsing '1.?1.1.1' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1.1?.1.1", .{}, "1.1?.1.1", "Unexpected character '?' after octet 2 ('1') while parsing '1.1?.1.1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.1.?1.1", .{}, "1.1.?1.1", "Unexpected character '?' in octet 3 while parsing '1.1.?1.1' as IPv4 address. Expected digit (0-9).\n");
-    test_ip(.IPv4, "1.1.1?.1", .{}, "1.1.1?.1", "Unexpected character '?' after octet 3 ('1') while parsing '1.1.1?.1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.1.1.?1", .{}, "1.1.1.?1", "Unexpected character '?' in octet 4 while parsing '1.1.1.?1' as IPv4 address. Expected digit (0-9).\n");
-
-    // illegal leading zeros
-    test_ip(.IPv4, "01",        .{}, "01",        "Illegal leading zero(s) in octet 1 ('01') while parsing '01' as IPv4 address.\n");
-    test_ip(.IPv4, "1.01",      .{}, "1.01",      "Illegal leading zero(s) in octet 2 ('01') while parsing '1.01' as IPv4 address.\n");
-    test_ip(.IPv4, "1.1.01",    .{}, "1.1.01",    "Illegal leading zero(s) in octet 3 ('01') while parsing '1.1.01' as IPv4 address.\n");
-    test_ip(.IPv4, "1.1.1.01",  .{}, "1.1.1.01",  "Illegal leading zero(s) in octet 4 ('01') while parsing '1.1.1.01' as IPv4 address.\n");
-    test_ip(.IPv4, "001",       .{}, "001",       "Illegal leading zero(s) in octet 1 ('001') while parsing '001' as IPv4 address.\n");
-    test_ip(.IPv4, "1.001",     .{}, "1.001",     "Illegal leading zero(s) in octet 2 ('001') while parsing '1.001' as IPv4 address.\n");
-    test_ip(.IPv4, "1.1.001",   .{}, "1.1.001",   "Illegal leading zero(s) in octet 3 ('001') while parsing '1.1.001' as IPv4 address.\n");
-    test_ip(.IPv4, "1.1.1.001", .{}, "1.1.1.001", "Illegal leading zero(s) in octet 4 ('001') while parsing '1.1.1.001' as IPv4 address.\n");
-
-    // out-of-range octet value
-    test_ip(.IPv4, "256.0.0.0", .{}, "256.0.0.0", "Out-of-range value '256' in octet 1 ('256') while parsing '256.0.0.0' as IPv4 address. Expected octet in range (0-255).\n");
-    test_ip(.IPv4, "0.256.0.0", .{}, "0.256.0.0", "Out-of-range value '256' in octet 2 ('256') while parsing '0.256.0.0' as IPv4 address. Expected octet in range (0-255).\n");
-    test_ip(.IPv4, "0.0.256.0", .{}, "0.0.256.0", "Out-of-range value '256' in octet 3 ('256') while parsing '0.0.256.0' as IPv4 address. Expected octet in range (0-255).\n");
-    test_ip(.IPv4, "0.0.0.256", .{}, "0.0.0.256", "Out-of-range value '256' in octet 4 ('256') while parsing '0.0.0.256' as IPv4 address. Expected octet in range (0-255).\n");
-
-    // premature end-of-string instead of separator
-    test_ip(.IPv4, "1",     .{}, "1",     "Premature end-of-string after octet 1 ('1') while parsing '1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.0",   .{}, "1.0",   "Premature end-of-string after octet 2 ('0') while parsing '1.0' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.0.0", .{}, "1.0.0", "Premature end-of-string after octet 3 ('0') while parsing '1.0.0' as IPv4 address. Expected dot (.) separator.\n");
-
-    // unexpected character instead of separator
-    test_ip(.IPv4, "1?0.0.1", .{}, "1?0.0.1", "Unexpected character '?' after octet 1 ('1') while parsing '1?0.0.1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.0?0.1", .{}, "1.0?0.1", "Unexpected character '?' after octet 2 ('0') while parsing '1.0?0.1' as IPv4 address. Expected dot (.) separator.\n");
-    test_ip(.IPv4, "1.0.0?1", .{}, "1.0.0?1", "Unexpected character '?' after octet 3 ('0') while parsing '1.0.0?1' as IPv4 address. Expected dot (.) separator.\n");
-
-    // valid addresses
-    test_ip(.IPv4, "127.0.0.1",    .{ type = .IPv4, ipv4 = .[127, 0, 0, 1] });
-    test_ip(.IPv4, "127.0.0.1:80", .{ type = .IPv4, ipv4 = .[127, 0, 0, 1] }, ":80");
-
-    //--- ipv6 tests ----------------------------------------------------------
-
-    // not enough characters
-    test_ip(.IPv6, "",  .{}, "",  "Unable to parse '' as IPv6 address. Not enough characters.\n");
-    test_ip(.IPv6, "1", .{}, "1", "Unable to parse '1' as IPv6 address. Not enough characters.\n");
-    test_ip(.IPv6, ":", .{}, ":", "Unable to parse ':' as IPv6 address. Not enough characters.\n");
-
-    // cannot start with colon unless double colon
-    test_ip(.IPv6, ":1:2:3", .{}, ":1:2:3", "Unexpected character ':' in segment 1 while parsing ':1:2:3' as IPv6 address. Addresses starting with a colon (:) must start with a double colon (::).\n");
-
-    // premature end-of-string in segment
-    test_ip(.IPv6, "1:", .{}, "1:", "Premature end-of-string in segment 2 while parsing '1:' as IPv6 address. Expected hex digit (0-F).\n");
-
-    // unexpected character in segment
-    test_ip(.IPv6, "1:?", .{}, "1:?", "Unexpected character '?' in segment 2 while parsing '1:?' as IPv6 address. Expected hex digit (0-F).\n");
-
-    // premature end-of-string instead of separator
-    test_ip(.IPv6, "1:2", .{}, "1:2", "Premature end-of-string after segment 2 ('2') while parsing '1:2' as IPv6 address. Expected colon (:) separator.\n");
-
-    // unexpected character instead of separator
-    test_ip(.IPv6, "1:2?", .{}, "1:2?", "Unexpected character '?' after segment 2 ('2') while parsing '1:2?' as IPv6 address. Expected colon (:) separator.\n");
-
-    // valid addresses
-    test_ip(.IPv6, "::",              .{ type = .IPv6 });
-    test_ip(.IPv6, "::1:2:3:4",       .{ type = .IPv6, ipv6 = .[0, 0, 0, 0, 1, 2, 3, 4] });
-    test_ip(.IPv6, "0:1:2:3:4:5:6:7", .{ type = .IPv6, ipv6 = .[0, 1, 2, 3, 4, 5, 6, 7] });
-    test_ip(.IPv6, "0:1:2:3:4:5:6::", .{ type = .IPv6, ipv6 = .[0, 1, 2, 3, 4, 5, 6, 0] });
-    test_ip(.IPv6, "0:1:2::?",        .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 0] }, "?");
-    test_ip(.IPv6, "0:1:2::4?",       .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, "?");
-    test_ip(.IPv6, "0:1:2::4:?",      .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, ":?");
-    test_ip(.IPv6, "0:1:2::4:5?",     .{ type = .IPv6, ipv6 = .[0, 1, 2, 0, 0, 0, 4, 5] }, "?");
 }

@@ -412,7 +412,7 @@ void Connection::AdvanceTime( double time )
         m_errorLevel = CONNECTION_ERROR_ALLOCATOR;
         return;
     }
-    if ( m_messageFactory->GetErrorLevel() != MESSAGE_FACTORY_ERROR_NONE )
+    if ( m_messageFactory->GetErrorLevel() != .None )
     {
         m_errorLevel = CONNECTION_ERROR_MESSAGE_FACTORY;
         return;
