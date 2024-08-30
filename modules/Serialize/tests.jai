@@ -84,8 +84,8 @@ inline void test_bitpacker()
 
     serialize::BitReader reader( buffer, bytesWritten );
 
-    serialize_check( reader.GetBitsRead() == 0 );
-    serialize_check( reader.GetBitsRemaining() == bytesWritten * 8 );
+    serialize_check( reader.bitsRead == 0 );
+    serialize_check( reader.numBits - reader.bitsRead == bytesWritten * 8 );
 
     uint32_t a = reader.ReadBits( 1 );
     uint32_t b = reader.ReadBits( 1 );
@@ -103,8 +103,8 @@ inline void test_bitpacker()
     serialize_check( f == 50000 );
     serialize_check( g == 9999999 );
 
-    serialize_check( reader.GetBitsRead() == bitsWritten );
-    serialize_check( reader.GetBitsRemaining() == bytesWritten * 8 - bitsWritten );
+    serialize_check( reader.bitsRead == bitsWritten );
+    serialize_check( reader.numBits - reader.bitsRead == bytesWritten * 8 - bitsWritten );
 }
 
 inline void test_bits_required()

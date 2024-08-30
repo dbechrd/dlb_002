@@ -122,21 +122,20 @@ Once the low 32 bits of the scratch is filled with bits it is flushed to memory 
 The bit stream is written to memory in little endian order, which is considered network byte order for this library.
 */
 BitWriter :: struct {
-    data: [] u32;     // The buffer we are writing to, as a uint32_t * because we're writing dwords at a time.
-    scratch: u64;     // The scratch value where we write bits to (right to left). 64 bit for overflow. Once # of bits in scratch is >= 32, the low 32 bits are flushed to memory.
-    int numBits;      // The number of bits in the buffer. This is equivalent to the size of the buffer in bytes multiplied by 8. Note that the buffer size must always be a multiple of 4.
-    int bitsWritten;  // The number of bits written so far.
-    int wordIndex;    // The current word index. The next word flushed to memory will be at this index in data.
-    int scratchBits;  // The number of bits in scratch. When this is >= 32, the low 32 bits of scratch is flushed to memory as a dword and scratch is shifted right by 32.
+    data        : [] u32;  // The buffer we are writing to, as a uint32_t * because we're writing dwords at a time.
+    scratch     : u64;     // The scratch value where we write bits to (right to left). 64 bit for overflow. Once # of bits in scratch is >= 32, the low 32 bits are flushed to memory.
+    numBits     : int;     // The number of bits in the buffer. This is equivalent to the size of the buffer in bytes multiplied by 8. Note that the buffer size must always be a multiple of 4.
+    bitsWritten : int;     // The number of bits written so far.
+    wordIndex   : int;     // The current word index. The next word flushed to memory will be at this index in data.
+    scratchBits : int;     // The number of bits in scratch. When this is >= 32, the low 32 bits of scratch is flushed to memory as a dword and scratch is shifted right by 32.
 
 /*
 Bit writer constructor.
 Creates a bit writer object to write to the specified buffer.
-@param data The pointer to the buffer to fill with bitpacked data.
-@param bytes The size of the buffer in bytes. Must be a multiple of 4, because the bitpacker reads and writes memory as dwords, not bytes.
+@param buffer The buffer to fill with bitpacked data. Length must be a multiple of 4, because the bitpacker reads and writes memory as dwords, not bytes.
 */
 bit_writer_init :: (using writer: *BitWriter, buffer: [] u8) {
-    assert(buffer.count);
+    assert(buffer.count > 0);
     assert(buffer.count % 4 == 0);
 
     data = .{ buffer.count / 4, buffer.data };
@@ -193,45 +192,45 @@ Faster than just writing each byte to the bit stream via bit_writer_write_bits(w
 @param data The byte array data to write to the bit stream.
 @param bytes The number of bytes to write.
 */
-bit_writer_write_bytes(writer: *BitWriter, data: [] u8)
-{
-    serialize_assert( GetAlignBits() == 0 );
-    serialize_assert( m_bitsWritten + bytes * 8 <= m_numBits );
-    serialize_assert( ( m_bitsWritten % 32 ) == 0 || ( m_bitsWritten % 32 ) == 8 || ( m_bitsWritten % 32 ) == 16 || ( m_bitsWritten % 32 ) == 24 );
+bit_writer_write_bytes :: (using writer: *BitWriter, bytes: [] u8) {
+    assert(bit_writer_get_align_bits(writer) == 0);
+    assert(bitsWritten + bytes.count * 8 <= numBits);
 
-    int headBytes = ( 4 - ( m_bitsWritten % 32 ) / 8 ) % 4;
-    if ( headBytes > bytes )
-        headBytes = bytes;
-    for ( int i = 0; i < headBytes; ++i )
-        WriteBits( data[i], 8 );
-    if ( headBytes == bytes )
+    headBytes := (4 - (bitsWritten % 32) / 8) % 4;
+    if headBytes > bytes.count {
+        headBytes = bytes.count;
+    }
+    for 0..headBytes-1 {
+        bit_writer_write_bits(writer, bytes[it], 8);
+    }
+    if headBytes == bytes.count {
         return;
-
-    FlushBits();
-
-    serialize_assert( GetAlignBits() == 0 );
-
-    int numWords = ( bytes - headBytes ) / 4;
-    if ( numWords > 0 )
-    {
-        serialize_assert( ( m_bitsWritten % 32 ) == 0 );
-        memcpy( &m_data[m_wordIndex], data + headBytes, numWords * 4 );
-        m_bitsWritten += numWords * 32;
-        m_wordIndex += numWords;
-        m_scratch = 0;
     }
 
-    serialize_assert( GetAlignBits() == 0 );
+    bit_writer_flush_bits(writer);
+    assert(bit_writer_get_align_bits(writer) == 0);
 
-    int tailStart = headBytes + numWords * 4;
-    int tailBytes = bytes - tailStart;
-    serialize_assert( tailBytes >= 0 && tailBytes < 4 );
-    for ( int i = 0; i < tailBytes; ++i )
-        WriteBits( data[tailStart+i], 8 );
+    numWords := (bytes.count - headBytes) / 4;
+    if numWords > 0 {
+        assert((bitsWritten % 32) == 0);
 
-    serialize_assert( GetAlignBits() == 0 );
+        memcpy(*data[wordIndex], bytes.data + headBytes, numWords * 4);
 
-    serialize_assert( headBytes + numWords * 4 + tailBytes == bytes );
+        bitsWritten += numWords * 32;
+        wordIndex += numWords;
+        scratch = 0;
+    }
+    assert(bit_writer_get_align_bits(writer) == 0);
+
+    tailStart := headBytes + numWords * 4;
+    tailBytes := bytes.count - tailStart;
+    assert(tailBytes >= 0 && tailBytes < 4);
+    for 0..tailBytes-1 {
+        bit_writer_write_bits(writer, bytes[tailStart + it], 8);
+    }
+    assert(writer.bit_writer_get_align_bits(writer) == 0);
+
+    assert(headBytes + numWords * 4 + tailBytes == bytes.count);
 }
 
 /*
@@ -264,685 +263,507 @@ This is effectively the size of the packet that you should send after you have f
 The returned value is not always a multiple of 4, even though we flush dwords to memory. You won't miss any data in this case because the order of bits written is designed to work with the little endian memory layout.
 IMPORTANT: Make sure you call bit_writer_flush_bits before calling this method, otherwise you risk missing the last dword of data.
 */
-bit_writer_get_bytes_written :: (using write: *BitWriter) -> int {
+bit_writer_get_bytes_written :: (using writer: *BitWriter) -> int {
     return (bitsWritten + 7) / 8;
 }
 
+/*
+Reads bit packed integer values from a buffer.
+Relies on the user reconstructing the exact same set of bit reads as bit writes when the buffer was written. This is an unattributed bitpacked binary stream!
+Implementation: 32 bit dwords are read in from memory to the high bits of a scratch value as required. The user reads off bit values from the scratch value from the right, after which the scratch value is shifted by the same number of bits.
+*/
+BitReader :: struct {
+    data        : [] u32;  // The bitpacked data we're reading as a dword array.
+    scratch     : u64;     // The scratch value. New data is read in 32 bits at a top to the left of this buffer, and data is read off to the right.
+    numBits     : int;     // Number of bits to read in the buffer. Of course, we can't *really* know this so it's actually data.count * 32.
+    bitsRead    : int;     // Number of bits read from the buffer so far.
+    scratchBits : int;     // Number of bits currently in the scratch value. If the user wants to read more bits than this, we have to go fetch another dword from memory.
+    wordIndex   : int;     // Index of the next word to read from memory.
+}
+
+/*
+Bit reader constructor.
+@param buffer The buffer of bitpacked data to read. Length must be a multiple of 4, because the bitpacker reads and writes memory as dwords, not bytes.
+@see BitWriter
+*/
+bit_reader_init :: (using reader: *BitReader, buffer: [] u8) {
+    assert(buffer.count > 0);
+    assert(buffer.count % 4 == 0);
+
+    data = .{ buffer.count / 4, buffer.data };
+    numBits = buffer.count * 32;
+}
+
 /**
-    Reads bit packed integer values from a buffer.
-    Relies on the user reconstructing the exact same set of bit reads as bit writes when the buffer was written. This is an unattributed bitpacked binary stream!
-    Implementation: 32 bit dwords are read in from memory to the high bits of a scratch value as required. The user reads off bit values from the scratch value from the right, after which the scratch value is shifted by the same number of bits.
-    */
+Would the bit reader would read past the end of the buffer if it read this many bits?
+@param bits The number of bits that would be read.
+@returns True if reading the number of bits would read past the end of the buffer.
+*/
+bit_reader_would_read_past_end :: (using reader: *BitReader, int bits) -> bool {
+    return bitsRead + bits > numBits;
+}
 
-class BitReader
-{
-public:
+/*
+Read bits from the bit buffer.
+This function will assert in debug builds if this read would read past the end of the buffer.
+In production situations, the higher level ReadStream takes care of checking all packet data and never calling this function if it would read past the end of the buffer.
+@param bits The number of bits to read in [1,32].
+@returns The integer value read in range [0,(1<<bits)-1].
+@see BitReader::WouldReadPastEnd
+@see BitWriter::WriteBits
+*/
+bit_reader_read_bits :: (using reader: *BitReader, bits: int) -> u32 {
+    assert(bits > 0);
+    assert(bits <= 32);
+    assert(m_bitsRead + bits <= m_numBits);
 
-    /**
-        Bit reader constructor.
-        Non-multiples of four buffer sizes are supported, as this naturally tends to occur when packets are read from the network.
-        However, actual buffer allocated for the packet data must round up at least to the next 4 bytes in memory, because the bit reader reads dwords from memory not bytes.
-        @param data Pointer to the bitpacked data to read.
-        @param bytes The number of bytes of bitpacked data to read.
-        @see BitWriter
-        */
+    m_bitsRead += bits;
 
-#ifdef SERIALIZE_DEBUG
-    BitReader( const void * data, int bytes ) : m_data( (const uint32_t*) data ), m_numBytes( bytes ), m_numWords( ( bytes + 3 ) / 4)
-#else // #ifdef SERIALIZE_DEBUG
-    BitReader( const void * data, int bytes ) : m_data( (const uint32_t*) data ), m_numBytes( bytes )
-#endif // #ifdef SERIALIZE_DEBUG
-    {
-        serialize_assert( data );
-        m_numBits = m_numBytes * 8;
-        m_bitsRead = 0;
-        m_scratch = 0;
-        m_scratchBits = 0;
-        m_wordIndex = 0;
+    assert(scratchBits >= 0 && scratchBits <= 64);
+
+    if scratchBits < bits {
+        scratch |= (cast(u64) network_to_host(data[m_wordIndex])) << scratchBits;
+        scratchBits += 32;
+        wordIndex += 1;
     }
 
-    /**
-        Would the bit reader would read past the end of the buffer if it read this many bits?
-        @param bits The number of bits that would be read.
-        @returns True if reading the number of bits would read past the end of the buffer.
-        */
+    assert(scratchBits >= bits);
 
-    bool WouldReadPastEnd( int bits ) const
-    {
-        return m_bitsRead + bits > m_numBits;
-    }
+    value := cast(u32) (scratch & (((cast(u64) 1) << bits) - 1));
+    scratch >>= bits;
+    scratchBits -= bits;
+    return value;
+}
 
-    /**
-        Read bits from the bit buffer.
-        This function will assert in debug builds if this read would read past the end of the buffer.
-        In production situations, the higher level ReadStream takes care of checking all packet data and never calling this function if it would read past the end of the buffer.
-        @param bits The number of bits to read in [1,32].
-        @returns The integer value read in range [0,(1<<bits)-1].
-        @see BitReader::WouldReadPastEnd
-        @see BitWriter::WriteBits
-        */
-
-    uint32_t ReadBits( int bits )
-    {
-        serialize_assert( bits > 0 );
-        serialize_assert( bits <= 32 );
-        serialize_assert( m_bitsRead + bits <= m_numBits );
-
-        m_bitsRead += bits;
-
-        serialize_assert( m_scratchBits >= 0 && m_scratchBits <= 64 );
-
-        if ( m_scratchBits < bits )
-        {
-#ifdef SERIALIZE_DEBUG
-            serialize_assert( m_wordIndex < m_numWords );
-#endif // SERIALIZE_DEBUG
-            m_scratch |= uint64_t( network_to_host( m_data[m_wordIndex] ) ) << m_scratchBits;
-            m_scratchBits += 32;
-            m_wordIndex++;
+/*
+Read an align.
+Call this on read to correspond to a WriteAlign call when the bitpacked buffer was written.
+This makes sure we skip ahead to the next aligned byte index. As a safety check, we verify that the padding to next byte is zero bits and return false if that's not the case.
+This will typically abort packet read. Just another safety measure...
+@returns True if we successfully read an align and skipped ahead past zero pad, false otherwise (probably means, no align was written to the stream).
+@see BitWriter::WriteAlign
+*/
+bit_reader_align :: (using reader: *BitReader) -> bool {
+    remainderBits := bitsRead % 8;
+    if remainderBits != 0 {
+        value := bit_reader_read_bits(8 - remainderBits);
+        assert(bitsRead % 8 == 0);
+        if value != 0 {
+            return false;
         }
-
-        serialize_assert( m_scratchBits >= bits );
-
-        const uint32_t output = m_scratch & ( (uint64_t(1)<<bits) - 1 );
-
-        m_scratch >>= bits;
-        m_scratchBits -= bits;
-
-        return output;
     }
-
-    /**
-        Read an align.
-        Call this on read to correspond to a WriteAlign call when the bitpacked buffer was written.
-        This makes sure we skip ahead to the next aligned byte index. As a safety check, we verify that the padding to next byte is zero bits and return false if that's not the case.
-        This will typically abort packet read. Just another safety measure...
-        @returns True if we successfully read an align and skipped ahead past zero pad, false otherwise (probably means, no align was written to the stream).
-        @see BitWriter::WriteAlign
-        */
-
-    bool ReadAlign()
-    {
-        const int remainderBits = m_bitsRead % 8;
-        if ( remainderBits != 0 )
-        {
-            uint32_t value = ReadBits( 8 - remainderBits );
-            serialize_assert( m_bitsRead % 8 == 0 );
-            if ( value != 0 )
-                return false;
-        }
-        return true;
-    }
-
-    /**
-        Read bytes from the bitpacked data.
-        @see BitWriter::WriteBytes
-        */
-
-    void ReadBytes( uint8_t * data, int bytes )
-    {
-        serialize_assert( GetAlignBits() == 0 );
-        serialize_assert( m_bitsRead + bytes * 8 <= m_numBits );
-        serialize_assert( ( m_bitsRead % 32 ) == 0 || ( m_bitsRead % 32 ) == 8 || ( m_bitsRead % 32 ) == 16 || ( m_bitsRead % 32 ) == 24 );
-
-        int headBytes = ( 4 - ( m_bitsRead % 32 ) / 8 ) % 4;
-        if ( headBytes > bytes )
-            headBytes = bytes;
-        for ( int i = 0; i < headBytes; ++i )
-            data[i] = (uint8_t) ReadBits( 8 );
-        if ( headBytes == bytes )
-            return;
-
-        serialize_assert( GetAlignBits() == 0 );
-
-        int numWords = ( bytes - headBytes ) / 4;
-        if ( numWords > 0 )
-        {
-            serialize_assert( ( m_bitsRead % 32 ) == 0 );
-            memcpy( data + headBytes, &m_data[m_wordIndex], numWords * 4 );
-            m_bitsRead += numWords * 32;
-            m_wordIndex += numWords;
-            m_scratchBits = 0;
-        }
-
-        serialize_assert( GetAlignBits() == 0 );
-
-        int tailStart = headBytes + numWords * 4;
-        int tailBytes = bytes - tailStart;
-        serialize_assert( tailBytes >= 0 && tailBytes < 4 );
-        for ( int i = 0; i < tailBytes; ++i )
-            data[tailStart+i] = (uint8_t) ReadBits( 8 );
-
-        serialize_assert( GetAlignBits() == 0 );
-
-        serialize_assert( headBytes + numWords * 4 + tailBytes == bytes );
-    }
-
-    /**
-        How many align bits would be read, if we were to read an align right now?
-        @returns Result in [0,7], where 0 is zero bits required to align (already aligned) and 7 is worst case.
-        */
-
-    int GetAlignBits() const
-    {
-        return ( 8 - m_bitsRead % 8 ) % 8;
-    }
-
-    /**
-        How many bits have we read so far?
-        @returns The number of bits read from the bit buffer so far.
-        */
-
-    int GetBitsRead() const
-    {
-        return m_bitsRead;
-    }
-
-    /**
-        How many bits are still available to read?
-        For example, if the buffer size is 4, we have 32 bits available to read, if we have already written 10 bytes then 22 are still available.
-        @returns The number of bits available to read.
-        */
-
-    int GetBitsRemaining() const
-    {
-        return m_numBits - m_bitsRead;
-    }
-
-private:
-
-    const uint32_t * m_data;            ///< The bitpacked data we're reading as a dword array.
-    uint64_t m_scratch;                 ///< The scratch value. New data is read in 32 bits at a top to the left of this buffer, and data is read off to the right.
-    int m_numBits;                      ///< Number of bits to read in the buffer. Of course, we can't *really* know this so it's actually m_numBytes * 8.
-    int m_numBytes;                     ///< Number of bytes to read in the buffer. We know this, and this is the non-rounded up version.
-#ifdef SERIALIZE_DEBUG
-    int m_numWords;                     ///< Number of words to read in the buffer. This is rounded up to the next word if necessary.
-#endif // #ifdef SERIALIZE_DEBUG
-    int m_bitsRead;                     ///< Number of bits read from the buffer so far.
-    int m_scratchBits;                  ///< Number of bits currently in the scratch value. If the user wants to read more bits than this, we have to go fetch another dword from memory.
-    int m_wordIndex;                    ///< Index of the next word to read from memory.
-};
+    return true;
+}
 
 /**
-    Functionality common to all stream classes.
-    */
+Read bytes from the bitpacked data.
+@see BitWriter::WriteBytes
+*/
+bit_reader_read_bytes :: (using reader: *BitReader, bytes: [] u8) {
+    assert(bit_reader_get_align_bits(reader) == 0);
+    assert(bitsRead + bytes.count * 8 <= numBits);
 
-class BaseStream
-{
-public:
-
-    /**
-        Base stream constructor.
-        */
-
-    explicit BaseStream() : m_context( NULL ), m_allocator( NULL ) {}
-
-    /**
-        Set a context on the stream.
-        Contexts are used by the library supply data that is needed to read and write packets.
-        Specifically, this context is used by the connection to supply data needed to read and write connection packets.
-        */
-
-    void SetContext( void * context )
-    {
-        m_context = context;
+    headBytes := (4 - (bitsRead % 32) / 8) % 4;
+    if headBytes > bytes.count {
+        headBytes = bytes.count;
     }
-
-    /**
-        Get the context pointer set on the stream.
-
-        @returns The context pointer. May be NULL.
-        */
-
-    void * GetContext() const
-    {
-        return m_context;
+    for 0..headBytes-1 {
+        bytes[it] = cast(u8) bit_reader_read_bits(reader, 8);
     }
-
-    /**
-        Set an allocator pointer on the stream.
-        This can be helpful if you want to perform allocations within serialize functions.
-        */
-
-    void SetAllocator( void * allocator )
-    {
-        m_allocator = allocator;
+    if headBytes == bytes.count {
+        return;
     }
+    assert(bit_reader_get_align_bits(reader) == 0);
 
-    /**
-        Get the allocator pointer set on the stream.
+    numWords := (bytes.count - headBytes) / 4;
+    if numWords > 0 {
+        assert((bitsRead % 32) == 0);
 
-        @returns The allocator pointer. May be NULL.
-        */
+        memcpy(bytes.data + headBytes, *data[wordIndex], numWords * 4);
 
-    void * GetAllocator() const
-    {
-        return m_allocator;
+        bitsRead += numWords * 32;
+        wordIndex += numWords;
+        scratchBits = 0;
     }
+    assert(bit_reader_get_align_bits(reader) == 0);
 
-private:
+    tailStart := headBytes + numWords * 4;
+    tailBytes := bytes.count - tailStart;
+    assert(tailBytes >= 0 && tailBytes < 4);
+    for 0..tailBytes-1 {
+        bytes[tailStart + it] = cast(u8) bit_reader_read_bits(reader, 8);
+    }
+    assert(bit_reader_get_align_bits(reader) == 0);
 
-    void * m_context;                           ///< The context pointer set on the stream. May be NULL.
-    void * m_allocator;                         ///< The allocator pointer set on the stream. May be NULL.
+    assert(headBytes + numWords * 4 + tailBytes == bytes.count);
+}
+
+/*
+How many align bits would be read, if we were to read an align right now?
+@returns Result in [0,7], where 0 is zero bits required to align (already aligned) and 7 is worst case.
+*/
+bit_reader_get_align_bits :: (using reader: *BitReader) -> int {
+    return (8 - bitsRead % 8) % 8;
+}
+
+/*
+Stream class for writing bitpacked data.
+This class is a wrapper around the bit writer class. Its purpose is to provide unified interface for reading and writing.
+You can determine if you are writing to a stream by calling Stream::IsWriting inside your templated serialize method.
+This is evaluated at compile time, letting the compiler generate optimized serialize functions without the hassle of maintaining separate read and write functions.
+IMPORTANT: Generally, you don't call methods on this class directly. Use the serialize_* macros instead.
+@see BitWriter
+*/
+struct : WriteStream {
+    isWriting :: true;
+    isReading :: false;
+
+    writer: BitWriter;  // The bit writer used for all bitpacked write operations.
 };
 
+/*
+Write stream constructor.
+@param buffer The buffer to write to.
+@param bytes The number of bytes in the buffer. Must be a multiple of four.
+*/
+write_stream_init :: (using stream: *WriteStream, buffer: [] u8) {
+    bit_writer_init(writer, buffer);
+}
+
+/*
+Serialize an integer (write).
+@param value The integer value in [min,max].
+@param min The minimum value.
+@param max The maximum value.
+@returns Always returns true. All checking is performed by debug asserts only on write.
+*/
+write_stream_serialize_integer :: (using stream: *WriteStream, value: s32, min: s32, max: s32) -> bool {
+    assert(min < max);
+    assert(value >= min);
+    assert(value <= max);
+
+    bits := bits_required(min, max);
+    unsigned_value = cast(u32) (value - min);
+    bit_writer_write_bits(writer, unsigned_value, bits);
+    return true;
+}
+
+/*
+Serialize a number of bits (write).
+@param value The unsigned integer value to serialize. Must be in range [0,(1<<bits)-1].
+@param bits The number of bits to write in [1,32].
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+write_stream_serialize_bits :: (using stream: *WriteStream, value: u32, bits: int) -> bool {
+    assert(bits > 0);
+    assert(bits <= 32);
+
+    bit_writer_write_bits(writer, value, bits);
+    return true;
+}
+
+/*
+Serialize an array of bytes (write).
+@param data Array of bytes to be written.
+@param bytes The number of bytes to write.
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+write_stream_serialize_bytes :: (using stream: *WriteStream, bytes: [] u8) -> bool {
+    assert(bytes.count > 0);
+
+    write_stream_align(stream);
+    bit_writer_write_bytes(writer, bytes);
+    return true;
+}
+
+/*
+Serialize an align (write).
+*/
+write_stream_align :: (using stream: *WriteStream) {
+    bit_writer_align(writer);
+}
+
+/*
+If we were to write an align right now, how many bits would be required?
+@returns The number of zero pad bits required to achieve byte alignment in [0,7].
+*/
+write_stream_get_align_bits :: (using stream: *WriteStream) {
+    return bit_writer_get_align_bits(writer);
+}
+
+/*
+Flush the stream to memory after you finish writing.
+Always call this after you finish writing and before you call WriteStream::GetData, or you'll potentially truncate the last dword of data you wrote.
+@see BitWriter::FlushBits
+*/
+write_stream_flush :: (using stream: *WriteStream) {
+    bit_writer_flush_bits(writer);
+}
+
+/*
+Get a pointer to the data written by the stream.
+IMPORTANT: Call WriteStream::Flush before you call this function!
+@returns A pointer to the data written by the stream
+*/
+write_stream_get_data :: (using stream: *WriteStream) -> [] u8 {
+    return writer.data;
+}
+
+/*
+How many bytes have been written so far?
+@returns Number of bytes written. This is effectively the packet size.
+*/
+write_stream_get_bytes_processed :: (using stream: *WriteStream) -> int {
+    return bit_writer_get_bytes_written(writer);
+}
+
+/*
+Get number of bits written so far.
+@returns Number of bits written.
+*/
+write_stream_get_bits_processed :: (using stream: *WriteStream) -> int {
+    return writer.bitsWritten;
+}
+
 /**
-    Stream class for writing bitpacked data.
-    This class is a wrapper around the bit writer class. Its purpose is to provide unified interface for reading and writing.
-    You can determine if you are writing to a stream by calling Stream::IsWriting inside your templated serialize method.
-    This is evaluated at compile time, letting the compiler generate optimized serialize functions without the hassle of maintaining separate read and write functions.
-    IMPORTANT: Generally, you don't call methods on this class directly. Use the serialize_* macros instead.
-    @see BitWriter
-    */
+Stream class for reading bitpacked data.
+This class is a wrapper around the bit reader class. Its purpose is to provide unified interface for reading and writing.
+You can determine if you are reading from a stream by calling Stream::IsReading inside your templated serialize method.
+This is evaluated at compile time, letting the compiler generate optimized serialize functions without the hassle of maintaining separate read and write functions.
+IMPORTANT: Generally, you don't call methods on this class directly. Use the serialize_* macros instead.
+@see BitReader
+*/
+ReadStream :: struct {
+    isWriting :: false;
+    isReading :: true;
 
-class WriteStream : public BaseStream
-{
-public:
-
-    enum { IsWriting = 1 };
-    enum { IsReading = 0 };
-
-    /**
-        Write stream constructor.
-        @param buffer The buffer to write to.
-        @param bytes The number of bytes in the buffer. Must be a multiple of four.
-        @param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
-        */
-
-    WriteStream( uint8_t * buffer, int bytes ) : m_writer( buffer, bytes ) {}
-
-    /**
-        Serialize an integer (write).
-        @param value The integer value in [min,max].
-        @param min The minimum value.
-        @param max The maximum value.
-        @returns Always returns true. All checking is performed by debug asserts only on write.
-        */
-
-    bool SerializeInteger( int32_t value, int32_t min, int32_t max )
-    {
-        serialize_assert( min < max );
-        serialize_assert( value >= min );
-        serialize_assert( value <= max );
-        const int bits = bits_required( min, max );
-        uint32_t unsigned_value = value - min;
-        m_writer.WriteBits( unsigned_value, bits );
-        return true;
-    }
-
-    /**
-        Serialize a number of bits (write).
-        @param value The unsigned integer value to serialize. Must be in range [0,(1<<bits)-1].
-        @param bits The number of bits to write in [1,32].
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeBits( uint32_t value, int bits )
-    {
-        serialize_assert( bits > 0 );
-        serialize_assert( bits <= 32 );
-        m_writer.WriteBits( value, bits );
-        return true;
-    }
-
-    /**
-        Serialize an array of bytes (write).
-        @param data Array of bytes to be written.
-        @param bytes The number of bytes to write.
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeBytes( const uint8_t * data, int bytes )
-    {
-        serialize_assert( data );
-        serialize_assert( bytes >= 0 );
-        SerializeAlign();
-        m_writer.WriteBytes( data, bytes );
-        return true;
-    }
-
-    /**
-        Serialize an align (write).
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeAlign()
-    {
-        m_writer.WriteAlign();
-        return true;
-    }
-
-    /**
-        If we were to write an align right now, how many bits would be required?
-        @returns The number of zero pad bits required to achieve byte alignment in [0,7].
-        */
-
-    int GetAlignBits() const
-    {
-        return m_writer.GetAlignBits();
-    }
-
-    /**
-        Flush the stream to memory after you finish writing.
-        Always call this after you finish writing and before you call WriteStream::GetData, or you'll potentially truncate the last dword of data you wrote.
-        @see BitWriter::FlushBits
-        */
-
-    void Flush()
-    {
-        m_writer.FlushBits();
-    }
-
-    /**
-        Get a pointer to the data written by the stream.
-        IMPORTANT: Call WriteStream::Flush before you call this function!
-        @returns A pointer to the data written by the stream
-        */
-
-    const uint8_t * GetData() const
-    {
-        return m_writer.GetData();
-    }
-
-    /**
-        How many bytes have been written so far?
-        @returns Number of bytes written. This is effectively the packet size.
-        */
-
-    int GetBytesProcessed() const
-    {
-        return m_writer.GetBytesWritten();
-    }
-
-    /**
-        Get number of bits written so far.
-        @returns Number of bits written.
-        */
-
-    int GetBitsProcessed() const
-    {
-        return m_writer.bitsWritten;
-    }
-
-private:
-
-    BitWriter m_writer;                 ///< The bit writer used for all bitpacked write operations.
+    reader: BitReader;  // The bit reader used for all bitpacked read operations.
 };
 
-/**
-    Stream class for reading bitpacked data.
-    This class is a wrapper around the bit reader class. Its purpose is to provide unified interface for reading and writing.
-    You can determine if you are reading from a stream by calling Stream::IsReading inside your templated serialize method.
-    This is evaluated at compile time, letting the compiler generate optimized serialize functions without the hassle of maintaining separate read and write functions.
-    IMPORTANT: Generally, you don't call methods on this class directly. Use the serialize_* macros instead.
-    @see BitReader
-    */
+/*
+Read stream constructor.
+@param buffer The buffer to read from.
+@param bytes The number of bytes in the buffer. May be a non-multiple of four, however if it is, the underlying buffer allocated should be large enough to read the any remainder bytes as a dword.
+@param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
+*/
+read_stream_init :: (using stream: *ReadStream, buffer: [] u8) {
+    bit_reader_init(reader, buffer);
+}
 
-class ReadStream : public BaseStream
-{
-public:
+/*
+Serialize an integer (read).
+@param value The integer value read is stored here. It is guaranteed to be in [min,max] if this function succeeds.
+@param min The minimum allowed value.
+@param max The maximum allowed value.
+@returns Returns true if the serialize succeeded and the value is in the correct range. False otherwise.
+*/
+read_stream_serialize_integer :: (using stream: *ReadStream, value: *s32, min: s32, max: s32) -> bool {
+    assert(min < max);
 
-    enum { IsWriting = 0 };
-    enum { IsReading = 1 };
-
-    /**
-        Read stream constructor.
-        @param buffer The buffer to read from.
-        @param bytes The number of bytes in the buffer. May be a non-multiple of four, however if it is, the underlying buffer allocated should be large enough to read the any remainder bytes as a dword.
-        @param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
-        */
-
-    ReadStream( const uint8_t * buffer, int bytes ) : m_reader( buffer, bytes ) {}
-
-    /**
-        Serialize an integer (read).
-        @param value The integer value read is stored here. It is guaranteed to be in [min,max] if this function succeeds.
-        @param min The minimum allowed value.
-        @param max The maximum allowed value.
-        @returns Returns true if the serialize succeeded and the value is in the correct range. False otherwise.
-        */
-
-    bool SerializeInteger( int32_t & value, int32_t min, int32_t max )
-    {
-        serialize_assert( min < max );
-        const int bits = bits_required( min, max );
-        if ( m_reader.WouldReadPastEnd( bits ) )
-            return false;
-        uint32_t unsigned_value = m_reader.ReadBits( bits );
-        value = (int32_t) unsigned_value + min;
-        return true;
+    bits := bits_required(min, max);
+    if bit_reader_would_read_past_end(reader, bits) {
+        return false;
     }
 
-    /**
-        Serialize a number of bits (read).
-        @param value The integer value read is stored here. Will be in range [0,(1<<bits)-1].
-        @param bits The number of bits to read in [1,32].
-        @returns Returns true if the serialize read succeeded, false otherwise.
-        */
+    bit_reader_read_bits(reader, bits);
+    unsigned_value := bit_reader_read_bits(reader, bits);
+    value.* = (cast(s32) unsigned_value) + min;
+    return true;
+}
 
-    bool SerializeBits( uint32_t & value, int bits )
-    {
-        serialize_assert( bits > 0 );
-        serialize_assert( bits <= 32 );
-        if ( m_reader.WouldReadPastEnd( bits ) )
-            return false;
-        uint32_t read_value = m_reader.ReadBits( bits );
-        value = read_value;
-        return true;
+/*
+Serialize a number of bits (read).
+@param value The integer value read is stored here. Will be in range [0,(1<<bits)-1].
+@param bits The number of bits to read in [1,32].
+@returns Returns true if the serialize read succeeded, false otherwise.
+*/
+read_stream_serialize_bits :: (using stream: *ReadStream, value: *u32, bits: int) -> bool {
+    assert(bits > 0);
+    assert(bits <= 32);
+
+    if bit_reader_would_read_past_end(reader, bits) {
+        return false;
     }
 
-    /**
-        Serialize an array of bytes (read).
-        @param data Array of bytes to read.
-        @param bytes The number of bytes to read.
-        @returns Returns true if the serialize read succeeded. False otherwise.
-        */
+    value.* = bit_reader_read_bits(reader, bits);
+    return true;
+}
 
-    bool SerializeBytes( uint8_t * data, int bytes )
-    {
-        if ( !SerializeAlign() )
-            return false;
-        if ( m_reader.WouldReadPastEnd( bytes * 8 ) )
-            return false;
-        m_reader.ReadBytes( data, bytes );
-        return true;
+/*
+Serialize an array of bytes (read).
+@param data Array of bytes to read.
+@param bytes The number of bytes to read.
+@returns Returns true if the serialize read succeeded. False otherwise.
+*/
+read_stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool {
+    if !read_stream_align(stream) {
+        return false;
+    }
+    if bit_reader_would_read_past_end(reader, bytes.count * 8) {
+        return false;
     }
 
-    /**
-        Serialize an align (read).
-        @returns Returns true if the serialize read succeeded. False otherwise.
-        */
+    bit_reader_read_bytes(reader, bytes);
+    return true;
+}
 
-    bool SerializeAlign()
-    {
-        const int alignBits = m_reader.GetAlignBits();
-        if ( m_reader.WouldReadPastEnd( alignBits ) )
-            return false;
-        if ( !m_reader.ReadAlign() )
-            return false;
-        return true;
+/*
+Serialize an align (read).
+@returns Returns true if the serialize read succeeded. False otherwise.
+*/
+read_stream_align :: (using stream: *ReadStream) -> {
+    alignBits := bit_reader_get_align_bits(reader);
+    if bit_reader_would_read_past_end(reader, alignBits) {
+        return false;
+    }
+    if !bit_reader_align(reader) {
+        return false;
     }
 
-    /**
-        If we were to read an align right now, how many bits would we need to read?
-        @returns The number of zero pad bits required to achieve byte alignment in [0,7].
-        */
+    return true;
+}
 
-    int GetAlignBits() const
-    {
-        return m_reader.GetAlignBits();
-    }
+/*
+If we were to read an align right now, how many bits would we need to read?
+@returns The number of zero pad bits required to achieve byte alignment in [0,7].
+*/
+read_stream_get_align_bits :: (using stream: *ReadStream) -> int {
+    return bit_reader_get_align_bits(reader);
+}
 
-    /**
-        Get number of bits read so far.
-        @returns Number of bits read.
-        */
+/*
+Get number of bits read so far.
+@returns Number of bits read.
+*/
+read_stream_get_bits_processed :: (using stream: *ReadStream) -> int {
+    return reader.bitsRead;
+}
 
-    int GetBitsProcessed() const
-    {
-        return m_reader.GetBitsRead();
-    }
+/*
+How many bytes have been read so far?
+@returns Number of bytes read. Effectively this is the number of bits read, rounded up to the next byte where necessary.
+*/
+read_stream_get_bytes_processed :: (using stream: *ReadStream) -> int {
+    return (reader.bitsRead + 7) / 8;
+}
 
-    /**
-        How many bytes have been read so far?
-        @returns Number of bytes read. Effectively this is the number of bits read, rounded up to the next byte where necessary.
-        */
+/*
+Stream class for estimating how many bits it would take to serialize something.
+This class acts like a bit writer (IsWriting is 1, IsReading is 0), but instead of writing data, it counts how many bits would be written.
+Note that when the serialization includes alignment to byte (see MeasureStream::SerializeAlign), this is an estimate and not an exact measurement. The estimate is guaranteed to be conservative.
+@see BitWriter
+@see BitReader
+*/
+MeasureStream :: struct {
+    isWriting :: true;
+    isReading :: false;
 
-    int GetBytesProcessed() const
-    {
-        return ( m_reader.GetBitsRead() + 7 ) / 8;
-    }
-
-private:
-
-    BitReader m_reader;             ///< The bit reader used for all bitpacked read operations.
+    bitsWritten: int;  // Counts the number of bits written.
 };
 
-/**
-    Stream class for estimating how many bits it would take to serialize something.
-    This class acts like a bit writer (IsWriting is 1, IsReading is 0), but instead of writing data, it counts how many bits would be written.
-    Note that when the serialization includes alignment to byte (see MeasureStream::SerializeAlign), this is an estimate and not an exact measurement. The estimate is guaranteed to be conservative.
-    @see BitWriter
-    @see BitReader
-    */
+/*
+Serialize an integer (measure).
+@param value The integer value to write. Not actually used or checked.
+@param min The minimum value.
+@param max The maximum value.
+@returns Always returns true. All checking is performed by debug asserts only on measure.
+*/
+measure_stream_serialize_integer :: (using stream: *MeasureStream, value: s32, min: s32, max: s32) -> bool {
+    assert(min < max);
+    assert(value >= min);
+    assert(value <= max);
 
-class MeasureStream : public BaseStream
-{
-public:
+    bits := bits_required(min, max);
+    bitsWritten += bits;
+    return true;
+}
 
-    enum { IsWriting = 1 };
-    enum { IsReading = 0 };
+/*
+Serialize a number of bits (write).
+@param value The unsigned integer value to serialize. Not actually used or checked.
+@param bits The number of bits to write in [1,32].
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+measure_stream_serialize_bits :: (using stream: *MeasureStream, value: u32, bits: int) -> bool {
+    assert(bits > 0);
+    assert(bits <= 32);
 
-    /**
-        Measure stream constructor.
-        @param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
-        */
+    bitsWritten += bits;
+    return true;
+}
 
-    explicit MeasureStream() : m_bitsWritten(0) {}
+/*
+Serialize an array of bytes (measure).
+@param data Array of bytes to 'write'. Not actually used.
+@param bytes The number of bytes to 'write'.
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+measure_stream_serialize_bytes :: (using stream: *MeasureStream, bytes: [] u8) -> bool {
+    measure_stream_align(stream);
+    bitsWritten += bytes.count * 8;
+    return true;
+}
 
-    /**
-        Serialize an integer (measure).
-        @param value The integer value to write. Not actually used or checked.
-        @param min The minimum value.
-        @param max The maximum value.
-        @returns Always returns true. All checking is performed by debug asserts only on measure.
-        */
+/*
+Serialize an align (measure).
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+measure_stream_align :: (using stream: *MeasureStream) -> bool {
+    alignBits := measure_stream_get_align_bits(stream);
+    bitsWritten += alignBits;
+    return true;
+}
 
-    bool SerializeInteger( int32_t value, int32_t min, int32_t max )
-    {
-        (void) value;
-        serialize_assert( min < max );
-        serialize_assert( value >= min );
-        serialize_assert( value <= max );
-        const int bits = bits_required( min, max );
-        m_bitsWritten += bits;
-        return true;
+/*
+If we were to write an align right now, how many bits would be required?
+IMPORTANT: Since the number of bits required for alignment depends on where an object is written in the final bit stream, this measurement is conservative.
+@returns Always returns worst case 7 bits.
+*/
+measure_stream_get_align_bits :: (using stream: *MeasureStream) -> int {
+    return 7;
+}
+
+/*
+// TODO(dlb)[cleanup]: I don't think anyone calls this.
+/*
+Serialize a safety check to the stream (measure).
+@returns Always returns true. All checking is performed by debug asserts on write.
+*/
+measure_stream_serialize_check :: (using stream: *MeasureStream) -> bool {
+    #if YOJIMBO_SERIALIZE_CHECKS {
+        measure_stream_align(stream);
+        bitsWritten += 32;
     }
+    return true;
+}
+*/
 
-    /**
-        Serialize a number of bits (write).
-        @param value The unsigned integer value to serialize. Not actually used or checked.
-        @param bits The number of bits to write in [1,32].
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
+/*
+Get number of bits written so far.
+@returns Number of bits written.
+*/
+measure_stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
+    return bitsWritten;
+}
 
-    bool SerializeBits( uint32_t value, int bits )
-    {
-        (void) value;
-        serialize_assert( bits > 0 );
-        serialize_assert( bits <= 32 );
-        m_bitsWritten += bits;
-        return true;
-    }
+/*
+How many bytes have been written so far?
+@returns Number of bytes written.
+*/
+measure_stream_get_bytes_proccessed :: (using stream: *MeasureStream) -> int {
+    return (bitsWritten + 7) / 8;
+}
 
-    /**
-        Serialize an array of bytes (measure).
-        @param data Array of bytes to 'write'. Not actually used.
-        @param bytes The number of bytes to 'write'.
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeBytes( const uint8_t * data, int bytes )
-    {
-        (void) data;
-        SerializeAlign();
-        m_bitsWritten += bytes * 8;
-        return true;
-    }
-
-    /**
-        Serialize an align (measure).
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeAlign()
-    {
-        const int alignBits = GetAlignBits();
-        m_bitsWritten += alignBits;
-        return true;
-    }
-
-    /**
-        If we were to write an align right now, how many bits would be required?
-        IMPORTANT: Since the number of bits required for alignment depends on where an object is written in the final bit stream, this measurement is conservative.
-        @returns Always returns worst case 7 bits.
-        */
-
-    int GetAlignBits() const
-    {
-        return 7;
-    }
-
-    /**
-        Serialize a safety check to the stream (measure).
-        @returns Always returns true. All checking is performed by debug asserts on write.
-        */
-
-    bool SerializeCheck()
-    {
-#if SERIALIZE_SERIALIZE_CHECKS
-        SerializeAlign();
-        m_bitsWritten += 32;
-#endif // #if SERIALIZE_SERIALIZE_CHECKS
-        return true;
-    }
-
-    /**
-        Get number of bits written so far.
-        @returns Number of bits written.
-        */
-
-    int GetBitsProcessed() const
-    {
-        return m_bitsWritten;
-    }
-
-    /**
-        How many bytes have been written so far?
-        @returns Number of bytes written.
-        */
-
-    int GetBytesProcessed() const
-    {
-        return ( m_bitsWritten + 7 ) / 8;
-    }
-
-private:
-
-    int m_bitsWritten;              ///< Counts the number of bits written.
-};
-
-/**
-    Serialize integer value (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The integer value to serialize in [min,max].
-    @param min The minimum value.
-    @param max The maximum value.
-    */
-
+/*
+Serialize integer value (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The integer value to serialize in [min,max].
+@param min The minimum value.
+@param max The maximum value.
+*/
 #define serialize_int( stream, value, min, max )                    \
     do                                                              \
     {                                                               \
@@ -969,16 +790,15 @@ private:
         }                                                           \
     } while (0)
 
-/**
-    Serialize bits to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The unsigned integer value to serialize.
-    @param bits The number of bits to serialize in [1,32].
-    */
-
+/*
+Serialize bits to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The unsigned integer value to serialize.
+@param bits The number of bits to serialize in [1,32].
+*/
 #define serialize_bits( stream, value, bits )                       \
     do                                                              \
     {                                                               \
@@ -1023,15 +843,14 @@ private:
         }                                                           \
     } while (0)
 
-/**
-    Serialize a boolean value to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The boolean value to serialize.
-    */
-
+/*
+Serialize a boolean value to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The boolean value to serialize.
+*/
 #define serialize_bool( stream, value )                             \
     do                                                              \
     {                                                               \
@@ -1062,15 +881,14 @@ template <typename Stream> bool serialize_float_internal( Stream & stream, float
     return result;
 }
 
-/**
-    Serialize floating point value (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The float value to serialize.
-    */
-
+/*
+Serialize floating point value (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The float value to serialize.
+*/
 #define serialize_float( stream, value )                                        \
     do                                                                          \
     {                                                                           \
@@ -1116,14 +934,14 @@ template <typename Stream> bool serialize_compressed_float_internal(Stream &stre
     return true;
 }
 
-/**
-    Serialize compressed floating point value (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The float value to serialize.
-    */
+/*
+Serialize compressed floating point value (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The float value to serialize.
+*/
 #define serialize_compressed_float(stream, value, min, max, res)                       \
 do                                                                                     \
 {                                                                                      \
@@ -1153,15 +971,14 @@ template <typename Stream> bool serialize_double_internal( Stream & stream, doub
     return true;
 }
 
-/**
-    Serialize double precision floating point value to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param value The double precision floating point value to serialize.
-    */
-
+/*
+Serialize double precision floating point value to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param value The double precision floating point value to serialize.
+*/
 #define serialize_double( stream, value )                                       \
     do                                                                          \
     {                                                                           \
@@ -1176,16 +993,15 @@ template <typename Stream> bool serialize_bytes_internal( Stream & stream, uint8
     return stream.SerializeBytes( data, bytes );
 }
 
-/**
-    Serialize an array of bytes to the stream (read/write/measure).
-    This is a helper macro to make unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param data Pointer to the data to be serialized.
-    @param bytes The number of bytes to serialize.
-    */
-
+/*
+Serialize an array of bytes to the stream (read/write/measure).
+This is a helper macro to make unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param data Pointer to the data to be serialized.
+@param bytes The number of bytes to serialize.
+*/
 #define serialize_bytes( stream, data, bytes )                                  \
     do                                                                          \
     {                                                                           \
@@ -1212,16 +1028,15 @@ template <typename Stream> bool serialize_string_internal( Stream & stream, char
     return true;
 }
 
-/**
-    Serialize a string to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param string The string to serialize write/measure. Pointer to buffer to be filled on read.
-    @param buffer_size The size of the string buffer. String with terminating null character must fit into this buffer.
-    */
-
+/*
+Serialize a string to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param string The string to serialize write/measure. Pointer to buffer to be filled on read.
+@param buffer_size The size of the string buffer. String with terminating null character must fit into this buffer.
+*/
 #define serialize_string( stream, string, buffer_size )                                 \
     do                                                                                  \
     {                                                                                   \
@@ -1231,14 +1046,13 @@ template <typename Stream> bool serialize_string_internal( Stream & stream, char
         }                                                                               \
     } while (0)
 
-/**
-    Serialize an alignment to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    */
-
+/*
+Serialize an alignment to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+*/
 #define serialize_align( stream )                                                       \
     do                                                                                  \
     {                                                                                   \
@@ -1248,15 +1062,14 @@ template <typename Stream> bool serialize_string_internal( Stream & stream, char
         }                                                                               \
     } while (0)
 
-/**
-    Serialize an object to the stream (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param object The object to serialize. Must have a serialize method on it.
-    */
-
+/*
+Serialize an object to the stream (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param object The object to serialize. Must have a serialize method on it.
+*/
 #define serialize_object( stream, object )                                              \
     do                                                                                  \
     {                                                                                   \
@@ -1381,16 +1194,15 @@ template <typename Stream, typename T> bool serialize_int_relative_internal( Str
     return true;
 }
 
-/**
-    Serialize an integer value relative to another (read/write/measure).
-    This is a helper macro to make writing unified serialize functions easier.
-    Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-    IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-    @param stream The stream object. May be a read, write or measure stream.
-    @param previous The previous integer value.
-    @param current The current integer value.
-    */
-
+/*
+Serialize an integer value relative to another (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param previous The previous integer value.
+@param current The current integer value.
+*/
 #define serialize_int_relative( stream, previous, current )                             \
     do                                                                                  \
     {                                                                                   \
