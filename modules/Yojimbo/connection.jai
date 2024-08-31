@@ -1,7 +1,17 @@
 #scope_module
 
-/// Connection error level.
+/*
+Configures connection properties and the set of channels for sending and receiving messages.
+Specifies the maximum packet size to generate, and the number of message channels, and the per-channel configuration data. See ChannelConfig for details.
+Typically configured as part of a ClientServerConfig which is passed into Client and Server constructors.
+*/
+ConnectionConfig :: struct {
+    numChannels   : int                         = 1;         // Number of message channels in [1,MaxChannels]. Each message channel must have a corresponding configuration below.
+    maxPacketSize : int                         = 8 * 1024;  // The maximum size of packets generated to transmit messages between client and server (bytes).
+    channel       : [MaxChannels] ChannelConfig;             // Per-channel configuration. See ChannelConfig for details.
+};
 
+// Connection error level.
 enum ConnectionErrorLevel
 {
     CONNECTION_ERROR_NONE = 0,                              ///< No error. All is well.

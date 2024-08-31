@@ -37,6 +37,10 @@ https://github.com/mas-bandwidth/yojimbo/commit/c6c02dfec105b36b9cbefd82f86f11f8
     YOJIMBO_SERIALIZE_CHECKS     := false
 );
 
+YOJIMBO_MAJOR_VERSION :: 1;
+YOJIMBO_MINOR_VERSION :: 0;
+YOJIMBO_PATCH_VERSION :: 0;
+
 /**
 Initialize the yojimbo library.
 Call this before calling any yojimbo library functions.
@@ -80,28 +84,30 @@ yojimbo_shutdown :: () {
 // #load "base_server.jai";
 // #load "bit_array.jai";
 // #load "channel.jai";
-// #load "channel_packet_data.jai";;
+// #load "channel_packet_data.jai";
 // #load "client_interface.jai";
 // #load "client.jai";
-// #load "config.jai";
+#load "config.jai";
 // #load "connection.jai";
-// #load "constants.jai";
+#load "constants.jai";
 #load "message.jai";
 // #load "network_info.jai";
 // #load "network_simulator.jai";
 // #load "queue.jai";
 // #load "reliable_ordered_channel.jai";
 // #load "sequence_buffer.jai";
-#load "serialize.jai";
 // #load "server_interface.jai";
 // #load "server.jai";
 // #load "unreliable_unordered_channel.jai";
 // #load "utils.jai";
 
-#import "Basic";
 
 yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
     #if YOJIMBO_ENABLE_LOGGING {
         log(format_string, ..args, loc, flags,, temp);
     }
 }
+
+#scope_file
+
+#import "Basic";

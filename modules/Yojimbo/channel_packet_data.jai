@@ -19,14 +19,14 @@ ChannelPacketData :: struct {
         fragmentSize: u16;
         numFragments: u16;
         messageType: int;
-    };
+    }
 
     channelIndex: u16;
     flags: Flags;
-    union :: {
+    union {
         message: MessageData;
         block: BlockData;
-    };
+    }
 };
 
 channel_packet_data_init :: (packetData: *ChannelPacketData) {

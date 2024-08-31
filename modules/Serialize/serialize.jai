@@ -414,7 +414,7 @@ This is evaluated at compile time, letting the compiler generate optimized seria
 IMPORTANT: Generally, you don't call methods on this class directly. Use the serialize_* macros instead.
 @see BitWriter
 */
-struct : WriteStream {
+WriteStream :: struct {
     isWriting :: true;
     isReading :: false;
 
@@ -426,7 +426,7 @@ Write stream constructor.
 @param buffer The buffer to write to.
 @param bytes The number of bytes in the buffer. Must be a multiple of four.
 */
-write_stream_init :: (using stream: *WriteStream, buffer: [] u8) {
+stream_init :: (using stream: *WriteStream, buffer: [] u8) {
     bit_writer_init(writer, buffer);
 }
 
@@ -437,7 +437,7 @@ Serialize an integer (write).
 @param max The maximum value.
 @returns Always returns true. All checking is performed by debug asserts only on write.
 */
-write_stream_serialize_integer :: (using stream: *WriteStream, value: s32, min: s32, max: s32) -> bool {
+stream_serialize_integer :: (using stream: *WriteStream, value: s32, min: s32, max: s32) -> bool {
     assert(min < max);
     assert(value >= min);
     assert(value <= max);
@@ -454,11 +454,11 @@ Serialize a number of bits (write).
 @param bits The number of bits to write in [1,32].
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-write_stream_serialize_bits :: (using stream: *WriteStream, value: u32, bits: int) -> bool {
+stream_serialize_bits :: (using stream: *WriteStream, value: *u32, bits: int) -> bool {
     assert(bits > 0);
     assert(bits <= 32);
 
-    bit_writer_write_bits(writer, value, bits);
+    bit_writer_write_bits(writer, value.*, bits);
     return true;
 }
 
@@ -468,10 +468,10 @@ Serialize an array of bytes (write).
 @param bytes The number of bytes to write.
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-write_stream_serialize_bytes :: (using stream: *WriteStream, bytes: [] u8) -> bool {
+stream_serialize_bytes :: (using stream: *WriteStream, bytes: [] u8) -> bool {
     assert(bytes.count > 0);
 
-    write_stream_align(stream);
+    stream_align(stream);
     bit_writer_write_bytes(writer, bytes);
     return true;
 }
@@ -479,7 +479,7 @@ write_stream_serialize_bytes :: (using stream: *WriteStream, bytes: [] u8) -> bo
 /*
 Serialize an align (write).
 */
-write_stream_align :: (using stream: *WriteStream) {
+stream_align :: (using stream: *WriteStream) {
     bit_writer_align(writer);
 }
 
@@ -487,7 +487,7 @@ write_stream_align :: (using stream: *WriteStream) {
 If we were to write an align right now, how many bits would be required?
 @returns The number of zero pad bits required to achieve byte alignment in [0,7].
 */
-write_stream_get_align_bits :: (using stream: *WriteStream) {
+stream_get_align_bits :: (using stream: *WriteStream) {
     return bit_writer_get_align_bits(writer);
 }
 
@@ -496,7 +496,7 @@ Flush the stream to memory after you finish writing.
 Always call this after you finish writing and before you call WriteStream::GetData, or you'll potentially truncate the last dword of data you wrote.
 @see BitWriter::FlushBits
 */
-write_stream_flush :: (using stream: *WriteStream) {
+stream_flush :: (using stream: *WriteStream) {
     bit_writer_flush_bits(writer);
 }
 
@@ -505,7 +505,7 @@ Get a pointer to the data written by the stream.
 IMPORTANT: Call WriteStream::Flush before you call this function!
 @returns A pointer to the data written by the stream
 */
-write_stream_get_data :: (using stream: *WriteStream) -> [] u8 {
+stream_get_data :: (using stream: *WriteStream) -> [] u8 {
     return writer.data;
 }
 
@@ -513,7 +513,7 @@ write_stream_get_data :: (using stream: *WriteStream) -> [] u8 {
 How many bytes have been written so far?
 @returns Number of bytes written. This is effectively the packet size.
 */
-write_stream_get_bytes_processed :: (using stream: *WriteStream) -> int {
+stream_get_bytes_processed :: (using stream: *WriteStream) -> int {
     return bit_writer_get_bytes_written(writer);
 }
 
@@ -521,7 +521,7 @@ write_stream_get_bytes_processed :: (using stream: *WriteStream) -> int {
 Get number of bits written so far.
 @returns Number of bits written.
 */
-write_stream_get_bits_processed :: (using stream: *WriteStream) -> int {
+stream_get_bits_processed :: (using stream: *WriteStream) -> int {
     return writer.bitsWritten;
 }
 
@@ -546,7 +546,7 @@ Read stream constructor.
 @param bytes The number of bytes in the buffer. May be a non-multiple of four, however if it is, the underlying buffer allocated should be large enough to read the any remainder bytes as a dword.
 @param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
 */
-read_stream_init :: (using stream: *ReadStream, buffer: [] u8) {
+stream_init :: (using stream: *ReadStream, buffer: [] u8) {
     bit_reader_init(reader, buffer);
 }
 
@@ -557,7 +557,7 @@ Serialize an integer (read).
 @param max The maximum allowed value.
 @returns Returns true if the serialize succeeded and the value is in the correct range. False otherwise.
 */
-read_stream_serialize_integer :: (using stream: *ReadStream, value: *s32, min: s32, max: s32) -> bool {
+stream_serialize_integer :: (using stream: *ReadStream, value: *s32, min: s32, max: s32) -> bool {
     assert(min < max);
 
     bits := bits_required(min, max);
@@ -577,7 +577,7 @@ Serialize a number of bits (read).
 @param bits The number of bits to read in [1,32].
 @returns Returns true if the serialize read succeeded, false otherwise.
 */
-read_stream_serialize_bits :: (using stream: *ReadStream, value: *u32, bits: int) -> bool {
+stream_serialize_bits :: (using stream: *ReadStream, value: *u32, bits: int) -> bool {
     assert(bits > 0);
     assert(bits <= 32);
 
@@ -595,8 +595,8 @@ Serialize an array of bytes (read).
 @param bytes The number of bytes to read.
 @returns Returns true if the serialize read succeeded. False otherwise.
 */
-read_stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool {
-    if !read_stream_align(stream) {
+stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool {
+    if !stream_align(stream) {
         return false;
     }
     if bit_reader_would_read_past_end(reader, bytes.count * 8) {
@@ -611,7 +611,7 @@ read_stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool
 Serialize an align (read).
 @returns Returns true if the serialize read succeeded. False otherwise.
 */
-read_stream_align :: (using stream: *ReadStream) -> {
+stream_align :: (using stream: *ReadStream) -> {
     alignBits := bit_reader_get_align_bits(reader);
     if bit_reader_would_read_past_end(reader, alignBits) {
         return false;
@@ -627,7 +627,7 @@ read_stream_align :: (using stream: *ReadStream) -> {
 If we were to read an align right now, how many bits would we need to read?
 @returns The number of zero pad bits required to achieve byte alignment in [0,7].
 */
-read_stream_get_align_bits :: (using stream: *ReadStream) -> int {
+stream_get_align_bits :: (using stream: *ReadStream) -> int {
     return bit_reader_get_align_bits(reader);
 }
 
@@ -635,7 +635,7 @@ read_stream_get_align_bits :: (using stream: *ReadStream) -> int {
 Get number of bits read so far.
 @returns Number of bits read.
 */
-read_stream_get_bits_processed :: (using stream: *ReadStream) -> int {
+stream_get_bits_processed :: (using stream: *ReadStream) -> int {
     return reader.bitsRead;
 }
 
@@ -643,7 +643,7 @@ read_stream_get_bits_processed :: (using stream: *ReadStream) -> int {
 How many bytes have been read so far?
 @returns Number of bytes read. Effectively this is the number of bits read, rounded up to the next byte where necessary.
 */
-read_stream_get_bytes_processed :: (using stream: *ReadStream) -> int {
+stream_get_bytes_processed :: (using stream: *ReadStream) -> int {
     return (reader.bitsRead + 7) / 8;
 }
 
@@ -668,7 +668,7 @@ Serialize an integer (measure).
 @param max The maximum value.
 @returns Always returns true. All checking is performed by debug asserts only on measure.
 */
-measure_stream_serialize_integer :: (using stream: *MeasureStream, value: s32, min: s32, max: s32) -> bool {
+stream_serialize_integer :: (using stream: *MeasureStream, value: s32, min: s32, max: s32) -> bool {
     assert(min < max);
     assert(value >= min);
     assert(value <= max);
@@ -684,7 +684,7 @@ Serialize a number of bits (write).
 @param bits The number of bits to write in [1,32].
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-measure_stream_serialize_bits :: (using stream: *MeasureStream, value: u32, bits: int) -> bool {
+stream_serialize_bits :: (using stream: *MeasureStream, value: *u32, bits: int) -> bool {
     assert(bits > 0);
     assert(bits <= 32);
 
@@ -698,8 +698,8 @@ Serialize an array of bytes (measure).
 @param bytes The number of bytes to 'write'.
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-measure_stream_serialize_bytes :: (using stream: *MeasureStream, bytes: [] u8) -> bool {
-    measure_stream_align(stream);
+stream_serialize_bytes :: (using stream: *MeasureStream, bytes: [] u8) -> bool {
+    stream_align(stream);
     bitsWritten += bytes.count * 8;
     return true;
 }
@@ -708,8 +708,8 @@ measure_stream_serialize_bytes :: (using stream: *MeasureStream, bytes: [] u8) -
 Serialize an align (measure).
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-measure_stream_align :: (using stream: *MeasureStream) -> bool {
-    alignBits := measure_stream_get_align_bits(stream);
+stream_align :: (using stream: *MeasureStream) -> bool {
+    alignBits := stream_get_align_bits(stream);
     bitsWritten += alignBits;
     return true;
 }
@@ -719,7 +719,7 @@ If we were to write an align right now, how many bits would be required?
 IMPORTANT: Since the number of bits required for alignment depends on where an object is written in the final bit stream, this measurement is conservative.
 @returns Always returns worst case 7 bits.
 */
-measure_stream_get_align_bits :: (using stream: *MeasureStream) -> int {
+stream_get_align_bits :: (using stream: *MeasureStream) -> int {
     return 7;
 }
 
@@ -729,9 +729,9 @@ measure_stream_get_align_bits :: (using stream: *MeasureStream) -> int {
 Serialize a safety check to the stream (measure).
 @returns Always returns true. All checking is performed by debug asserts on write.
 */
-measure_stream_serialize_check :: (using stream: *MeasureStream) -> bool {
+stream_serialize_check :: (using stream: *MeasureStream) -> bool {
     #if YOJIMBO_SERIALIZE_CHECKS {
-        measure_stream_align(stream);
+        stream_align(stream);
         bitsWritten += 32;
     }
     return true;
@@ -742,7 +742,7 @@ measure_stream_serialize_check :: (using stream: *MeasureStream) -> bool {
 Get number of bits written so far.
 @returns Number of bits written.
 */
-measure_stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
+stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
     return bitsWritten;
 }
 
@@ -750,7 +750,7 @@ measure_stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
 How many bytes have been written so far?
 @returns Number of bytes written.
 */
-measure_stream_get_bytes_proccessed :: (using stream: *MeasureStream) -> int {
+stream_get_bytes_proccessed :: (using stream: *MeasureStream) -> int {
     return (bitsWritten + 7) / 8;
 }
 
@@ -758,437 +758,312 @@ measure_stream_get_bytes_proccessed :: (using stream: *MeasureStream) -> int {
 Serialize integer value (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The integer value to serialize in [min,max].
 @param min The minimum value.
 @param max The maximum value.
 */
-#define serialize_int( stream, value, min, max )                    \
-    do                                                              \
-    {                                                               \
-        serialize_assert( min < max );                              \
-        int32_t int32_value = 0;                                    \
-        if ( Stream::IsWriting )                                    \
-        {                                                           \
-            serialize_assert( int64_t(value) >= int64_t(min) );     \
-            serialize_assert( int64_t(value) <= int64_t(max) );     \
-            int32_value = (int32_t) value;                          \
-        }                                                           \
-        if ( !stream.SerializeInteger( int32_value, min, max ) )    \
-        {                                                           \
-            return false;                                           \
-        }                                                           \
-        if ( Stream::IsReading )                                    \
-        {                                                           \
-            value = int32_value;                                    \
-            if ( int64_t(value) < int64_t(min) ||                   \
-                    int64_t(value) > int64_t(max) )                    \
-            {                                                       \
-                return false;                                       \
-            }                                                       \
-        }                                                           \
-    } while (0)
+serialize_int :: (stream: *$S, value: *$T, min: T, max: T) #expand {
+    assert(size_of(T) <= 4);
+    assert(min < max);
+
+    s32_value: s32;
+    if stream.isWriting {
+        assert(cast(s64) value.* >= cast(s64) min);
+        assert(cast(s64) value.* <= cast(s64) max);
+        s32_value = cast(s32) value.*;
+    }
+    if !stream_serialize_integer(stream, s32_value, min, max) {
+        `return false;
+    }
+    if stream.isReading {
+        value.* = cast(T) s32_value;
+        if cast(s64) value.* < cast(s64) min || cast(s64) value.* > cast(s64) max {
+            `return false;
+        }
+    }
+}
 
 /*
 Serialize bits to the stream (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The unsigned integer value to serialize.
 @param bits The number of bits to serialize in [1,32].
 */
-#define serialize_bits( stream, value, bits )                       \
-    do                                                              \
-    {                                                               \
-        serialize_assert( bits > 0 );                               \
-        serialize_assert( bits <= 64 );                             \
-        if ( bits <= 32 )                                           \
-        {                                                           \
-            uint32_t uint32_value = 0;                              \
-            if ( Stream::IsWriting )                                \
-            {                                                       \
-                uint32_value = (uint32_t) value;                    \
-            }                                                       \
-            if ( !stream.SerializeBits( uint32_value, bits ) )      \
-            {                                                       \
-                return false;                                       \
-            }                                                       \
-            if ( Stream::IsReading )                                \
-            {                                                       \
-                value = uint32_value;                               \
-            }                                                       \
-        }                                                           \
-        else                                                        \
-        {                                                           \
-            uint32_t hi = 0, lo = 0;                                \
-            if ( Stream::IsWriting )                                \
-            {                                                       \
-                lo = uint32_t( uint64_t(value) & 0xFFFFFFFF );      \
-                hi = uint32_t( uint64_t(value) >> 32 );             \
-            }                                                       \
-            if ( !stream.SerializeBits( lo, 32 ) )                  \
-            {                                                       \
-                return false;                                       \
-            }                                                       \
-            if ( !stream.SerializeBits( hi, bits - 32 ) )           \
-            {                                                       \
-                return false;                                       \
-            }                                                       \
-            if ( Stream::IsReading )                                \
-            {                                                       \
-                value = ( uint64_t(hi) << 32 ) | lo;                \
-            }                                                       \
-        }                                                           \
-    } while (0)
+serialize_bits :: (stream: *$S, value: *$T, bits: int) #expand {
+    assert(size_of(T) <= 8);
+    assert(bits > 0);
+    assert(bits <= 64);
+
+    if bits <= 32 {
+        u32_value: u32;
+        if stream.isWriting {
+            u32_value = cast(u32) value.*;
+        }
+        if !stream_serialize_bits(stream, *u32_value, bits) {
+            `return false;
+        }
+        if stream.isReading {
+            value.* = cast(T) u32_value;
+        }
+    } else {
+        hi, lo: u32;
+        if stream.isWriting {
+            lo = cast(u32) ((cast(u64) value.*) & 0xFFFFFFFF);
+            hi = cast(u32) ((cast(u64) value.*) >> 32);
+        }
+        if !stream_serialize_bits(stream, *lo, 32) {
+            `return false;
+        }
+        if !stream_serialize_bits(stream, *hi, bits - 32) {
+            `return false;
+        }
+        if stream.isReading {
+            value.* = cast(T) (((cast(u64) hi) << 32) | lo);
+        }
+    }
+}
 
 /*
 Serialize a boolean value to the stream (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The boolean value to serialize.
 */
-#define serialize_bool( stream, value )                             \
-    do                                                              \
-    {                                                               \
-        uint32_t uint32_bool_value = 0;                             \
-        if ( Stream::IsWriting )                                    \
-        {                                                           \
-            uint32_bool_value = value ? 1 : 0;                      \
-        }                                                           \
-        serialize_bits( stream, uint32_bool_value, 1 );             \
-        if ( Stream::IsReading )                                    \
-        {                                                           \
-            value = uint32_bool_value ? true : false;               \
-        }                                                           \
-    } while (0)
-
-template <typename Stream> bool serialize_float_internal( Stream & stream, float & value )
-{
-    uint32_t int_value;
-    if ( Stream::IsWriting )
-    {
-        memcpy( &int_value, &value, 4 );
+serialize_bool :: (stream: *$S, value: *bool) #expand {
+    u32_value: u32;
+    if stream.isWriting {
+        u32_value = ifx value.* then 1 else 0;
     }
-    bool result = stream.SerializeBits( int_value, 32 );
-    if ( Stream::IsReading )
-    {
-        memcpy( &value, &int_value, 4 );
+    if !stream_serialize_bits(stream, *u32_value, 1) {
+        `return false;
     }
-    return result;
+    if stream.isReading {
+        value.* = ifx u32_value then true else false;
+    }
 }
 
 /*
 Serialize floating point value (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The float value to serialize.
 */
-#define serialize_float( stream, value )                                        \
-    do                                                                          \
-    {                                                                           \
-        if ( !serialize::serialize_float_internal( stream, value ) )            \
-        {                                                                       \
-            return false;                                                       \
-        }                                                                       \
-    } while (0)
-
-template <typename Stream> bool serialize_compressed_float_internal(Stream &stream,
-                                            float &value,
-                                            float min,
-                                            float max,
-                                            float res)
-{
-    const float delta = max - min;
-
-    const float values = delta / res;
-
-    const uint32_t maxIntegerValue = (uint32_t) ceil(values);
-
-    const int bits = bits_required( 0, maxIntegerValue );
-
-    uint32_t integerValue = 0;
-
-    if ( Stream::IsWriting )
-    {
-        float normalizedValue = clamp( (value - min) / delta, 0.0f, 1.0f );
-        integerValue = (uint32_t) floor( normalizedValue * maxIntegerValue + 0.5f );
+serialize_float :: (stream: *$S, value: *float) #expand {
+    u32_value: u32;
+    if stream.isWriting {
+        memcpy(*u32_value, value.*, 4);
     }
-
-    if ( !stream.SerializeBits( integerValue, bits ) )
-    {
-        return false;
+    if !stream_serialize_bits(stream, *u32_value, 32) {
+        `return false;
     }
-
-    if ( Stream::IsReading )
-    {
-        const float normalizedValue = integerValue / float(maxIntegerValue);
-        value = normalizedValue * delta + min;
+    if stream.isReading {
+        memcpy(value.*, *u32_value, 4);
     }
-
-    return true;
 }
 
 /*
 Serialize compressed floating point value (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The float value to serialize.
 */
-#define serialize_compressed_float(stream, value, min, max, res)                       \
-do                                                                                     \
-{                                                                                      \
-    if (!serialize::serialize_compressed_float_internal(stream, value, min, max, res)) \
-    {                                                                                  \
-        return false;                                                                  \
-    }                                                                                  \
-} while (0)
+serialize_compressed_float :: (stream: *$S, value: *float, min: float, max: float, res: float) #expand {
+    delta := max - min;
+    values := delta / res;
 
-template <typename Stream> bool serialize_double_internal( Stream & stream, double & value )
-{
-    union DoubleInt
-    {
-        double double_value;
-        uint64_t int_value;
-    };
-    DoubleInt tmp = { 0 };
-    if ( Stream::IsWriting )
-    {
-        tmp.double_value = value;
+    maxIntegerValue := cast(u32) Math.ceil(values);
+
+    bits := bits_required(0, maxIntegerValue);
+
+    integerValue: u32;
+
+    if stream.isWriting {
+        normalizedValue := clamp((value.* - min) / delta, 0.0, 1.0);
+        integerValue = cast(u32) Math.floor(normalizedValue * maxIntegerValue + 0.5);
     }
-    serialize_bits( stream, tmp.int_value, 64 );
-    if ( Stream::IsReading )
-    {
-        value = tmp.double_value;
+    if !stream_serialize_bits(stream, *integerValue, bits) {
+        `return false;
     }
-    return true;
+    if stream.isReading {
+        normalizedValue := integerValue / cast(float) maxIntegerValue;
+        value.* = normalizedValue * delta + min;
+    }
 }
 
 /*
 Serialize double precision floating point value to the stream (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The double precision floating point value to serialize.
 */
-#define serialize_double( stream, value )                                       \
-    do                                                                          \
-    {                                                                           \
-        if ( !serialize::serialize_double_internal( stream, value ) )           \
-        {                                                                       \
-            return false;                                                       \
-        }                                                                       \
-    } while (0)
-
-template <typename Stream> bool serialize_bytes_internal( Stream & stream, uint8_t * data, int bytes )
-{
-    return stream.SerializeBytes( data, bytes );
+serialize_float64 :: (stream: *$S, value: *float64) #expand {
+    u64_value: u64;
+    if stream.isWriting {
+        memcpy(*u64_value, value.*, 8);
+    }
+    if !serialize_bits(stream, *u64_value, 64) {
+        `return false;
+    }
+    if stream.isReading {
+        memcpy(value.*, *u64_value, 8);
+    }
 }
 
 /*
 Serialize an array of bytes to the stream (read/write/measure).
 This is a helper macro to make unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param data Pointer to the data to be serialized.
 @param bytes The number of bytes to serialize.
 */
-#define serialize_bytes( stream, data, bytes )                                  \
-    do                                                                          \
-    {                                                                           \
-        if ( !serialize::serialize_bytes_internal( stream, data, bytes ) )      \
-        {                                                                       \
-            return false;                                                       \
-        }                                                                       \
-    } while (0)
-
-template <typename Stream> bool serialize_string_internal( Stream & stream, char * string, int buffer_size )
-{
-    int length = 0;
-    if ( Stream::IsWriting )
-    {
-        length = (int) strlen( string );
-        serialize_assert( length < buffer_size );
+serialize_bytes :: (stream: *$S, bytes: [] u8) #expand {
+    if !stream_serialize_bytes(stream, bytes) {
+        `return false;
     }
-    serialize_int( stream, length, 0, buffer_size - 1 );
-    serialize_bytes( stream, (uint8_t*)string, length );
-    if ( Stream::IsReading )
-    {
-        string[length] = '\0';
-    }
-    return true;
 }
 
 /*
 Serialize a string to the stream (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param string The string to serialize write/measure. Pointer to buffer to be filled on read.
 @param buffer_size The size of the string buffer. String with terminating null character must fit into this buffer.
 */
-#define serialize_string( stream, string, buffer_size )                                 \
-    do                                                                                  \
-    {                                                                                   \
-        if ( !serialize::serialize_string_internal( stream, string, buffer_size ) )     \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    } while (0)
+serialize_string :: (stream: *$S, str: *string, max_length: s32) #expand {
+    length: s32;
+    if stream.isWriting {
+        length = cast(s32) str.count;
+        assert(length <= max_length);
+    }
+    serialize_int(stream, *length, 0, max_length);
+    if stream.isReading {
+        str.data = NewArray(length, u8);
+        str.count = length;
+    }
+    serialize_bytes(stream, .{ str.count, str.data });
+    return true;
+}
 
 /*
 Serialize an alignment to the stream (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 */
-#define serialize_align( stream )                                                       \
-    do                                                                                  \
-    {                                                                                   \
-        if ( !stream.SerializeAlign() )                                                 \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    } while (0)
+serialize_align :: (stream: *$S) #expand {
+    if !stream_align(stream) {
+        `return false;
+    }
+}
 
-/*
-Serialize an object to the stream (read/write/measure).
-This is a helper macro to make writing unified serialize functions easier.
-Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
-@param stream The stream object. May be a read, write or measure stream.
-@param object The object to serialize. Must have a serialize method on it.
-*/
-#define serialize_object( stream, object )                                              \
-    do                                                                                  \
-    {                                                                                   \
-        if ( !object.Serialize( stream ) )                                              \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    }                                                                                   \
-    while(0)
+serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> bool {
+    assert(size_of(T) <= 4);
 
-template <typename Stream, typename T> bool serialize_int_relative_internal( Stream & stream, T previous, T & current )
-{
-    uint32_t difference = 0;
-    if ( Stream::IsWriting )
-    {
-        serialize_assert( previous < current );
+    difference: u32;
+    if stream.isWriting {
+        assert(previous < current);
         difference = current - previous;
     }
 
-    bool oneBit = false;
-    if ( Stream::IsWriting )
-    {
+    oneBit := false;
+    if stream.isWriting {
         oneBit = difference == 1;
     }
-    serialize_bool( stream, oneBit );
-    if ( oneBit )
-    {
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *oneBit);
+    if oneBit {
+        if stream.isReading {
             current = previous + 1;
         }
         return true;
     }
 
-    bool twoBits = false;
-    if ( Stream::IsWriting )
-    {
+    twoBits := false;
+    if stream.isWriting {
         twoBits = difference <= 6;
     }
-    serialize_bool( stream, twoBits );
-    if ( twoBits )
-    {
-        serialize_int( stream, difference, 2, 6 );
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *twoBits);
+    if twoBits {
+        serialize_int(stream, *difference, 2, 6);
+        if stream.isReading {
             current = previous + difference;
         }
         return true;
     }
 
-    bool fourBits = false;
-    if ( Stream::IsWriting )
-    {
+    fourBits := false;
+    if stream.isWriting {
         fourBits = difference <= 23;
     }
-    serialize_bool( stream, fourBits );
-    if ( fourBits )
-    {
-        serialize_int( stream, difference, 7, 23 );
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *fourBits);
+    if fourBits {
+        serialize_int(stream, *difference, 7, 23);
+        if stream.isReading {
             current = previous + difference;
         }
         return true;
     }
 
-    bool eightBits = false;
-    if ( Stream::IsWriting )
-    {
+    eightBits := false;
+    if stream.isWriting {
         eightBits = difference <= 280;
     }
-    serialize_bool( stream, eightBits );
-    if ( eightBits )
-    {
-        serialize_int( stream, difference, 24, 280 );
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *eightBits);
+    if eightBits {
+        serialize_int(stream, *difference, 24, 280);
+        if stream.isReading {
             current = previous + difference;
         }
         return true;
     }
 
-    bool twelveBits = false;
-    if ( Stream::IsWriting )
-    {
+    twelveBits := false;
+    if stream.isWriting {
         twelveBits = difference <= 4377;
     }
-    serialize_bool( stream, twelveBits );
-    if ( twelveBits )
-    {
-        serialize_int( stream, difference, 281, 4377 );
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *twelveBits);
+    if twelveBits {
+        serialize_int(stream, *difference, 281, 4377);
+        if stream.isReading {
             current = previous + difference;
         }
         return true;
     }
 
-    bool sixteenBits = false;
-    if ( Stream::IsWriting )
-    {
+    sixteenBits := false;
+    if stream.isWriting {
         sixteenBits = difference <= 69914;
     }
-    serialize_bool( stream, sixteenBits );
-    if ( sixteenBits )
-    {
-        serialize_int( stream, difference, 4378, 69914 );
-        if ( Stream::IsReading )
-        {
+    serialize_bool(stream, *sixteenBits);
+    if sixteenBits {
+        serialize_int(stream, *difference, 4378, 69914);
+        if stream.isReading {
             current = previous + difference;
         }
         return true;
     }
 
-    uint32_t value = current;
-    serialize_bits( stream, value, 32 );
-    if ( Stream::IsReading )
-    {
-        current = value;
+    value := cast(u32) current;
+    serialize_bits(stream, *value, 32);
+    if stream.isReading {
+        current = cast(T) value;
     }
 
     return true;
@@ -1198,134 +1073,41 @@ template <typename Stream, typename T> bool serialize_int_relative_internal( Str
 Serialize an integer value relative to another (read/write/measure).
 This is a helper macro to make writing unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a templated serialize function with template \<typename Stream\>. The serialize method must have a bool return value.
+IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param previous The previous integer value.
 @param current The current integer value.
 */
-#define serialize_int_relative( stream, previous, current )                             \
-    do                                                                                  \
-    {                                                                                   \
-        if ( !serialize::serialize_int_relative_internal( stream, previous, current ) ) \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    } while (0)
-
-template <typename Stream> bool serialize_ack_relative_internal( Stream & stream, uint16_t sequence, uint16_t & ack )
-{
-    int ack_delta = 0;
-    bool ack_in_range = false;
-    if ( Stream::IsWriting )
-    {
-        if ( ack < sequence )
-        {
-            ack_delta = sequence - ack;
-        }
-        else
-        {
-            ack_delta = (int)sequence + 65536 - ack;
-        }
-        serialize_assert( ack_delta > 0 );
-        serialize_assert( uint16_t( sequence - ack_delta ) == ack );
-        ack_in_range = ack_delta <= 64;
+serialize_int_relative :: (stream: *$S, previous: $T, current: *T) #expand {
+    if !serialize_int_relative_internal(stream, previous, current) {
+        `return false;
     }
-    serialize_bool( stream, ack_in_range );
-    if ( ack_in_range )
-    {
-        serialize_int( stream, ack_delta, 1, 64 );
-        if ( Stream::IsReading )
-        {
-            ack = sequence - ack_delta;
-        }
-    }
-    else
-    {
-        serialize_bits( stream, ack, 16 );
-    }
-    return true;
 }
 
-// read macros corresponding to each serialize_*. useful when you want separate read and write functions.
-
-#define read_bits( stream, value, bits )                                                \
-do                                                                                      \
-{                                                                                       \
-    serialize_assert( bits > 0 );                                                       \
-    serialize_assert( bits <= 32 );                                                     \
-    uint32_t uint32_value= 0;                                                           \
-    if ( !stream.SerializeBits( uint32_value, bits ) )                                  \
-    {                                                                                   \
-        return false;                                                                   \
-    }                                                                                   \
-    value = uint32_value;                                                               \
-} while (0)
-
-#define read_int( stream, value, min, max )                                             \
-    do                                                                                  \
-    {                                                                                   \
-        serialize_assert( min < max );                                                  \
-        int32_t int32_value = 0;                                                        \
-        if ( !stream.SerializeInteger( int32_value, min, max ) )                        \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-        value = int32_value;                                                            \
-        if ( value < min || value > max )                                               \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    } while (0)
-
-#define read_bool( stream, value ) read_bits( stream, value, 1 )
-
-#define read_float                  serialize_float
-#define read_uint32                 serialize_uint32
-#define read_uint64                 serialize_uint64
-#define read_double                 serialize_double
-#define read_bytes                  serialize_bytes
-#define read_string                 serialize_string
-#define read_align                  serialize_align
-#define read_check                  serialize_check
-#define read_object                 serialize_object
-#define read_int_relative           serialize_int_relative
-
-// write macros corresponding to each serialize_*. useful when you want separate read and write functions for some reason.
-
-#define write_bits( stream, value, bits )                                               \
-    do                                                                                  \
-    {                                                                                   \
-        serialize_assert( bits > 0 );                                                   \
-        serialize_assert( bits <= 32 );                                                 \
-        uint32_t uint32_value = (uint32_t) value;                                       \
-        if ( !stream.SerializeBits( uint32_value, bits ) )                              \
-        {                                                                               \
-            return false;                                                               \
-        }                                                                               \
-    } while (0)
-
-#define write_int( stream, value, min, max )                                            \
-    do                                                                                  \
-    {                                                                                   \
-        serialize_assert( min < max );                                                  \
-        serialize_assert( value >= min );                                               \
-        serialize_assert( value <= max );                                               \
-        int32_t int32_value = (int32_t) value;                                          \
-        if ( !stream.SerializeInteger( int32_value, min, max ) )                        \
-            return false;                                                               \
-    } while (0)
-
-#define write_float                 serialize_float
-#define write_uint32                serialize_uint32
-#define write_uint64                serialize_uint64
-#define write_double                serialize_double
-#define write_bytes                 serialize_bytes
-#define write_string                serialize_string
-#define write_align                 serialize_align
-#define write_object                serialize_object
-#define write_int_relative          serialize_int_relative
+/*
+Serialize a sequence number relative to another (read/write/measure).
+@param stream The stream object. May be a read, write or measure stream.
+@param sequence1 The first sequence number to serialize relative to.
+@param sequence2 The second sequence number to be encoded relative to the first.
+*/
+serialize_sequence_relative :: (stream: *$S, sequence1: u16, sequence2: *u16) -> bool {
+    if stream.IsWriting {
+        a: u32 = sequence1;
+        b: u32 = sequence2.* + ifx sequence1 > sequence2.* then 65536 else 0;
+        serialize_int_relative(stream, a, b);
+    } else {
+        a: u32 = sequence1;
+        b: u32 = 0;
+        serialize_int_relative(stream, a, b);
+        if b >= 65536 {
+            b -= 65536;
+        }
+        sequence2.* = cast(u16) b;
+    }
+}
 
 #scope_file
 
 #import "Basic";
 #import "Bit_Operations";
+Math :: #import "Math";

@@ -1,15 +1,5 @@
 #scope_module
 
-// Common functionality shared across all channel types.
-Channel :: struct {
-    messageFactory : *MessageFactory;             // Message factory for creating and destroying messages.
-    config         : ChannelConfig;               // Channel configuration data.
-    channelIndex   : m_channelIndex;              // The channel index in [0,numChannels-1].
-    time           : Apollo_Time;                 // The current time.
-    errorLevel     : ChannelErrorLevel;           // The channel error level.
-    counters       : [ChannelCounter.Count] u64;  // Counters for unit testing, stats etc.
-};
-
 // If the channel gets into an error state, it sets an error state on the corresponding connection. See yojimbo::CONNECTION_ERROR_CHANNEL.
 // This way if any channel on a client/server connection gets into a bad state, that client is automatically kicked from the server.
 ChannelErrorLevel :: enum {
@@ -27,6 +17,16 @@ ChannelCounter :: enum {
     MessagesSent;      // Number of messages sent over this channel.
     MessagesReceived;  // Number of messages received over this channel.
     Count;             // The number of channel counters.
+};
+
+// Common functionality shared across all channel types.
+Channel :: struct {
+    config         : ChannelConfig;               // Channel configuration data.
+    channelIndex   : m_channelIndex;              // The channel index in [0,numChannels-1].
+    time           : Apollo_Time;                 // The current time.
+    errorLevel     : ChannelErrorLevel;           // The channel error level.
+    messageFactory : *MessageFactory;             // Message factory for creating and destroying messages.
+    counters       : [ChannelCounter.Count] u64;  // Counters for unit testing, stats etc.
 };
 
 channel_init :: (channel: *Channel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
@@ -126,11 +126,11 @@ channel_set_error_level :: (channel: *Channel, errorLevel: ChannelErrorLevel) {
 // @param index The index of the counter to retrieve. See ChannelCounters.
 // @returns The value of the counter.
 // @see ResetCounters
-channel_get_counter(channel: *Channel, counter: ChannelCounter) -> u64 {
+channel_get_counter :: (channel: *Channel, counter: ChannelCounter) -> u64 {
     return channel.counters[counter];
 }
 
 // Resets all counter values to zero.
-channel_reset_counters(channel: *Channel) {
+channel_reset_counters :: (channel: *Channel) {
     array_zero(channel.counters);
 }

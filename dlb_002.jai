@@ -3,7 +3,7 @@ main :: () {
     context.log_level = .VERY_VERBOSE;
 
     log_cpu_info();
-    yojimbo_tests();
+    //yojimbo_tests();
     reliable_test();
     run_game();
 }

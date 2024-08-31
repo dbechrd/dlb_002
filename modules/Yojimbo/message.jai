@@ -47,7 +47,7 @@ message_factory_create_message :: (messageFactory: *MessageFactory, messageType:
 /*
 Helper function to serialize a block attached to a message. Used by channel implementations.
  */
-serialize_message_block :: (stream: *Stream, message: *Message, maxBlockSize: int) -> bool {
+serialize_message_block :: (stream: *$S, message: *Message, maxBlockSize: int) -> bool {
     isBlockMessage := stream.isWriting && message.blockData.count > 0;
     serialize_bool(stream, isBlockMessage);
     if !isBlockMessage {
