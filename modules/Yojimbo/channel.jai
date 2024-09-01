@@ -22,7 +22,7 @@ ChannelCounter :: enum {
 // Common functionality shared across all channel types.
 Channel :: struct {
     config         : ChannelConfig;               // Channel configuration data.
-    channelIndex   : m_channelIndex;              // The channel index in [0,numChannels-1].
+    channelIndex   : int;                         // The channel index in [0,numChannels-1].
     time           : Apollo_Time;                 // The current time.
     errorLevel     : ChannelErrorLevel;           // The channel error level.
     messageFactory : *MessageFactory;             // Message factory for creating and destroying messages.
@@ -40,36 +40,36 @@ channel_init :: (channel: *Channel, messageFactory: *MessageFactory, config: Cha
 }
 
 channel_destroy :: (channel: *Channel) {
-
+    assert(false, "Call this on the subtype");
 }
 
 channel_reset :: (channel: *Channel) {
-
+    assert(false, "Call this on the subtype");
 }
 
 channel_can_send_message :: (channel: *Channel) -> bool {
-
+    assert(false, "Call this on the subtype");
 }
 
 channel_has_messages_to_send :: (channel: *Channel) -> bool {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Queue a message for send
 channel_send_message :: (channel: *Channel) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Pops the next message off the receive queue if one is available.
 // @returns A pointer to the received message, NULL if there are no messages to receive. The caller owns the message object returned by this function and is responsible for releasing it via Message::Release.
 channel_receive_message :: (channel: *Channel) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Advance channel time
 // Called by connection_advance_time for each channel configured on the connection.
 channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Get channel packet data for this channel.
@@ -80,7 +80,7 @@ channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
 // @see ConnectionPacket
 // @see Connection::GeneratePacket
 channel_get_packet_data :: (channel: *Channel, ctx: *void, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Process packet data included in a connection packet.
@@ -89,7 +89,7 @@ channel_get_packet_data :: (channel: *Channel, ctx: *void, packetData: *ChannelP
 // @see ConnectionPacket
 // @see Connection::ProcessPacket
 channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Process a connection packet ack.
@@ -98,7 +98,7 @@ channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketDat
 //     2. Does nothing at all (unreliable-unordered).
 // @param sequence The sequence number of the connection packet that was acked.
 channel_process_ack :: (channel: *Channel, sequence: u16) {
-
+    assert(false, "Call this on the subtype");
 }
 
 // Gets the channel index.

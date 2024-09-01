@@ -10,13 +10,6 @@ Adapter :: struct {
     destroy :: #type (adapter: *Adapter);
 
     /**
-        You must override this method to create the message factory used by the client and server.
-        @param allocator The allocator that must be used to create your message factory instance via YOJIMBO_NEW
-        @returns The message factory pointer you created.
-        */
-    create_message_factory :: #type (adapter: *Adapter) -> *MessageFactory;
-
-    /**
         Override this callback to process packets sent from client to server over loopback.
         @param clientIndex The client index in range [0,maxClients-1]
         @param packetData The packet data (raw) to be sent to the server.

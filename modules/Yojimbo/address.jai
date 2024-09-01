@@ -515,19 +515,6 @@ operator == :: (a: Address, b: Address) -> bool {
     }
 }
 
-#scope_file
-
-#import "Basic";
-
-pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
-    return cast(s64)((cast(*u8) a) - (cast(*u8) b));
-}
-
-array_equal :: (a: [] $T, b: [] T) -> bool {
-    if a.count != b.count return false;
-    return !memcmp(a.data, b.data, a.count);
-}
-
 #scope_module
 
 #if YOJIMBO_ENABLE_TESTS {

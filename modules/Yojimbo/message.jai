@@ -25,10 +25,16 @@ Message :: struct {
 /*
 Defines the set of message types that can be created.
 */
-MessageFactory :: struct ($NumMessageTypes: int) {
-    messageTypes: [NumMessageTypes] Type;
-    serialize : #type (stream: *Stream, message: *Message);
+MessageFactory :: struct {
+    messageTypes: [..] Type;
+
+    // NOTE: User must define a serialize function for each message type, e.g.
+    // serialize(stream: *$S, message: *MsgConnect);
+    // serialize(stream: *$S, message: *MsgLogin);
+    // serialize(stream: *$S, message: *MsgInputCommand);
 }
+
+#scope_module
 
 /*
 Create a message by type.
@@ -41,8 +47,6 @@ message_factory_create_message :: (messageFactory: *MessageFactory, messageType:
 
     return New(messageFactory.messageTypes[messageType]);
 }
-
-#scope_module
 
 /*
 Helper function to serialize a block attached to a message. Used by channel implementations.
@@ -64,4 +68,3 @@ serialize_message_block :: (stream: *$S, message: *Message, maxBlockSize: int) -
 
     return true;
 }
-

@@ -176,7 +176,7 @@ reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *
     // TODO(dlb): We could combine the allocs and update `reliable_endpoint_destroy` to do a single free()
     endpoint := New(reliable_endpoint_t);
     assert(endpoint != null);
-    endpoint.config = config;
+    endpoint.config = config.*;
     endpoint.time = time;
     endpoint.acks = NewArray(config.ack_buffer_size, u16);
     endpoint.sent_packets = reliable_sequence_buffer_create(config.sent_packets_buffer_size, size_of(reliable_sent_packet_data_t));

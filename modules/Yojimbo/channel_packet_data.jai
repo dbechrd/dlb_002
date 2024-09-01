@@ -52,7 +52,7 @@ channel_packet_data_free :: (packetData: *ChannelPacketData, messageFactory: *Me
     }
 }
 
-channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *Stream, messageFactory: *MessageFactory, channelConfigs: ChannelConfig[MaxChannels], numChannels: int) -> bool {
+channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *$S, messageFactory: *MessageFactory, channelConfigs: [MaxChannels] ChannelConfig, numChannels: int) -> bool {
     assert(packetData.flags & .Initialized);
 
     #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
@@ -108,7 +108,7 @@ serialize_ordered_messages :: #bake_arguments serialize_messages(ordered = true,
 serialize_unordered_messages :: #bake_arguments serialize_messages(ordered = false);
 
 // NOTE: maxBlockSize is unused for ordered messages
-serialize_messages :: (stream: *Stream, messageFactory: *MessageFactory, messages: *[] *Message, maxMessagesPerPacket: int, maxBlockSize: int, $ordered: bool) -> bool {
+serialize_messages :: (stream: *$S, messageFactory: *MessageFactory, messages: *[] *Message, maxMessagesPerPacket: int, maxBlockSize: int, $ordered: bool) -> bool {
     hasMessages := stream.isWriting && messages.count > 0;
     serialize_bool(stream, hasMessages);
     if !hasMessages {
@@ -176,7 +176,7 @@ serialize_messages :: (stream: *Stream, messageFactory: *MessageFactory, message
     }
 }
 
-serialize_block_fragment :: (stream: *Stream, messageFactory: *MessageFactory, block: *ChannelPacketData.BlockData, channelConfig: *ChannelConfig) -> bool {
+serialize_block_fragment :: (stream: *$S, messageFactory: *MessageFactory, block: *ChannelPacketData.BlockData, channelConfig: *ChannelConfig) -> bool {
     if stream.isReading {
         block.message = null;
         block.fragmentData = null;

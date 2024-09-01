@@ -78,20 +78,21 @@ yojimbo_shutdown :: () {
 
 #scope_module
 
+#import "Basic";
+#import "dlb";
+
 #load "adapter.jai";
 #load "address.jai";
-// #load "base_client.jai";
+#load "base_client.jai";
 // #load "base_server.jai";
-// #load "bit_array.jai";
-// #load "channel.jai";
-// #load "channel_packet_data.jai";
-// #load "client_interface.jai";
+#load "channel.jai";
+#load "channel_packet_data.jai";
 // #load "client.jai";
 #load "config.jai";
 // #load "connection.jai";
 #load "constants.jai";
 #load "message.jai";
-// #load "network_info.jai";
+#load "network_info.jai";
 // #load "network_simulator.jai";
 // #load "queue.jai";
 // #load "reliable_ordered_channel.jai";
@@ -101,13 +102,8 @@ yojimbo_shutdown :: () {
 // #load "unreliable_unordered_channel.jai";
 // #load "utils.jai";
 
-
 yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
     #if YOJIMBO_ENABLE_LOGGING {
         log(format_string, ..args, loc, flags,, temp);
     }
 }
-
-#scope_file
-
-#import "Basic";

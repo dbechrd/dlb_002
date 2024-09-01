@@ -1,18 +1,16 @@
 #scope_module
 
-/**
-    Network information for a connection.
-    Contains statistics like round trip time (RTT), packet loss %, bandwidth estimates, number of packets sent, received and acked.
-    */
-
-struct NetworkInfo
-{
-    float RTT;                                  ///< Round trip time estimate (milliseconds).
-    float packetLoss;                           ///< Packet loss percent.
-    float sentBandwidth;                        ///< Sent bandwidth (kbps).
-    float receivedBandwidth;                    ///< Received bandwidth (kbps).
-    float ackedBandwidth;                       ///< Acked bandwidth (kbps).
-    uint64_t numPacketsSent;                    ///< Number of packets sent.
-    uint64_t numPacketsReceived;                ///< Number of packets received.
-    uint64_t numPacketsAcked;                   ///< Number of packets acked.
+/*
+Network information for a connection.
+Contains statistics like round trip time (RTT), packet loss %, bandwidth estimates, number of packets sent, received and acked.
+*/
+NetworkInfo :: struct {
+    RTT                : float;  // Round trip time estimate (milliseconds).
+    packetLoss         : float;  // Packet loss percent.
+    sentBandwidth      : float;  // Sent bandwidth (kbps).
+    receivedBandwidth  : float;  // Received bandwidth (kbps).
+    ackedBandwidth     : float;  // Acked bandwidth (kbps).
+    numPacketsSent     : u64;    // Number of packets sent.
+    numPacketsReceived : u64;    // Number of packets received.
+    numPacketsAcked    : u64;    // Number of packets acked.
 };

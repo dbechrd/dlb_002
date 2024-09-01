@@ -1065,3 +1065,7 @@ void ReliableOrderedChannel::ProcessPacketFragment( int messageType,
         }
     }
 }
+
+#scope_file
+
+#import "Bit_Array";
