@@ -18,7 +18,7 @@ To use messages, create your own set of message structs by "inheriting" from thi
 */
 Message :: struct {
     id        : u16;    // The message id. For messages sent over reliable-ordered channels, this starts at 0 and increases with each message sent. For unreliable-unordered channels this is set to the sequence number of the packet the message was included in.
-    type      : int;    // The message type. Corresponds to the type integer used when the message was created though the message factory.
+    type      : u16;    // The message type. Corresponds to the type integer used when the message was created though the message factory.
     blockData : [] u8;  // The block data. Empty if no block is attached.
 }
 

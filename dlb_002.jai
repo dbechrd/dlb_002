@@ -53,6 +53,17 @@ main :: () {
     print("Read % bytes. (% processed)\n", read.bytesRead, read.bytesProcessed);
     print("Wrote % bytes. (% processed)\n", write.bytesWritten, write.bytesProcessed);
 
+    time: Apollo_Time;
+    if time == .{} {
+        print("time is zero.\n");
+    }
+    time = milliseconds_to_apollo(1000);
+    if time > .{} {
+        print("time is % ms.\n", to_milliseconds(time));
+    }
+    time = milliseconds_to_apollo(cast(int) (to_milliseconds(time) * -0.5));
+    print("time is % ms.\n", to_milliseconds(time));
+
     log_cpu_info();
     //yojimbo_tests();
     reliable_test();

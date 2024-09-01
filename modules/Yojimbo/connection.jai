@@ -9,256 +9,134 @@ ConnectionConfig :: struct {
     numChannels   : int                         = 1;         // Number of message channels in [1,MaxChannels]. Each message channel must have a corresponding configuration below.
     maxPacketSize : int                         = 8 * 1024;  // The maximum size of packets generated to transmit messages between client and server (bytes).
     channel       : [MaxChannels] ChannelConfig;             // Per-channel configuration. See ChannelConfig for details.
+}
+
+ConnectionErrorLevel :: enum {
+    None = 0,             // No error. All is well.
+    ChannelError,         // A channel is in an error state.
+    MessageFactoryError,  // The message factory is in an error state.
+    ReadPacketFailure,    // Failed to read packet. Received an invalid packet?
+}
+
+/*
+Sends and receives messages across a set of user defined channels.
+*/
+Connection :: struct {
+    messageFactory   : *MessageFactory;         // Message factory for creating and destroying messages.
+    connectionConfig : ConnectionConfig;        // Connection configuration.
+    errorLevel       : ConnectionErrorLevel;    // The connection error level.
+    channels         : [MaxChannels] *Channel;  // Array of connection channels. Effective array size is connectionConfig.numChannels.
 };
 
-// Connection error level.
-enum ConnectionErrorLevel
-{
-    CONNECTION_ERROR_NONE = 0,                              ///< No error. All is well.
-    CONNECTION_ERROR_CHANNEL,                               ///< A channel is in an error state.
-    CONNECTION_ERROR_ALLOCATOR,                             ///< The allocator is an error state.
-    CONNECTION_ERROR_MESSAGE_FACTORY,                       ///< The message factory is in an error state.
-    CONNECTION_ERROR_READ_PACKET_FAILED,                    ///< Failed to read packet. Received an invalid packet?
-};
+ConnectionPacket :: struct {
+    messageFactory : *MessageFactory;
+    channelEntries : [] ChannelPacketData;
+}
 
-/**
-    Sends and receives messages across a set of user defined channels.
-    */
-
-class Connection
-{
-public:
-
-    Connection( Allocator & allocator, MessageFactory & messageFactory, const ConnectionConfig & connectionConfig, double time );
-
-    ~Connection();
-
-    void Reset();
-
-    bool CanSendMessage( int channelIndex ) const;
-
-    bool HasMessagesToSend( int channelIndex ) const;
-
-    void SendMessage( int channelIndex, Message * message, void *context = 0);
-
-    Message * ReceiveMessage( int channelIndex );
-
-    void ReleaseMessage( Message * message );
-
-    bool GeneratePacket( void * context, uint16_t packetSequence, uint8_t * packetData, int maxPacketBytes, int & packetBytes );
-
-    bool ProcessPacket( void * context, uint16_t packetSequence, const uint8_t * packetData, int packetBytes );
-
-    void ProcessAcks( const uint16_t * acks, int numAcks );
-
-    void AdvanceTime( double time );
-
-    ConnectionErrorLevel GetErrorLevel() { return m_errorLevel; }
-
-private:
-
-    Allocator * m_allocator;                                ///< Allocator passed in to the connection constructor.
-    MessageFactory * m_messageFactory;                      ///< Message factory for creating and destroying messages.
-    ConnectionConfig m_connectionConfig;                    ///< Connection configuration.
-    Channel * m_channel[MaxChannels];                       ///< Array of connection channels. Array size corresponds to m_connectionConfig.numChannels
-    ConnectionErrorLevel m_errorLevel;                      ///< The connection error level.
-};
-
-struct ConnectionPacket
-{
-    int numChannelEntries;
-    ChannelPacketData * channelEntry;
-    MessageFactory * messageFactory;
-
-    ConnectionPacket()
-    {
-        messageFactory = NULL;
-        numChannelEntries = 0;
-        channelEntry = NULL;
-    }
-
-    ~ConnectionPacket()
-    {
-        if ( messageFactory )
-        {
-            for ( int i = 0; i < numChannelEntries; ++i )
-            {
-                channelEntry[i].Free( *messageFactory );
-            }
-            YOJIMBO_FREE( messageFactory->GetAllocator(), channelEntry );
-            messageFactory = NULL;
+connection_packet_free(using connectionPacket: *ConnectionPacket) {
+    if messageFactory {
+        for 0..channelEntries.count-1 {
+            channel_packet_data_free(it, messageFactory);
         }
+        array_reset(*channelEntries);
+        messageFactory = null;
     }
+}
 
-    bool AllocateChannelData( MessageFactory & _messageFactory, int numEntries )
-    {
-        yojimbo_assert( numEntries > 0 );
-        yojimbo_assert( numEntries <= MaxChannels );
-        messageFactory = &_messageFactory;
-        Allocator & allocator = messageFactory->GetAllocator();
-        channelEntry = (ChannelPacketData*) YOJIMBO_ALLOCATE( allocator, sizeof( ChannelPacketData ) * numEntries );
-        if ( channelEntry == NULL )
-            return false;
-        for ( int i = 0; i < numEntries; ++i )
-        {
-            channelEntry[i].Initialize();
-        }
-        numChannelEntries = numEntries;
-        return true;
+connection_packet_allocate_channel_data :: (using connectionPacket: *ConnectionPacket, msgFactory: *MessageFactory, numEntries: int) {
+    assert(numEntries > 0);
+    assert(numEntries <= MaxChannels);
+
+    messageFactory = msgFactory;
+    channelEntries = NewArray(numEntries, channelPacketData);
+}
+
+connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *$S, messageFactory: *MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
+    serialize_int(stream, channelEntries.count, 0, connectionConfig.numChannels);
+    #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
+        assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
     }
-
-    template <typename Stream> bool Serialize( Stream & stream, MessageFactory & messageFactory, const ConnectionConfig & connectionConfig )
-    {
-        const int numChannels = connectionConfig.numChannels;
-        serialize_int( stream, numChannelEntries, 0, connectionConfig.numChannels );
-#if YOJIMBO_DEBUG_MESSAGE_BUDGET
-        yojimbo_assert( stream.GetBitsProcessed() <= ConservativePacketHeaderBits );
-#endif // #if YOJIMBO_DEBUG_MESSAGE_BUDGET
-        if ( numChannelEntries > 0 )
-        {
-            if ( Stream::IsReading )
-            {
-                if ( !AllocateChannelData( messageFactory, numChannelEntries ) )
-                {
-                    yojimbo_printf( YOJIMBO_LOG_LEVEL_ERROR, "error: failed to allocate channel data (ConnectionPacket)\n" );
-                    return false;
-                }
-                for ( int i = 0; i < numChannelEntries; ++i )
-                {
-                    yojimbo_assert( channelEntry[i].messageFailedToSerialize == 0 );
-                }
-            }
-            for ( int i = 0; i < numChannelEntries; ++i )
-            {
-                yojimbo_assert( channelEntry[i].messageFailedToSerialize == 0 );
-                if ( !channelEntry[i].SerializeInternal( stream, messageFactory, connectionConfig.channel, numChannels ) )
-                {
-                    yojimbo_printf( YOJIMBO_LOG_LEVEL_ERROR, "error: failed to serialize channel %d\n", i );
-                    return false;
-                }
+    if channelEntries.count > 0 {
+        if stream.isReading {
+            connection_packet_allocate_channel_data(connectionPacket, messageFactory, channelEntries.count);
+            // TODO(dlb): What is the point of this? Why would this flag ever be set here?
+            for channelEntries {
+                assert(!(it.flags & .FailedToSerialize));
             }
         }
-        return true;
+        for channelEntries {
+            assert(!(it.flags & .FailedToSerialize));
+            if !channel_packet_data_serialize(it, stream, messageFactory, connectionConfig.channel, connectionConfig.numChannels) {
+                yojimbo_log(.ERROR, "error: failed to serialize channel %\n", i);
+                return false;
+            }
+        }
     }
-
-    bool SerializeInternal( ReadStream & stream, MessageFactory & _messageFactory, const ConnectionConfig & connectionConfig )
-    {
-        return Serialize( stream, _messageFactory, connectionConfig );
-    }
-
-    bool SerializeInternal( WriteStream & stream, MessageFactory & _messageFactory, const ConnectionConfig & connectionConfig )
-    {
-        return Serialize( stream, _messageFactory, connectionConfig );
-    }
-
-    bool SerializeInternal( MeasureStream & stream, MessageFactory & _messageFactory, const ConnectionConfig & connectionConfig )
-    {
-        return Serialize( stream, _messageFactory, connectionConfig );
-    }
-
-private:
-
-    ConnectionPacket( const ConnectionPacket & other );
-
-    const ConnectionPacket & operator = ( const ConnectionPacket & other );
-};
+    return true;
+}
 
 // ------------------------------------------------------------------------------
 
-Connection::Connection( Allocator & allocator, MessageFactory & messageFactory, const ConnectionConfig & connectionConfig, double time )
-    : m_connectionConfig( connectionConfig )
-{
-    m_allocator = &allocator;
-    m_messageFactory = &messageFactory;
-    m_errorLevel = CONNECTION_ERROR_NONE;
-    memset( m_channel, 0, sizeof( m_channel ) );
-    yojimbo_assert( m_connectionConfig.numChannels >= 1 );
-    yojimbo_assert( m_connectionConfig.numChannels <= MaxChannels );
-    for ( int channelIndex = 0; channelIndex < m_connectionConfig.numChannels; ++channelIndex )
-    {
-        switch ( m_connectionConfig.channel[channelIndex].type )
-        {
-            case CHANNEL_TYPE_RELIABLE_ORDERED:
-            {
-                m_channel[channelIndex] = YOJIMBO_NEW( *m_allocator,
-                                                        ReliableOrderedChannel,
-                                                        *m_allocator,
-                                                        messageFactory,
-                                                        m_connectionConfig.channel[channelIndex],
-                                                        channelIndex,
-                                                        time );
-            }
-            break;
+connection_init :: (using connection: *Connection, _messageFactory: *MessageFactory, _connectionConfig: *ConnectionConfig, time: Apollo_Time) {
+    assert(_connectionConfig.numChannels >= 1);
+    assert(_connectionConfig.numChannels <= MaxChannels);
 
-            case CHANNEL_TYPE_UNRELIABLE_UNORDERED:
-            {
-                m_channel[channelIndex] = YOJIMBO_NEW( *m_allocator,
-                                                        UnreliableUnorderedChannel,
-                                                        *m_allocator,
-                                                        messageFactory,
-                                                        m_connectionConfig.channel[channelIndex],
-                                                        channelIndex,
-                                                        time );
-            }
-            break;
+    messageFactory = _messageFactory;
+    connectionConfig = _connectionConfig.*;
 
-            default:
-                yojimbo_assert( !"unknown channel type" );
+    for 0..connectionConfig.numChannels-1 {
+        if #complete connectionConfig.channel[it].type == {
+            case .ReliableOrdered;
+                channels[it] = New(ReliableOrderedChannel);
+                reliable_ordered_channel_init(channels[it], messageFactory, connectionConfig.channel[it], it, time);
+            case .UnreliableUnordered;
+                UnreliableUnorderedChannel
+                channels[it] = New(UnreliableUnorderedChannel);
+                unreliable_unordered_channel_init(channels[it], messageFactory, connectionConfig.channel[it], it, time);
         }
     }
 }
 
-Connection::~Connection()
-{
-    yojimbo_assert( m_allocator );
-    Reset();
-    for ( int i = 0; i < m_connectionConfig.numChannels; ++i )
-    {
-        YOJIMBO_DELETE( *m_allocator, Channel, m_channel[i] );
-    }
-    m_allocator = NULL;
-}
-
-void Connection::Reset()
-{
-    m_errorLevel = CONNECTION_ERROR_NONE;
-    for ( int i = 0; i < m_connectionConfig.numChannels; ++i )
-    {
-        m_channel[i]->Reset();
+connection_free :: (using connection: *Connection) {
+    connection_reset(connection);
+    for 0..connectionConfig.numChannels-1 {
+        free(channels[it]);
     }
 }
 
-bool Connection::CanSendMessage( int channelIndex ) const
-{
-    yojimbo_assert( channelIndex >= 0 );
-    yojimbo_assert( channelIndex < m_connectionConfig.numChannels );
-    return m_channel[channelIndex]->CanSendMessage();
+connection_reset :: (using connection: *Connection) {
+    errorLevel = .None;
+    for 0..connectionConfig.numChannels-1 {
+        channel_reset(channels[it]);
+    }
 }
 
-bool Connection::HasMessagesToSend( int channelIndex ) const {
-    yojimbo_assert( channelIndex >= 0 );
-    yojimbo_assert( channelIndex < m_connectionConfig.numChannels );
-    return m_channel[channelIndex]->HasMessagesToSend();
+connection_can_send_message :: (using connection: *Connection, channelIndex: int) -> bool {
+    assert(channelIndex >= 0);
+    assert(channelIndex < connectionConfig.numChannels);
+
+    return channel_can_send_message(channels[channelIndex]);
 }
 
-void Connection::SendMessage( int channelIndex, Message * message, void *context)
-{
-    yojimbo_assert( channelIndex >= 0 );
-    yojimbo_assert( channelIndex < m_connectionConfig.numChannels );
-    return m_channel[channelIndex]->SendMessage( message, context );
+connection_has_messages_to_send :: (using connection: *Connection, channelIndex: int) -> bool {
+    assert(channelIndex >= 0);
+    assert(channelIndex < connectionConfig.numChannels);
+
+    return channel_has_messages_to_send(channels[channelIndex]);
 }
 
-Message * Connection::ReceiveMessage( int channelIndex )
-{
-    yojimbo_assert( channelIndex >= 0 );
-    yojimbo_assert( channelIndex < m_connectionConfig.numChannels );
-    return m_channel[channelIndex]->ReceiveMessage();
+connection_send_message :: (using connection: *Connection, channelIndex: int, message: *Message) {
+    assert(channelIndex >= 0);
+    assert(channelIndex < connectionConfig.numChannels);
+
+    return channel_send_message(channels[channelIndex], message);
 }
 
-void Connection::ReleaseMessage( Message * message )
-{
-    yojimbo_assert( message );
-    m_messageFactory->ReleaseMessage( message );
+connection_receive_message :: (using connection: *Connection, channelIndex: int) -> *Message {
+    assert(channelIndex >= 0);
+    assert(channelIndex < connectionConfig.numChannels);
+
+    return channel_receive_message(channels[channelIndex]);
 }
 
 static int WritePacket( void * context,
@@ -300,7 +178,7 @@ bool Connection::GeneratePacket( void * context, uint16_t packetSequence, uint8_
 
         for ( int channelIndex = 0; channelIndex < m_connectionConfig.numChannels; ++channelIndex )
         {
-            int packetDataBits = m_channel[channelIndex]->GetPacketData( context, channelData[channelIndex], packetSequence, availableBits );
+            int packetDataBits = channels[channelIndex]->GetPacketData( context, channelData[channelIndex], packetSequence, availableBits );
             if ( packetDataBits > 0 )
             {
                 availableBits -= ConservativeChannelHeaderBits;
@@ -324,7 +202,7 @@ bool Connection::GeneratePacket( void * context, uint16_t packetSequence, uint8_
             {
                 if ( channelHasData[channelIndex] )
                 {
-                    memcpy( &packet.channelEntry[index], &channelData[channelIndex], sizeof( ChannelPacketData ) );
+                    memcpy( &packet.channelEntries[index], &channelData[channelIndex], sizeof( ChannelPacketData ) );
                     index++;
                 }
             }
@@ -343,8 +221,8 @@ static bool ReadPacket( void * context,
                         const uint8_t * buffer,
                         int bufferSize )
 {
-    yojimbo_assert( buffer );
-    yojimbo_assert( bufferSize > 0 );
+    assert(buffer );
+    assert(bufferSize > 0 );
 
     ReadStream stream( buffer, bufferSize );
 
@@ -380,11 +258,11 @@ bool Connection::ProcessPacket( void * context, uint16_t packetSequence, const u
 
     for ( int i = 0; i < packet.numChannelEntries; ++i )
     {
-        const int channelIndex = packet.channelEntry[i].channelIndex;
-        yojimbo_assert( channelIndex >= 0 );
-        yojimbo_assert( channelIndex <= m_connectionConfig.numChannels );
-        m_channel[channelIndex]->ProcessPacketData( packet.channelEntry[i], packetSequence );
-        if ( m_channel[channelIndex]->GetErrorLevel() != CHANNEL_ERROR_NONE )
+        const int channelIndex = packet.channelEntries[i].channelIndex;
+        assert(channelIndex >= 0 );
+        assert(channelIndex <= m_connectionConfig.numChannels );
+        channels[channelIndex]->ProcessPacketData( packet.channelEntries[i], packetSequence );
+        if ( channels[channelIndex]->GetErrorLevel() != CHANNEL_ERROR_NONE )
         {
             yojimbo_printf( YOJIMBO_LOG_LEVEL_DEBUG, "failed to read packet because channel %d is in error state\n", channelIndex );
             return false;
@@ -400,7 +278,7 @@ void Connection::ProcessAcks( const uint16_t * acks, int numAcks )
     {
         for ( int channelIndex = 0; channelIndex < m_connectionConfig.numChannels; ++channelIndex )
         {
-            m_channel[channelIndex]->ProcessAck( acks[i] );
+            channels[channelIndex]->ProcessAck( acks[i] );
         }
     }
 }
@@ -409,9 +287,9 @@ void Connection::AdvanceTime( double time )
 {
     for ( int i = 0; i < m_connectionConfig.numChannels; ++i )
     {
-        m_channel[i]->AdvanceTime( time );
+        channels[i]->AdvanceTime( time );
 
-        if ( m_channel[i]->GetErrorLevel() != CHANNEL_ERROR_NONE )
+        if ( channels[i]->GetErrorLevel() != CHANNEL_ERROR_NONE )
         {
             m_errorLevel = CONNECTION_ERROR_CHANNEL;
             return;

@@ -1,8 +1,10 @@
 #scope_module
 
+/*
+A single channel packet. Can contain multiple messages, or a single block message fragment.
+*/
 ChannelPacketData :: struct {
     Flags :: enum_flags u8 {
-        Initialized;
         BlockMessage;
         FailedToSerialize;
     }
@@ -13,10 +15,9 @@ ChannelPacketData :: struct {
 
     BlockData :: struct {
         message: *Message;
-        fragmentData: *u8;  // TODO(dlb): fragmentData: [] u8 and get rid of `fragmentSize`
+        fragmentData: [] u8;  // TODO(dlb): fragmentData: [] u8 and get rid of `fragmentSize`
         messageId: u16;
         fragmentId: u16;
-        fragmentSize: u16;
         numFragments: u16;
         messageType: int;
     }
@@ -29,23 +30,17 @@ ChannelPacketData :: struct {
     }
 };
 
-channel_packet_data_init :: (packetData: *ChannelPacketData) {
-    packetData.flags &= .Initialized;
-}
-
 channel_packet_data_free :: (packetData: *ChannelPacketData, messageFactory: *MessageFactory) {
-    assert(packetData.flags & .Initialized);
-
     if packetData.flags & .BlockMessage {
         if packetData.block.message {
             free(packetData.block.message);
             packetData.block.message = null;
         }
-        free(packetData.block.fragmentData);
+        array_reset(*packetData.block.fragmentData);
     } else {
         for packetData.message.messages {
             if it != null {
-                free(messageFactory, it);
+                free(it);
             }
         }
         array_reset(*packetData.message.messages);
@@ -115,10 +110,9 @@ serialize_messages :: (stream: *$S, messageFactory: *MessageFactory, messages: *
         return true;
     }
 
-    messageCount := messages.count;
-    serialize_int(stream, messageCount, 1, maxMessagesPerPacket);
+    serialize_int(stream, messages.count, 1, maxMessagesPerPacket);
     if stream.isReading {
-        messages.* = NewArray(messageCount, *Message);
+        messages.* = NewArray(messages.count, *Message);
     }
 
     messageTypes: [] int = NewArray(messages.count, int,, temp);
@@ -144,14 +138,13 @@ serialize_messages :: (stream: *$S, messageFactory: *MessageFactory, messages: *
     }
 
     for 0..messages.count-1 {
-        maxMessageType := messageFactory.messageTypes.count - 1;
-        serialize_int(stream, messageTypes[it], 0, maxMessageType);
+        serialize_int(stream, messageTypes[it], 0, messageFactory.messageTypes.count-1);
 
         if stream.isReading {
             messages.*[it] = message_factory_create_message(messageFactory, messageTypes[it]);
 
             if messages.*[it] == null {
-                yojimbo_log(.ERROR, "error: failed to create message of type %d (serialize_messages[ordered = %]\n", messageTypes[it], ordered);
+                yojimbo_log(.ERROR, "error: failed to create message of type % (serialize_messages[ordered = %]\n", messageTypes[it], ordered);
                 return false;
             }
 
@@ -163,7 +156,7 @@ serialize_messages :: (stream: *$S, messageFactory: *MessageFactory, messages: *
         assert(messages.*[it] != null);
 
         if !message_factory.serialize(stream, messages.*[it]) {
-            yojimbo_log(.ERROR, "error: failed to serialize message of type %d (serialize_messages[ordered = %])\n", messageTypes[it], ordered);
+            yojimbo_log(.ERROR, "error: failed to serialize message of type % (serialize_messages[ordered = %])\n", messageTypes[it], ordered);
             return false;
         }
 
@@ -201,18 +194,14 @@ serialize_block_fragment :: (stream: *$S, messageFactory: *MessageFactory, block
         }
     }
 
-    serialize_int(stream, block.fragmentSize, 1, channelConfig.blockFragmentSize);
+    fragmentSize: u32 = cast(u32) block.fragmentData.count;
+    serialize_int(stream, fragmentSize, 1, channelConfig.blockFragmentSize);
 
     if stream.isReading {
-        block.fragmentData = NewArray(block.fragmentSize, u8);
-
-        if block.fragmentData.data == null {
-            yojimbo_log(.ERROR, "error: failed to serialize block fragment (serialize_block_fragment)\n");
-            return false;
-        }
+        block.fragmentData = NewArray(fragmentSize, u8);
     }
 
-    serialize_bytes(stream, block.fragmentData, block.fragmentSize);
+    serialize_bytes(stream, block.fragmentData);
 
     if block.fragmentId == 0 {
         // block message
@@ -227,7 +216,7 @@ serialize_block_fragment :: (stream: *$S, messageFactory: *MessageFactory, block
         assert(block.message != null);
 
         if !block_message_serialize_internal(block.message, stream) {
-            yojimbo_log(.ERROR, "error: failed to serialize block message of type %d (serialize_block_fragment)\n", block.messageType);
+            yojimbo_log(.ERROR, "error: failed to serialize block message of type % (serialize_block_fragment)\n", block.messageType);
             return false;
         }
     }

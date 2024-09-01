@@ -83,7 +83,7 @@ yojimbo_shutdown :: () {
 
 #load "adapter.jai";
 #load "address.jai";
-#load "base_client.jai";
+// #load "base_client.jai";
 // #load "base_server.jai";
 #load "channel.jai";
 #load "channel_packet_data.jai";
@@ -93,7 +93,7 @@ yojimbo_shutdown :: () {
 #load "constants.jai";
 #load "message.jai";
 #load "network_info.jai";
-// #load "network_simulator.jai";
+#load "network_simulator.jai";
 // #load "queue.jai";
 // #load "reliable_ordered_channel.jai";
 // #load "sequence_buffer.jai";

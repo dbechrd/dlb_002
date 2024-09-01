@@ -1,323 +1,235 @@
 #scope_module
 
-/**
-    Simulates packet loss, latency, jitter and duplicate packets.
-    This is useful during development, so your game is tested and played under real world conditions, instead of ideal LAN conditions.
-    This simulator works on packet send. This means that if you want 125ms of latency (round trip), you must to add 125/2 = 62.5ms of latency to each side.
-    */
+/*
+Simulates packet loss, latency, jitter and duplicate packets.
+This is useful during development, so your game is tested and played under real world conditions, instead of ideal LAN conditions.
+This simulator works on packet send. This means that if you want 125ms of latency (round trip), you must to add 125/2 = 62.5ms of latency to each side.
+*/
+NetworkSimulator :: struct {
+    latency       : Apollo_Time;  // Latency in milliseconds
+    jitter        : Apollo_Time;  // Jitter in milliseconds +/-
+    packetLossPct : float;        // Packet loss percentage.
+    duplicatePct  : float;        // Duplicate packet percentage
+    active        : bool;         // True if network simulator is active, eg. if any of the network settings above are enabled.
+    time          : Apollo_Time;  // Current time from last call to advance time.
 
-class NetworkSimulator
-{
-public:
-
-    /**
-        Create a network simulator.
-        Initial network conditions are set to:
-            Latency: 0ms
-            Jitter: 0ms
-            Packet Loss: 0%
-            Duplicates: 0%
-        @param allocator The allocator to use.
-        @param numPackets The maximum number of packets that can be stored in the simulator at any time.
-        @param time The initial time value in seconds.
-        */
-
-    NetworkSimulator( Allocator & allocator, int numPackets, double time );
-
-    /**
-        Network simulator destructor.
-        Any packet data still in the network simulator is destroyed.
-        */
-
-    ~NetworkSimulator();
-
-    /**
-        Set the latency in milliseconds.
-        This latency is added on packet send. To simulate a round trip time of 100ms, add 50ms of latency to both sides of the connection.
-        @param milliseconds The latency to add in milliseconds.
-        */
-
-    void SetLatency( float milliseconds );
-
-    /**
-        Set the packet jitter in milliseconds.
-        Jitter is applied +/- this amount in milliseconds. To be truly effective, jitter must be applied together with some latency.
-        @param milliseconds The amount of jitter to add in milliseconds (+/-).
-        */
-
-    void SetJitter( float milliseconds );
-
-    /**
-        Set the amount of packet loss to apply on send.
-        @param percent The packet loss percentage. 0% = no packet loss. 100% = all packets are dropped.
-        */
-
-    void SetPacketLoss( float percent );
-
-    /**
-        Set percentage chance of packet duplicates.
-        If the duplicate chance succeeds, a duplicate packet is added to the queue with a random delay of up to 1 second.
-        @param percent The percentage chance of a packet duplicate being sent. 0% = no duplicate packets. 100% = all packets have a duplicate sent.
-        */
-
-    void SetDuplicates( float percent );
-
-    /**
-        Is the network simulator active?
-        The network simulator is active when packet loss, latency, duplicates or jitter are non-zero values.
-        This is used by the transport to know whether it should shunt packets through the simulator, or send them directly to the network. This is a minor optimization.
-        */
-
-    bool IsActive() const;
-
-    /**
-        Queue a packet to send.
-        IMPORTANT: Ownership of the packet data pointer is *not* transferred to the network simulator. It makes a copy of the data instead.
-        @param to The slot index the packet should be sent to.
-        @param packetData The packet data.
-        @param packetBytes The packet size (bytes).
-        */
-
-    void SendPacket( int to, uint8_t * packetData, int packetBytes );
-
-    /**
-        Receive packets sent to any address.
-        IMPORTANT: You take ownership of the packet data you receive and are responsible for freeing it. See NetworkSimulator::GetAllocator.
-        @param maxPackets The maximum number of packets to receive.
-        @param packetData Array of packet data pointers to be filled [out].
-        @param packetBytes Array of packet sizes to be filled [out].
-        @param to Array of to indices to be filled [out].
-        @returns The number of packets received.
-        */
-
-    int ReceivePackets( int maxPackets, uint8_t * packetData[], int packetBytes[], int to[] );
-
-    /**
-        Discard all packets in the network simulator.
-        This is useful if the simulator needs to be reset and used for another purpose.
-        */
-
-    void DiscardPackets();
-
-    /**
-        Discard packets sent to a particular client index.
-        This is called when a client disconnects from the server.
-        */
-
-    void DiscardClientPackets( int clientIndex );
-
-    /**
-        Advance network simulator time.
-        You must pump this regularly otherwise the network simulator won't work.
-        @param time The current time value. Please make sure you use double values for time so you retain sufficient precision as time increases.
-        */
-
-    void AdvanceTime( double time );
-
-    /**
-        Get the allocator to use to free packet data.
-        @returns The allocator that packet data is allocated with.
-        */
-
-    Allocator & GetAllocator() { yojimbo_assert( m_allocator ); return *m_allocator; }
-
-protected:
-
-    /**
-        Helper function to update the active flag whenever network settings are changed.
-        Active is set to true if any of the network conditions are non-zero. This allows you to quickly check if the network simulator is active and would actually do something.
-        */
-
-    void UpdateActive();
-
-private:
-
-    Allocator * m_allocator;                        ///< The allocator passed in to the constructor. It's used to allocate and free packet data.
-    float m_latency;                                ///< Latency in milliseconds
-    float m_jitter;                                 ///< Jitter in milliseconds +/-
-    float m_packetLoss;                             ///< Packet loss percentage.
-    float m_duplicates;                             ///< Duplicate packet percentage
-    bool m_active;                                  ///< True if network simulator is active, eg. if any of the network settings above are enabled.
-
-    /// A packet buffered in the network simulator.
-
-    struct PacketEntry
-    {
-        int to;                                     ///< To index this packet should be sent to (for server -> client packets).
-        double deliveryTime;                        ///< Delivery time for this packet (seconds).
-        uint8_t * packetData;                       ///< Packet data (owns this pointer).
-        int packetBytes;                            ///< Size of packet in bytes.
+    // A packet buffered in the network simulator.
+    PacketEntry :: struct {
+        to           : int;          // To index this packet should be sent to (for server -> client packets).
+        deliveryTime : Apollo_Time;  // Delivery time for this packet (seconds).
+        packetData   : [] u8;        // Packet data (owns this pointer).
     };
 
-    double m_time;                                  ///< Current time from last call to advance time.
-    int m_currentIndex;                             ///< Current index in the packet entry array. New packets are inserted here.
-    int m_numPacketEntries;                         ///< Number of elements in the packet entry array.
-    PacketEntry * m_packetEntries;                  ///< Pointer to dynamically allocated packet entries. This is where buffered packets are stored.
-};
-
-NetworkSimulator::NetworkSimulator( Allocator & allocator, int numPackets, double time )
-{
-    yojimbo_assert( numPackets > 0 );
-    m_allocator = &allocator;
-    m_currentIndex = 0;
-    m_time = time;
-    m_latency = 0.0f;
-    m_jitter = 0.0f;
-    m_packetLoss = 0.0f;
-    m_duplicates = 0.0f;
-    m_active = false;
-    m_numPacketEntries = numPackets;
-    m_packetEntries = (PacketEntry*) YOJIMBO_ALLOCATE( allocator, sizeof( PacketEntry ) * numPackets );
-    yojimbo_assert( m_packetEntries );
-    memset( m_packetEntries, 0, sizeof( PacketEntry ) * numPackets );
+    currentIndex  : int;             // Current index in the packet entry array. New packets are inserted here.
+    packetEntries : [] PacketEntry;  // Pointer to dynamically allocated packet entries. This is where buffered packets are stored.
 }
 
-NetworkSimulator::~NetworkSimulator()
-{
-    yojimbo_assert( m_allocator );
-    yojimbo_assert( m_packetEntries );
-    yojimbo_assert( m_numPacketEntries > 0 );
-    DiscardPackets();
-    YOJIMBO_FREE( *m_allocator, m_packetEntries );
-    m_numPacketEntries = 0;
-    m_allocator = NULL;
+/*
+Create a network simulator.
+Initial network conditions are set to:
+Latency: 0ms
+Jitter: 0ms
+Packet Loss: 0%
+Duplicates: 0%
+@param allocator The allocator to use.
+@param numPackets The maximum number of packets that can be stored in the simulator at any time.
+@param time The initial time value in seconds.
+*/
+network_simulator_init :: (using networkSimulator: *NetworkSimulator, numPackets: int, time: Apollo_Time) {
+    assert(numPackets > 0);
+
+    packetEntries = NewArray(numPackets, PacketEntry);
+    time = time;
 }
 
-void NetworkSimulator::SetLatency( float milliseconds )
-{
-    m_latency = milliseconds;
-    UpdateActive();
+/*
+Network simulator destructor.
+Any packet data still in the network simulator is destroyed.
+*/
+network_simulator_free :: (using networkSimulator: *NetworkSimulator) {
+    network_simulator_discard_packets(networkSimulator);
+    array_free(packetEntries);
 }
 
-void NetworkSimulator::SetJitter( float milliseconds )
-{
-    m_jitter = milliseconds;
-    UpdateActive();
+/*
+Set the latency in milliseconds.
+This latency is added on packet send. To simulate a round trip time of 100ms, add 50ms of latency to both sides of the connection.
+@param milliseconds The latency to add in milliseconds.
+*/
+network_simulator_set_latency :: (using networkSimulator: *NetworkSimulator, milliseconds: float) {
+    latency = milliseconds_to_apollo(milliseconds);
+    network_simulator_update_active(networkSimulator);
 }
 
-void NetworkSimulator::SetPacketLoss( float percent )
-{
-    m_packetLoss = percent;
-    UpdateActive();
+/*
+Set the packet jitter in milliseconds.
+Jitter is applied +/- this amount in milliseconds. To be truly effective, jitter must be applied together with some latency.
+@param milliseconds The amount of jitter to add in milliseconds (+/-).
+*/
+network_simulator_set_jitter :: (using networkSimulator: *NetworkSimulator, milliseconds: float) {
+    jitter = milliseconds_to_apollo(milliseconds);
+    network_simulator_update_active(networkSimulator);
 }
 
-void NetworkSimulator::SetDuplicates( float percent )
-{
-    m_duplicates = percent;
-    UpdateActive();
+/*
+Set the amount of packet loss to apply on send.
+@param percent The packet loss percentage. 0% = no packet loss. 100% = all packets are dropped.
+*/
+network_simulator_set_packet_loss_pct :: (using networkSimulator: *NetworkSimulator, percent: float) {
+    packetLossPct = percent;
+    network_simulator_update_active(networkSimulator);
 }
 
-bool NetworkSimulator::IsActive() const
-{
-    return m_active;
+/*
+Set percentage chance of packet duplicates.
+If the duplicate chance succeeds, a duplicate packet is added to the queue with a random delay of up to 1 second.
+@param percent The percentage chance of a packet duplicate being sent. 0% = no duplicate packets. 100% = all packets have a duplicate sent.
+*/
+network_simulator_set_duplicate_pct :: (using networkSimulator: *NetworkSimulator, percent: float) {
+    duplicatePct = percent;
+    network_simulator_update_active(networkSimulator);
 }
 
-void NetworkSimulator::UpdateActive()
-{
-    bool previous = m_active;
-    m_active = m_latency != 0.0f || m_jitter != 0.0f || m_packetLoss != 0.0f || m_duplicates != 0.0f;
-    if ( previous && !m_active )
-    {
-        DiscardPackets();
-    }
+/*
+Is the network simulator active?
+The network simulator is active when packet loss, latency, duplicates or jitter are non-zero values.
+This is used by the transport to know whether it should shunt packets through the simulator, or send them directly to the network. This is a minor optimization.
+*/
+network_simulator_is_active :: inline (using networkSimulator: *NetworkSimulator) -> bool {
+    return active;
 }
 
-void NetworkSimulator::SendPacket( int to, uint8_t * packetData, int packetBytes )
-{
-    yojimbo_assert( m_allocator );
-    yojimbo_assert( packetData );
-    yojimbo_assert( packetBytes > 0 );
+/*
+Queue a packet to send.
+IMPORTANT: Ownership of the packet data pointer is *not* transferred to the network simulator. It makes a copy of the data instead.
+@param to The slot index the packet should be sent to.
+@param packetData The packet data.
+@param packetBytes The packet size (bytes).
+*/
+network_simulator_send_packet :: (using networkSimulator: *NetworkSimulator, to: int, packetData: [] u8) {
+    assert(packetData.count > 0);
 
-    if ( yojimbo_random_float( 0.0f, 100.0f ) <= m_packetLoss )
-    {
+    if yojimbo_random_float(0.0, 100.0) <= packetLossPct {
         return;
     }
 
-    PacketEntry & packetEntry = m_packetEntries[m_currentIndex];
+    packetEntry := *packetEntries[currentIndex];
 
-    if ( packetEntry.packetData )
-    {
-        YOJIMBO_FREE( *m_allocator, packetEntry.packetData );
-        packetEntry = PacketEntry();
+    if packetEntry.packetData.count > 0 {
+        free(packetEntry.packetData);
+        packetEntry.* = .{};
     }
 
-    double delay = m_latency / 1000.0;
-
-    if ( m_jitter > 0 )
-        delay += yojimbo_random_float( -m_jitter, +m_jitter ) / 1000.0;
+    delay := latency;
+    if jitter > .{} {
+        mult := yojimbo_random_float(-1.0, 1.0);
+        rand_jitter := milliseconds_to_apollo(cast(int) (to_milliseconds(jitter) * mult));
+        delay += rand_jitter;
+    }
 
     packetEntry.to = to;
-    packetEntry.packetData = (uint8_t*) YOJIMBO_ALLOCATE( *m_allocator, packetBytes );
-    memcpy( packetEntry.packetData, packetData, packetBytes );
-    packetEntry.packetBytes = packetBytes;
-    packetEntry.deliveryTime = m_time + delay;
-    m_currentIndex = ( m_currentIndex + 1 ) % m_numPacketEntries;
+    packetEntry.deliveryTime = time + delay;
+    packetEntry.packetData = array_copy(packetData);
+    currentIndex = (currentIndex + 1) % packetEntries.count;
 
-    if ( yojimbo_random_float( 0.0f, 100.0f ) <= m_duplicates )
-    {
-        PacketEntry & nextPacketEntry = m_packetEntries[m_currentIndex];
+    if yojimbo_random_float(0.0, 100.0) <= duplicatePct {
+        dupe_delay := milliseconds_to_apollo(yojimbo_random_int(0, 1000));
+        nextPacketEntry := *packetEntries[currentIndex];
         nextPacketEntry.to = to;
-        nextPacketEntry.packetData = (uint8_t*) YOJIMBO_ALLOCATE( *m_allocator, packetBytes );
-        memcpy( nextPacketEntry.packetData, packetData, packetBytes );
-        nextPacketEntry.packetBytes = packetBytes;
-        nextPacketEntry.deliveryTime = m_time + delay + yojimbo_random_float( 0, +1.0 );
-        m_currentIndex = ( m_currentIndex + 1 ) % m_numPacketEntries;
+        nextPacketEntry.deliveryTime = time + delay + dupe_delay;
+        nextPacketEntry.packetData = array_copy(packetData);
+        currentIndex = (currentIndex + 1) % packetEntries.count;
     }
 }
 
-int NetworkSimulator::ReceivePackets( int maxPackets, uint8_t * packetData[], int packetBytes[], int to[] )
-{
-    if ( !IsActive() )
+/*
+Receive packets sent to any address.
+IMPORTANT: You take ownership of the packet data you receive and are responsible for freeing it. See NetworkSimulator::GetAllocator.
+@param maxPackets The maximum number of packets to receive.
+@param packetData Array of packet data pointers to be filled [out].
+@param to Array of to indices to be filled [out].
+@returns The number of packets received.
+*/
+network_simulator_receive_packets :: (using networkSimulator: *NetworkSimulator, packetData: [][] u8, to: [] int) -> int {
+    assert(packetData.count > 0);
+    assert(to.count == 0 || to.count == packetData.count);
+
+    if network_simulator_is_active(networkSimulator) {
         return 0;
+    }
 
-    int numPackets = 0;
+    numPackets := 0;
 
-    for ( int i = 0; i < yojimbo_min( m_numPacketEntries, maxPackets ); ++i )
-    {
-        if ( !m_packetEntries[i].packetData )
+    for 0..packetEntries.count-1 {
+        packetEntry := *packetEntries[i];
+        if packetEntry.packetData.count == 0 {
             continue;
+        }
 
-        if ( m_packetEntries[i].deliveryTime < m_time )
-        {
-            packetData[numPackets] = m_packetEntries[i].packetData;
-            packetBytes[numPackets] = m_packetEntries[i].packetBytes;
-            if ( to )
-            {
-                to[numPackets] = m_packetEntries[i].to;
+        if packetEntry.deliveryTime < time {
+            packetData[numPackets] = packetEntry.packetData;
+            if to.count > 0 {
+                to[numPackets] = packetEntry.to;
             }
-            m_packetEntries[i].packetData = NULL;
-            numPackets++;
+            packetEntry.* = .{};
+            numPackets += 1;
         }
     }
 
     return numPackets;
 }
 
-void NetworkSimulator::DiscardPackets()
-{
-    for ( int i = 0; i < m_numPacketEntries; ++i )
-    {
-        PacketEntry & packetEntry = m_packetEntries[i];
-        if ( !packetEntry.packetData )
+/*
+Discard all packets in the network simulator.
+This is useful if the simulator needs to be reset and used for another purpose.
+*/
+network_simulator_discard_packets :: (using networkSimulator: *NetworkSimulator) {
+    for 0..packetEntries.count-1 {
+        packetEntry := *packetEntries[i];
+        if packetEntry.packetData.count == 0 {
             continue;
-        YOJIMBO_FREE( *m_allocator, packetEntry.packetData );
-        packetEntry = PacketEntry();
+        }
+
+        array_free(packetEntry.packetData);
+        packetEntry.* = .{};
     }
 }
 
-void NetworkSimulator::DiscardClientPackets( int clientIndex )
-{
-    for ( int i = 0; i < m_numPacketEntries; ++i )
-    {
-        PacketEntry & packetEntry = m_packetEntries[i];
-        if ( !packetEntry.packetData || packetEntry.to != clientIndex )
+/*
+Discard packets sent to a particular client index.
+This is called when a client disconnects from the server.
+*/
+network_simulator_discard_client_packets :: (using networkSimulator: *NetworkSimulator, clientIndex: int) {
+    for 0..packetEntries.count-1 {
+        packetEntry := *packetEntries[i];
+        if (packetEntry.packetData.count == 0 || packetEntry.to != clientIndex) {
             continue;
-        YOJIMBO_FREE( *m_allocator, packetEntry.packetData );
-        packetEntry = PacketEntry();
+        }
+
+        array_free(packetEntry.packetData);
+        packetEntry.* = .{};
     }
 }
 
-void NetworkSimulator::AdvanceTime( double time )
-{
+/*
+Advance network simulator time.
+You must pump this regularly otherwise the network simulator won't work.
+@param time The current time value. Please make sure you use double values for time so you retain sufficient precision as time increases.
+*/
+network_simulator_advance_time :: (using networkSimulator: *NetworkSimulator, time: Apollo_Time) {
     m_time = time;
+}
+
+#scope_file
+
+/*
+Helper function to update the active flag whenever network settings are changed.
+Active is set to true if any of the network conditions are non-zero. This allows you to quickly check if the network simulator is active and would actually do something.
+*/
+network_simulator_update_active :: (using networkSimulator: *NetworkSimulator) {
+    wasActive := active;
+    active = latency != .{} || jitter != .{} || packetLossPct != 0.0 || duplicatePct != 0.0;
+    if !active && wasActive {
+        network_simulator_discard_packets(networkSimulator);
+    }
 }

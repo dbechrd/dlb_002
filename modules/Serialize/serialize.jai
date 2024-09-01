@@ -742,7 +742,7 @@ stream_serialize_check :: (using stream: *MeasureStream) -> bool {
 Get number of bits written so far.
 @returns Number of bits written.
 */
-stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
+stream_get_bits_processed :: (using stream: *MeasureStream) -> int {
     return bitsWritten;
 }
 
@@ -750,7 +750,7 @@ stream_get_bits_proccessed :: (using stream: *MeasureStream) -> int {
 How many bytes have been written so far?
 @returns Number of bytes written.
 */
-stream_get_bytes_proccessed :: (using stream: *MeasureStream) -> int {
+stream_get_bytes_processed :: (using stream: *MeasureStream) -> int {
     return (bitsWritten + 7) / 8;
 }
 
@@ -764,14 +764,14 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param min The minimum value.
 @param max The maximum value.
 */
-serialize_int :: (stream: *$S, value: *$T, min: T, max: T) #expand {
+serialize_int :: (stream: *$S, value: *$T, min: s64, max: s64) #expand {
     assert(size_of(T) <= 4);
     assert(min < max);
 
     s32_value: s32;
     if stream.isWriting {
-        assert(cast(s64) value.* >= cast(s64) min);
-        assert(cast(s64) value.* <= cast(s64) max);
+        assert(cast(s64) value.* >= min);
+        assert(cast(s64) value.* <= max);
         s32_value = cast(s32) value.*;
     }
     if !stream_serialize_integer(stream, s32_value, min, max) {
@@ -779,7 +779,7 @@ serialize_int :: (stream: *$S, value: *$T, min: T, max: T) #expand {
     }
     if stream.isReading {
         value.* = cast(T) s32_value;
-        if cast(s64) value.* < cast(s64) min || cast(s64) value.* > cast(s64) max {
+        if cast(s64) value.* < min || cast(s64) value.* > max {
             `return false;
         }
     }

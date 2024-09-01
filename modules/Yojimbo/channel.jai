@@ -117,7 +117,7 @@ channel_get_error_level :: (channel: *Channel) -> ChannelErrorLevel {
 // All errors go through this function to make debug logging easier.
 channel_set_error_level :: (channel: *Channel, errorLevel: ChannelErrorLevel) {
     if errorLevel != channel.errorLevel && errorLevel != .None {
-        yojimbo_log(.ERROR, "channel went into error state: %s\n", errorLevel);
+        yojimbo_log(.ERROR, "channel went into error state: %\n", errorLevel);
     }
     channel.errorLevel = errorLevel;
 }
