@@ -79,7 +79,7 @@ channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
 // @returns The number of bits of packet data written by the channel.
 // @see ConnectionPacket
 // @see Connection::GeneratePacket
-channel_get_packet_data :: (channel: *Channel, ctx: *void, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
+channel_get_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
     assert(false, "Call this on the subtype");
 }
 

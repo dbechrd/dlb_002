@@ -45,7 +45,8 @@ message_factory_create_message :: (messageFactory: *MessageFactory, messageType:
     assert(messageType >= 0);
     assert(messageType < messageFactory.messageTypes.count);
 
-    return New(messageFactory.messageTypes[messageType]);
+    T := messageFactory.messageTypes[messageType];
+    return New(T);
 }
 
 /*

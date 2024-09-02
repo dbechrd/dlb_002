@@ -30,7 +30,7 @@ ChannelPacketData :: struct {
     }
 };
 
-channel_packet_data_free :: (packetData: *ChannelPacketData, messageFactory: *MessageFactory) {
+channel_packet_data_free :: (packetData: *ChannelPacketData) {
     if packetData.flags & .BlockMessage {
         if packetData.block.message {
             free(packetData.block.message);
