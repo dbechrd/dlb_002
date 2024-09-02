@@ -94,7 +94,7 @@ yojimbo_shutdown :: () {
 #load "message.jai";
 #load "network_info.jai";
 #load "network_simulator.jai";
-// #load "queue.jai";
+#load "queue.jai";
 // #load "reliable_ordered_channel.jai";
 // #load "sequence_buffer.jai";
 // #load "server_interface.jai";

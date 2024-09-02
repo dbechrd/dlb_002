@@ -1,68 +1,6 @@
-StreamType :: enum {
-    Read;
-    Write;
-}
-
-Stream :: struct {
-    type: StreamType;
-    bytesProcessed: int;
-}
-
-ReadStream :: struct {
-    using #as base := Stream.{ type = .Read };
-
-    isReading :: 1;
-    isWriting :: 0;
-
-    bytesRead: int;
-}
-
-WriteStream :: struct {
-    using #as base := Stream.{ type = .Write };
-
-    isReading :: 0;
-    isWriting :: 1;
-
-    bytesWritten: int;
-}
-
-stream_serialize_byte :: (using stream: *ReadStream, byte: u8) {
-    bytesRead += 1;
-    stream_serialize_byte(*base, byte);
-}
-
-stream_serialize_byte :: (using stream: *WriteStream, byte: u8) {
-    bytesWritten += 1;
-    stream_serialize_byte(*base, byte);
-}
-
-stream_serialize_byte :: (using stream: *Stream, byte: u8) {
-    bytesProcessed += 1;
-}
-
 main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
-
-    read: ReadStream;
-    write: WriteStream;
-
-    stream_serialize_byte(*read, 1);
-    stream_serialize_byte(*write, 1);
-
-    print("Read % bytes. (% processed)\n", read.bytesRead, read.bytesProcessed);
-    print("Wrote % bytes. (% processed)\n", write.bytesWritten, write.bytesProcessed);
-
-    time: Apollo_Time;
-    if time == .{} {
-        print("time is zero.\n");
-    }
-    time = milliseconds_to_apollo(1000);
-    if time > .{} {
-        print("time is % ms.\n", to_milliseconds(time));
-    }
-    time = milliseconds_to_apollo(cast(int) (to_milliseconds(time) * -0.5));
-    print("time is % ms.\n", to_milliseconds(time));
 
     log_cpu_info();
     //yojimbo_tests();
