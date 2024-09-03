@@ -1,435 +1,192 @@
 #scope_module
 
-/**
-    Common functionality across all server implementations.
-    */
+/*
+Common functionality across all server implementations.
+*/
+BaseServer :: struct {
+    config               : ClientServerConfig;                 // Base client/server config.
+    time                 : Apollo_Time;                        // Current server time in seconds.
+    maxClients           : int;                                // Maximum number of clients supported.
+    running              : bool;                               // True if server is currently running, eg. after "Start" is called, before "Stop".
+    clientMessageFactory : [MaxClients] *MessageFactory;       // Array of per-client message factories. This silos message allocations per-client slot.
+    clientConnection     : [MaxClients] *Connection;           // Array of per-client connection classes. This is how messages are exchanged with clients.
+    clientEndpoint       : [MaxClients] *reliable_endpoint_t;  // Array of per-client reliable endpoints.
+    networkSimulator     : *NetworkSimulator;                  // The network simulator used to simulate packet loss, latency, jitter etc. Optional.
+    packetBuffer         : [] u8;                              // Buffer used when writing packets.
 
-class BaseServer : public ServerInterface
-{
-public:
+    // callbacks for packet read/write
+    transmitPacketFunction : TransmitPacketFunction;
+    processPacketFunction  : ProcessPacketFunction;
 
-    BaseServer( Allocator & allocator, const ClientServerConfig & config, class Adapter & adapter, double time );
-
-    ~BaseServer();
-
-    void SetContext( void * context );
-
-    void Start( int maxClients );
-
-    void Stop();
-
-    void AdvanceTime( double time );
-
-    bool IsRunning() const { return m_running; }
-
-    int GetMaxClients() const { return m_maxClients; }
-
-    double GetTime() const { return m_time; }
-
-    void SetLatency( float milliseconds );
-
-    void SetJitter( float milliseconds );
-
-    void SetPacketLoss( float percent );
-
-    void SetDuplicates( float percent );
-
-    Message * CreateMessage( int clientIndex, int type );
-
-    uint8_t * AllocateBlock( int clientIndex, int bytes );
-
-    void AttachBlockToMessage( int clientIndex, Message * message, uint8_t * block, int bytes );
-
-    void FreeBlock( int clientIndex, uint8_t * block );
-
-    bool CanSendMessage( int clientIndex, int channelIndex ) const;
-
-    bool HasMessagesToSend( int clientIndex, int channelIndex ) const;
-
-    void SendMessage( int clientIndex, int channelIndex, Message * message );
-
-    Message * ReceiveMessage( int clientIndex, int channelIndex );
-
-    void ReleaseMessage( int clientIndex, Message * message );
-
-    void GetNetworkInfo( int clientIndex, NetworkInfo & info ) const;
-
-protected:
-
-    uint8_t * GetPacketBuffer() { return m_packetBuffer; }
-
-    void * GetContext() { return m_context; }
-
-    Adapter & GetAdapter() { yojimbo_assert( m_adapter ); return *m_adapter; }
-
-    Allocator & GetGlobalAllocator() { yojimbo_assert( m_globalAllocator ); return *m_globalAllocator; }
-
-    class MessageFactory & GetClientMessageFactory( int clientIndex );
-
-    class NetworkSimulator * GetNetworkSimulator() { return m_networkSimulator; }
-
-    reliable_endpoint_t * GetClientEndpoint( int clientIndex );
-
-    class Connection & GetClientConnection( int clientIndex );
-
-    virtual void TransmitPacketFunction( int clientIndex, uint16_t packetSequence, uint8_t * packetData, int packetBytes ) = 0;
-
-    virtual int ProcessPacketFunction( int clientIndex, uint16_t packetSequence, uint8_t * packetData, int packetBytes ) = 0;
-
-    static void StaticTransmitPacketFunction( void * context, uint64_t index, uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    static int StaticProcessPacketFunction( void * context, uint64_t index, uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    static void * StaticAllocateFunction( void * context, size_t bytes );
-
-    static void StaticFreeFunction( void * context, void * pointer );
-
-protected:
-
-    virtual void ResetClient( int clientIndex );
-
-private:
-
-    ClientServerConfig m_config;                                ///< Base client/server config.
-    Allocator * m_allocator;                                    ///< Allocator passed in to constructor.
-    Adapter * m_adapter;                                        ///< The adapter specifies the allocator to use, and the message factory class.
-    void * m_context;                                           ///< Optional serialization context.
-    int m_maxClients;                                           ///< Maximum number of clients supported.
-    bool m_running;                                             ///< True if server is currently running, eg. after "Start" is called, before "Stop".
-    double m_time;                                              ///< Current server time in seconds.
-    uint8_t * m_globalMemory;                                   ///< The block of memory backing the global allocator. Allocated with m_allocator.
-    uint8_t * m_clientMemory[MaxClients];                       ///< The block of memory backing the per-client allocators. Allocated with m_allocator.
-    Allocator * m_globalAllocator;                              ///< The global allocator. Used for allocations that don't belong to a specific client.
-    Allocator * m_clientAllocator[MaxClients];                  ///< Array of per-client allocator. These are used for allocations related to connected clients.
-    MessageFactory * m_clientMessageFactory[MaxClients];        ///< Array of per-client message factories. This silos message allocations per-client slot.
-    Connection * m_clientConnection[MaxClients];                ///< Array of per-client connection classes. This is how messages are exchanged with clients.
-    reliable_endpoint_t * m_clientEndpoint[MaxClients];         ///< Array of per-client reliable endpoints.
-    NetworkSimulator * m_networkSimulator;                      ///< The network simulator used to simulate packet loss, latency, jitter etc. Optional.
-    uint8_t * m_packetBuffer;                                   ///< Buffer used when writing packets.
+    // TODO(dlb)[cleanup]: Dumb getters from the C++ header. Probably don't need these.
+    // bool IsRunning() const { return m_running; }
+    // int GetMaxClients() const { return m_maxClients; }
+    // double GetTime() const { return m_time; }
+    // uint8_t * GetPacketBuffer() { return m_packetBuffer; }
+    // class NetworkSimulator * GetNetworkSimulator() { return m_networkSimulator; }
 };
 
-BaseServer::BaseServer( Allocator & allocator, const ClientServerConfig & config, Adapter & adapter, double time ) : m_config( config )
-{
-    m_allocator = &allocator;
-    m_adapter = &adapter;
-    m_context = NULL;
-    m_time = time;
-    m_running = false;
-    m_maxClients = 0;
-    m_globalMemory = NULL;
-    m_globalAllocator = NULL;
-    for ( int i = 0; i < MaxClients; ++i )
-    {
-        m_clientMemory[i] = NULL;
-        m_clientAllocator[i] = NULL;
-        m_clientMessageFactory[i] = NULL;
-        m_clientConnection[i] = NULL;
-        m_clientEndpoint[i] = NULL;
-    }
-    m_networkSimulator = NULL;
-    m_packetBuffer = NULL;
+server_init :: (using server: *BaseServer, _config: ClientServerConfig, _time: Apollo_Time) {
+    config = _config;
+    time = _time;
 }
 
-BaseServer::~BaseServer()
-{
+server_free :: (using server: *BaseServer) {
     // IMPORTANT: Please stop the server before destroying it!
-    yojimbo_assert( !IsRunning () );
-    m_allocator = NULL;
+    assert(!running);
 }
 
-void BaseServer::SetContext( void * context )
-{
-    yojimbo_assert( !IsRunning() );
-    m_context = context;
-}
-
-void BaseServer::Start( int maxClients )
-{
-    Stop();
-    m_running = true;
-    m_maxClients = maxClients;
-    yojimbo_assert( !m_globalMemory );
-    yojimbo_assert( !m_globalAllocator );
-    m_globalMemory = (uint8_t*) YOJIMBO_ALLOCATE( *m_allocator, m_config.serverGlobalMemory );
-    m_globalAllocator = m_adapter->CreateAllocator( *m_allocator, m_globalMemory, m_config.serverGlobalMemory );
-    yojimbo_assert( m_globalAllocator );
-    if ( m_config.networkSimulator )
-    {
-        m_networkSimulator = YOJIMBO_NEW( *m_globalAllocator, NetworkSimulator, *m_globalAllocator, m_config.maxSimulatorPackets, m_time );
+// TODO(dlb): It seems weird to me that we pass `time` to server_init instead of to server_start. Perhaps
+// we could consider refactoring that later. For now, it's parity with the C++ version.
+server_start :: (using server: *BaseServer, _maxClients: int) {
+    server_stop(server);
+    running = true;
+    maxClients = _maxClients;
+    if config.networkSimulator {
+        networkSimulator = New(NetworkSimulator);
+        network_simulator_init(networkSimulator, config.maxSimulatorPackets, time);
     }
-    for ( int i = 0; i < m_maxClients; ++i )
-    {
-        yojimbo_assert( !m_clientMemory[i] );
-        yojimbo_assert( !m_clientAllocator[i] );
+    for 0..maxClients-1 {
+        clientMessageFactory[it] = New(MessageFactory);
+        clientConnection[it] = New(Connection);
+        connection_init(clientConnection[it], clientMessageFactory[it], config, time);
 
-        m_clientMemory[i] = (uint8_t*) YOJIMBO_ALLOCATE( *m_allocator, m_config.serverPerClientMemory );
-        m_clientAllocator[i] = m_adapter->CreateAllocator( *m_allocator, m_clientMemory[i], m_config.serverPerClientMemory );
-        yojimbo_assert( m_clientAllocator[i] );
+        reliable_config: reliable_config_t;
+        reliable_config.name = "server endpoint";
+        reliable_config.context = cast(*void) server;
+        reliable_config.id = it;
+        reliable_config.max_packet_size = config.maxPacketSize;
+        reliable_config.fragment_above = config.fragmentPacketsAbove;
+        reliable_config.max_fragments = client_server_config_get_max_packet_fragments(*config);
+        reliable_config.fragment_size = config.packetFragmentSize;
+        reliable_config.ack_buffer_size = config.ackedPacketsBufferSize;
+        reliable_config.received_packets_buffer_size = config.receivedPacketsBufferSize;
+        reliable_config.fragment_reassembly_buffer_size = config.packetReassemblyBufferSize;
+        reliable_config.rtt_smoothing_factor = config.rttSmoothingFactor;
+        reliable_config.transmit_packet_function = transmitPacketFunction;
+        reliable_config.process_packet_function = processPacketFunction;
 
-        m_clientMessageFactory[i] = m_adapter->CreateMessageFactory( *m_clientAllocator[i] );
-        yojimbo_assert( m_clientMessageFactory[i] );
-
-        m_clientConnection[i] = YOJIMBO_NEW( *m_clientAllocator[i], Connection, *m_clientAllocator[i], *m_clientMessageFactory[i], m_config, m_time );
-        yojimbo_assert( m_clientConnection[i] );
-
-        reliable_config_t reliable_config;
-        reliable_default_config( &reliable_config );
-        yojimbo_copy_string( reliable_config.name, "server endpoint", sizeof( reliable_config.name ) );
-        reliable_config.context = (void*) this;
-        reliable_config.id = i;
-        reliable_config.max_packet_size = m_config.maxPacketSize;
-        reliable_config.fragment_above = m_config.fragmentPacketsAbove;
-        reliable_config.max_fragments = m_config.maxPacketFragments;  // client_server_config_get_max_packet_fragments(*m_config)
-        reliable_config.fragment_size = m_config.packetFragmentSize;
-        reliable_config.ack_buffer_size = m_config.ackedPacketsBufferSize;
-        reliable_config.received_packets_buffer_size = m_config.receivedPacketsBufferSize;
-        reliable_config.fragment_reassembly_buffer_size = m_config.packetReassemblyBufferSize;
-        reliable_config.rtt_smoothing_factor = m_config.rttSmoothingFactor;
-        reliable_config.transmit_packet_function = BaseServer::StaticTransmitPacketFunction;
-        reliable_config.process_packet_function = BaseServer::StaticProcessPacketFunction;
-        reliable_config.allocator_context = &GetGlobalAllocator();
-        reliable_config.allocate_function = BaseServer::StaticAllocateFunction;
-        reliable_config.free_function = BaseServer::StaticFreeFunction;
-        m_clientEndpoint[i] = reliable_endpoint_create( &reliable_config, m_time );
-        reliable_endpoint_reset( m_clientEndpoint[i] );
+        clientEndpoint[it] = reliable_endpoint_create(*reliable_config, time);
+        reliable_endpoint_reset(clientEndpoint[it]);
     }
-    m_packetBuffer = (uint8_t*) YOJIMBO_ALLOCATE( *m_globalAllocator, m_config.maxPacketSize );
+    packetBuffer = New(config.maxPacketSize, u8);
 }
 
-void BaseServer::Stop()
-{
-    if ( IsRunning() )
-    {
-        YOJIMBO_FREE( *m_globalAllocator, m_packetBuffer );
-        yojimbo_assert( m_globalMemory );
-        yojimbo_assert( m_globalAllocator );
-        YOJIMBO_DELETE( *m_globalAllocator, NetworkSimulator, m_networkSimulator );
-        for ( int i = 0; i < m_maxClients; ++i )
-        {
-            yojimbo_assert( m_clientMemory[i] );
-            yojimbo_assert( m_clientAllocator[i] );
-            yojimbo_assert( m_clientMessageFactory[i] );
-            yojimbo_assert( m_clientEndpoint[i] );
-            reliable_endpoint_destroy( m_clientEndpoint[i] ); m_clientEndpoint[i] = NULL;
-            YOJIMBO_DELETE( *m_clientAllocator[i], Connection, m_clientConnection[i] );
-            YOJIMBO_DELETE( *m_clientAllocator[i], MessageFactory, m_clientMessageFactory[i] );
-            YOJIMBO_DELETE( *m_allocator, Allocator, m_clientAllocator[i] );
-            YOJIMBO_FREE( *m_allocator, m_clientMemory[i] );
+server_stop :: (using server: *BaseServer) {
+    if !running {
+        return;
+    }
+
+    array_reset(*packetBuffer);
+    if networkSimulator != null {
+        free(networkSimulator);
+    }
+    for 0..maxClients-1 {
+        reliable_endpoint_destroy(clientEndpoint[it]);
+        clientEndpoint[it] = NULL;
+
+        free(clientConnection[it]);
+        free(clientMessageFactory[it]);
+    }
+    maxClients = 0;
+    running = false;
+}
+
+server_advance_time :: (using server: *BaseServer, _time: Apollo_Time) {
+    time = _time;
+    if !running {
+        return;
+    }
+
+    for 0..maxClients-1 {
+        connection_advance_time(clientConnection[it], time);
+        if clientConnection[it].errorLevel != .None {
+            yojimbo_log(.ERROR, "client % connection is in error state. disconnecting client\n", it);
+            server_disconnect_client(server, it);
+            continue;
         }
-        YOJIMBO_DELETE( *m_allocator, Allocator, m_globalAllocator );
-        YOJIMBO_FREE( *m_allocator, m_globalMemory );
+        reliable_endpoint_update(clientEndpoint[it], time);
+        acks := reliable_endpoint_get_acks(clientEndpoint[it]);
+        connection_process_acks(clientConnection[it], acks);
+        reliable_endpoint_clear_acks(clientEndpoint[it]);
     }
-    m_running = false;
-    m_maxClients = 0;
-    m_packetBuffer = NULL;
-}
-
-void BaseServer::AdvanceTime( double time )
-{
-    m_time = time;
-    if ( IsRunning() )
-    {
-        for ( int i = 0; i < m_maxClients; ++i )
-        {
-            m_clientConnection[i]->AdvanceTime( time );
-            if ( m_clientConnection[i]->GetErrorLevel() != CONNECTION_ERROR_NONE )
-            {
-                yojimbo_printf( YOJIMBO_LOG_LEVEL_ERROR, "client %d connection is in error state. disconnecting client\n", i );
-                DisconnectClient( i );
-                continue;
-            }
-            reliable_endpoint_update( m_clientEndpoint[i], m_time );
-            int numAcks;
-            const uint16_t * acks = reliable_endpoint_get_acks( m_clientEndpoint[i], &numAcks );
-            m_clientConnection[i]->ProcessAcks( acks, numAcks );
-            reliable_endpoint_clear_acks( m_clientEndpoint[i] );
-        }
-        NetworkSimulator * networkSimulator = GetNetworkSimulator();
-        if ( networkSimulator )
-        {
-            networkSimulator->AdvanceTime( time );
-        }
+    if networkSimulator != null {
+        network_simulator_advance_time(networkSimulator, time);
     }
 }
 
-void BaseServer::SetLatency( float milliseconds )
-{
-    if ( m_networkSimulator )
-    {
-        m_networkSimulator->SetLatency( milliseconds );
-    }
+server_create_message :: (using server: *BaseServer, clientIndex: int, type: int) -> *Message {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientMessageFactory[clientIndex] != null);
+
+    return message_factory_create_message(clientMessageFactory[clientIndex], type);
 }
 
-void BaseServer::SetJitter( float milliseconds )
-{
-    if ( m_networkSimulator )
-    {
-        m_networkSimulator->SetJitter( milliseconds );
-    }
+// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
+server_allocate_block :: (server: *BaseServer, clientIndex: int, bytes: int) {
+    assert(false, "Just call NewArray() you fool.");
 }
 
-void BaseServer::SetPacketLoss( float percent )
-{
-    if ( m_networkSimulator )
-    {
-        m_networkSimulator->SetPacketLoss( percent );
-    }
+// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
+server_attack_block_to_message :: (server: *BaseServer, clientIndex: int, message: *Message, blockData: [] u8) {
+    assert(false, "Just attach it to message.blockData yourself you fool.");
 }
 
-void BaseServer::SetDuplicates( float percent )
-{
-    if ( m_networkSimulator )
-    {
-        m_networkSimulator->SetDuplicates( percent );
-    }
+// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
+server_free_block :: (server: *BaseServer, clientIndex: int, block: *u8) {
+    assert(false, "Just call free() you fool.");
 }
 
-Message * BaseServer::CreateMessage( int clientIndex, int type )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientMessageFactory[clientIndex] );
-    return m_clientMessageFactory[clientIndex]->CreateMessage( type );
+// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
+server_release_message :: (using server: *BaseServer, message: *Message) {
+    assert(false, "Just call free() you fool.");
 }
 
-uint8_t * BaseServer::AllocateBlock( int clientIndex, int bytes )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientAllocator[clientIndex] );
-    return (uint8_t*) YOJIMBO_ALLOCATE( *m_clientAllocator[clientIndex], bytes );
+server_get_network_info :: (using server: *BaseServer, clientIndex: int, info: *NetworkInfo) {
+    assert(false, "Call this on the subtype");
 }
 
-void BaseServer::AttachBlockToMessage( int clientIndex, Message * message, uint8_t * block, int bytes )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( message );
-    yojimbo_assert( block );
-    yojimbo_assert( bytes > 0 );
-    BlockMessage * blockMessage = (BlockMessage*) message;
-    blockMessage->AttachBlock( *m_clientAllocator[clientIndex], block, bytes );
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// TODO(dlb)[cleanup]: These are all really pointless wrappers.. Delete all this OOP shit.
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+server_can_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> bool {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientConnection[clientIndex] != null);
+
+    connection_can_send_message(clientConnection[clientIndex], channelIndex);
 }
 
-void BaseServer::FreeBlock( int clientIndex, uint8_t * block )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    YOJIMBO_FREE( *m_clientAllocator[clientIndex], block );
+server_has_messages_to_send :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> bool {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientConnection[clientIndex] != null);
+
+    connection_has_messages_to_send(clientConnection[clientIndex], channelIndex);
 }
 
-bool BaseServer::CanSendMessage( int clientIndex, int channelIndex ) const
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    return m_clientConnection[clientIndex]->CanSendMessage( channelIndex );
+server_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int, message: *Message) {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientConnection[clientIndex] != null);
+
+    connection_send_message(clientConnection[clientIndex], channelIndex, message);
 }
 
-bool BaseServer::HasMessagesToSend( int clientIndex, int channelIndex ) const
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    return m_clientConnection[clientIndex]->HasMessagesToSend( channelIndex );
+server_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> *Message {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientConnection[clientIndex] != null);
+
+    connection_receive_message(clientConnection[clientIndex], channelIndex);
 }
 
-void BaseServer::SendMessage( int clientIndex, int channelIndex, Message * message )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    return m_clientConnection[clientIndex]->SendMessage( channelIndex, message, GetContext() );
-}
+server_reset_client :: (using server: *BaseServer, clientIndex: int) {
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+    assert(clientConnection[clientIndex] != null);
 
-Message * BaseServer::ReceiveMessage( int clientIndex, int channelIndex )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    return m_clientConnection[clientIndex]->ReceiveMessage( channelIndex );
+    connection_reset(clientConnection[clientIndex]);
 }
-
-void BaseServer::ReleaseMessage( int clientIndex, Message * message )
-{
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    m_clientConnection[clientIndex]->ReleaseMessage( message );
-}
-
-void BaseServer::GetNetworkInfo( int clientIndex, NetworkInfo & info ) const
-{
-    yojimbo_assert( IsRunning() );
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    memset( &info, 0, sizeof( info ) );
-    if ( IsClientConnected( clientIndex ) )
-    {
-        yojimbo_assert( m_clientEndpoint[clientIndex] );
-        const uint64_t * counters = reliable_endpoint_counters( m_clientEndpoint[clientIndex] );
-        info.numPacketsSent = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT];
-        info.numPacketsReceived = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED];
-        info.numPacketsAcked = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED];
-        info.RTT = reliable_endpoint_rtt( m_clientEndpoint[clientIndex] );
-        info.packetLoss = reliable_endpoint_packet_loss( m_clientEndpoint[clientIndex] );
-        reliable_endpoint_bandwidth( m_clientEndpoint[clientIndex], &info.sentBandwidth, &info.receivedBandwidth, &info.ackedBandwidth );
-    }
-}
-
-MessageFactory & BaseServer::GetClientMessageFactory( int clientIndex )
-{
-    yojimbo_assert( IsRunning() );
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    return *m_clientMessageFactory[clientIndex];
-}
-
-reliable_endpoint_t * BaseServer::GetClientEndpoint( int clientIndex )
-{
-    yojimbo_assert( IsRunning() );
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    return m_clientEndpoint[clientIndex];
-}
-
-Connection & BaseServer::GetClientConnection( int clientIndex )
-{
-    yojimbo_assert( IsRunning() );
-    yojimbo_assert( clientIndex >= 0 );
-    yojimbo_assert( clientIndex < m_maxClients );
-    yojimbo_assert( m_clientConnection[clientIndex] );
-    return *m_clientConnection[clientIndex];
-}
-
-void BaseServer::StaticTransmitPacketFunction( void * context, uint64_t index, uint16_t packetSequence, uint8_t * packetData, int packetBytes )
-{
-    BaseServer * server = (BaseServer*) context;
-    server->TransmitPacketFunction( index, packetSequence, packetData, packetBytes );
-}
-
-int BaseServer::StaticProcessPacketFunction( void * context, uint64_t index, uint16_t packetSequence, uint8_t * packetData, int packetBytes )
-{
-    BaseServer * server = (BaseServer*) context;
-    return server->ProcessPacketFunction( index, packetSequence, packetData, packetBytes );
-}
-
-void * BaseServer::StaticAllocateFunction( void * context, size_t bytes )
-{
-    yojimbo_assert( context );
-    Allocator * allocator = (Allocator*) context;
-    return YOJIMBO_ALLOCATE( *allocator, bytes );
-}
-
-void BaseServer::StaticFreeFunction( void * context, void * pointer )
-{
-    yojimbo_assert( context );
-    yojimbo_assert( pointer );
-    Allocator * allocator = (Allocator*) context;
-    YOJIMBO_FREE( *allocator, pointer );
-}
-
-void BaseServer::ResetClient( int clientIndex )
-{
-    m_clientConnection[clientIndex]->Reset();
-}
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

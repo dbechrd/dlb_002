@@ -84,7 +84,7 @@ yojimbo_shutdown :: () {
 #load "adapter.jai";
 #load "address.jai";
 #load "base_client.jai";
-// #load "base_server.jai";
+#load "base_server.jai";
 #load "channel.jai";
 #load "channel_packet_data.jai";
 // #load "client.jai";

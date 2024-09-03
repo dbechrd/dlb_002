@@ -75,7 +75,7 @@ network_simulator_set_jitter :: (using networkSimulator: *NetworkSimulator, mill
 Set the amount of packet loss to apply on send.
 @param percent The packet loss percentage. 0% = no packet loss. 100% = all packets are dropped.
 */
-network_simulator_set_packet_loss_pct :: (using networkSimulator: *NetworkSimulator, percent: float) {
+network_simulator_set_packet_loss :: (using networkSimulator: *NetworkSimulator, percent: float) {
     packetLossPct = percent;
     network_simulator_update_active(networkSimulator);
 }
@@ -85,7 +85,7 @@ Set percentage chance of packet duplicates.
 If the duplicate chance succeeds, a duplicate packet is added to the queue with a random delay of up to 1 second.
 @param percent The percentage chance of a packet duplicate being sent. 0% = no duplicate packets. 100% = all packets have a duplicate sent.
 */
-network_simulator_set_duplicate_pct :: (using networkSimulator: *NetworkSimulator, percent: float) {
+network_simulator_set_duplicates :: (using networkSimulator: *NetworkSimulator, percent: float) {
     duplicatePct = percent;
     network_simulator_update_active(networkSimulator);
 }

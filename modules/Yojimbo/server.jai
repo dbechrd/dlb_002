@@ -311,3 +311,21 @@ void Server::StaticSendLoopbackPacketCallbackFunction( void * context, int clien
     Server * server = (Server*) context;
     server->SendLoopbackPacketCallbackFunction( clientIndex, packetData, packetBytes, packetSequence );
 }
+
+server_get_network_info :: (using server: *Server, clientIndex: int, info: *NetworkInfo) {
+    assert(running);
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+
+    if server_is_client_connected(server, clientIndex) {
+        assert(clientEndpoint[clientIndex] != null);
+
+        counters := reliable_endpoint_counters(clientEndpoint[clientIndex]);
+        info.numPacketsSent = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT];
+        info.numPacketsReceived = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED];
+        info.numPacketsAcked = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED];
+        info.RTT = reliable_endpoint_rtt(clientEndpoint[clientIndex]);
+        info.packetLoss = reliable_endpoint_packet_loss(clientEndpoint[clientIndex]);
+        info.sentBandwidth, info.receivedBandwidth, info.ackedBandwidth = reliable_endpoint_bandwidth(clientEndpoint[clientIndex]);
+    }
+}

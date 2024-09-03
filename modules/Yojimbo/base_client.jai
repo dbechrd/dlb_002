@@ -12,14 +12,13 @@ Functionality that is common across all client implementations.
 */
 BaseClient :: struct {
     config           : ClientServerConfig;    // The client/server configuration.
-    adapter          : *Adapter;              // The adapter specifies the allocator to use, and the message factory class.
-    endpoint         : *reliable_endpoint_t;  // reliable endpoint.
+    time             : Apollo_Time;           // The current client time. See ClientInterface::AdvanceTime
+    clientIndex      : int;                   // The client slot index on the server [0,maxClients-1]. -1 if not connected.
+    clientState      : ClientState;           // The current client state. See ClientInterface::GetClientState
     messageFactory   : *MessageFactory;       // The client message factory. Created and destroyed on each connection attempt.
     connection       : *Connection;           // The client connection for exchanging messages with the server.
+    endpoint         : *reliable_endpoint_t;  // reliable endpoint.
     networkSimulator : *NetworkSimulator;     // The network simulator used to simulate packet loss, latency, jitter etc. Optional.
-    clientState      : ClientState;           // The current client state. See ClientInterface::GetClientState
-    clientIndex      : int;                   // The client slot index on the server [0,maxClients-1]. -1 if not connected.
-    time             : Apollo_Time;           // The current client time. See ClientInterface::AdvanceTime
     packetBuffer     : [] u8;                 // Buffer used to read and write packets.
 
     // callbacks for packet read/write
@@ -30,15 +29,13 @@ BaseClient :: struct {
 /*
 Base client constructor.
 @param config The base client/server configuration.
-@param adapter The adapter to the game program. Specifies allocators, message factory to use etc.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (client: *BaseClient, config: *ClientServerConfig, adapter: *Adapter, time: Apollo_Time) {
-    client.config = config.*;
-    client.adapter = adapter;
-    client.time = time;
-    client.clientIndex = -1;
-    client.packetBuffer = NewArray(config.maxPacketSize, u8);
+client_init :: (client: *BaseClient, _config: *ClientServerConfig, _time: Apollo_Time) {
+    config = _config.*;
+    time = _time;
+    clientIndex = -1;
+    packetBuffer = NewArray(config.maxPacketSize, u8);
 }
 
 /*
@@ -77,8 +74,8 @@ Advance client time.
 Call this at the end of each frame to advance the client time forward.
 IMPORTANT: Please use a double for your time value so it maintains sufficient accuracy as time increases.
 */
-client_advance_time :: (using client: *BaseClient, time: Apollo_Time) {
-    client.time = time;
+client_advance_time :: (using client: *BaseClient, _time: Apollo_Time) {
+    time = _time;
     if endpoint != null {
         connection_advance_time(connection, time);
         if connection.errorLevel != .None {
@@ -134,7 +131,7 @@ client_connection_failed :: (using client: *BaseClient) -> bool {
 
 /*
 Create a message of the specified type.
-@param type The type of the message to create. The message types corresponds to the message factory created by the adapter set on this client.
+@param type The type of the message to create. The message types correspond to the message factory set on this client.
 */
 client_create_message :: (using client: *BaseClient, type: int) -> *Message {
     assert(messageFactory != null);
@@ -212,6 +209,7 @@ Call this to receive information about the client network connection to the serv
 client_get_network_info :: (using client: *BaseClient, info: *NetworkInfo) {
     if connection != null {
         assert(endpoint != null);
+
         counters := reliable_endpoint_counters(endpoint);
         info.numPacketsSent = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT];
         info.numPacketsReceived = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED];
@@ -255,13 +253,12 @@ Use this to pass packets from a server directly to the loopback client.
 @param packetBytes The number of bytes of packet data.
 @param packetSequence The packet sequence number.
 */
-client_process_loopback_pakcet :: (using client: *BaseClient, packetData: [] u8, packetSequence: u64) {
+client_process_loopback_packet :: (using client: *BaseClient, packetData: [] u8, packetSequence: u64) {
     assert(false, "Call this on the subtype");
 };
 
 
 client_create_internal :: (using client: *BaseClient) {
-    assert(adapter != null);
     assert(messageFactory == null);
     assert(transmitPacketFunction != null);
     assert(processPacketFunction != null);
