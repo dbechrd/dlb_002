@@ -1,150 +1,78 @@
 #scope_module
 
-/**
-    Server implementation.
-    */
+/*
+Server implementation.
+*/
+Server :: struct {
+    #as using base: BaseServer;
 
-class Server : public BaseServer
-{
-public:
-
-    Server( Allocator & allocator, const uint8_t privateKey[], const Address & address, const ClientServerConfig & config, Adapter & adapter, double time );
-
-    ~Server();
-
-    void Start( int maxClients );
-
-    void Stop();
-
-    void DisconnectClient( int clientIndex );
-
-    void DisconnectAllClients();
-
-    void SendPackets();
-
-    void ReceivePackets();
-
-    void AdvanceTime( double time );
-
-    bool IsClientConnected( int clientIndex ) const;
-
-    uint64_t GetClientId( int clientIndex ) const;
-
-    const uint8_t * GetClientUserData( int clientIndex ) const;
-
-    netcode_address_t * GetClientAddress( int clientIndex ) const;
-
-    int GetNumConnectedClients() const;
-
-    void ConnectLoopbackClient( int clientIndex, uint64_t clientId, const uint8_t * userData );
-
-    void DisconnectLoopbackClient( int clientIndex );
-
-    bool IsLoopbackClient( int clientIndex ) const;
-
-    void ProcessLoopbackPacket( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    const Address & GetAddress() const { return m_boundAddress; }
-
-private:
-
-    void TransmitPacketFunction( int clientIndex, uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    int ProcessPacketFunction( int clientIndex, uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    void ConnectDisconnectCallbackFunction( int clientIndex, int connected );
-
-    void SendLoopbackPacketCallbackFunction( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    static void StaticConnectDisconnectCallbackFunction( void * context, int clientIndex, int connected );
-
-    static void StaticSendLoopbackPacketCallbackFunction( void * context, int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    ClientServerConfig m_config;
-    netcode_server_t * m_server;
-    Address m_address;                                  // original address passed to ctor
-    Address m_boundAddress;                             // address after socket bind, eg. valid port
-    uint8_t m_privateKey[KeyBytes];
+    server       : *netcode_server_t;
+    address      : Address;             // original address passed to ctor
+    boundAddress : Address;             // address after socket bind, eg. valid port
+    privateKey   : [KeyBytes] u8;
 };
 
-Server::Server( Allocator & allocator, const uint8_t privateKey[], const Address & address, const ClientServerConfig & config, Adapter & adapter, double time )
-    : BaseServer( allocator, config, adapter, time )
-{
-    yojimbo_assert( KeyBytes == NETCODE_KEY_BYTES );
-    memcpy( m_privateKey, privateKey, NETCODE_KEY_BYTES );
-    m_address = address;
-    m_boundAddress = address;
-    m_config = config;
-    m_server = NULL;
+server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
+    server_init(base, _config, _time);
+    assert(KeyBytes == NETCODE_KEY_BYTES);
+    privateKey = _privateKey;  //memcpy( m_privateKey, privateKey, NETCODE_KEY_BYTES ); do we need this?
+    address = _address;
+    boundAddress = _address;
 }
 
-Server::~Server()
-{
+server_free :: (using server: *Server) {
     // IMPORTANT: Please stop the server before destroying it!
-    yojimbo_assert( !m_server );
+    assert(server == null);
 }
 
-void Server::Start( int maxClients )
-{
-    if ( IsRunning() )
-        Stop();
+server_start :: (using server: *Server, _maxClients: int) {
+    if running {
+        server_stop(server);
+    }
 
-    BaseServer::Start( maxClients );
+    server_start(base, _maxClients);
 
-    char addressString[MaxAddressLength];
-    m_address.ToString( addressString, MaxAddressLength );
+    addressString := address_to_string(address);
 
-    struct netcode_server_config_t netcodeConfig;
-    netcode_default_server_config(&netcodeConfig);
-    netcodeConfig.protocol_id = m_config.protocolId;
-    memcpy(netcodeConfig.private_key, m_privateKey, NETCODE_KEY_BYTES);
-    netcodeConfig.allocator_context = &GetGlobalAllocator();
-    netcodeConfig.allocate_function = StaticAllocateFunction;
-    netcodeConfig.free_function     = StaticFreeFunction;
-    netcodeConfig.callback_context = this;
-    netcodeConfig.connect_disconnect_callback = StaticConnectDisconnectCallbackFunction;
-    netcodeConfig.send_loopback_packet_callback = StaticSendLoopbackPacketCallbackFunction;
+    netcodeConfig: netcode_server_config_t;
+    netcodeConfig.protocol_id = config.protocolId;
+    netcodeConfig.private_key = privateKey;  // memcpy(netcodeConfig.private_key, privateKey, NETCODE_KEY_BYTES); do we need this?
+    netcodeConfig.callback_context = cast(*void) server;
+    netcodeConfig.connect_disconnect_callback = server_connect_disconnect_callback;
+    netcodeConfig.send_loopback_packet_callback = server_send_loopback_packet_callback;
 
-    m_server = netcode_server_create(addressString, &netcodeConfig, GetTime());
+    server = netcode_server_create(addressString, *netcodeConfig, GetTime());  // TODO: GetTime() ??
 
-    if ( !m_server )
-    {
-        Stop();
+    if server == null {
+        server_stop(server);
         return;
     }
 
-    netcode_server_start( m_server, maxClients );
-
-    m_boundAddress.SetPort( netcode_server_get_port( m_server ) );
+    netcode_server_start(server, maxClients);
+    boundAddress.port = netcode_server_get_port(server);
 }
 
-void Server::Stop()
-{
-    if ( m_server )
-    {
-        m_boundAddress = m_address;
-        netcode_server_stop( m_server );
-        netcode_server_destroy( m_server );
-        m_server = NULL;
+server_stop :: (using server: *Server) {
+    if server != null {
+        boundAddress = address;
+        netcode_server_stop(server);
+        netcode_server_destroy(server);
+        server = null;
     }
-    BaseServer::Stop();
+    server_stop(base);
 }
 
-void Server::DisconnectClient( int clientIndex )
-{
-    yojimbo_assert( m_server );
-    netcode_server_disconnect_client( m_server, clientIndex );
-    ResetClient( clientIndex );
+server_disconnect_client :: (using server: *Server, clientIndex: int) {
+    assert(server);
+    netcode_server_disconnect_client(server, clientIndex);
+    server_reset_client(server, clientIndex);
 }
 
-void Server::DisconnectAllClients()
-{
-    yojimbo_assert( m_server );
-    netcode_server_disconnect_all_clients( m_server );
-    const int maxClients = GetMaxClients();
-    for ( int i = 0; i < maxClients; ++i )
-    {
-        ResetClient( i );
+server_disconnect_all_clients :: (using server: *Server) {
+    assert(server);
+    netcode_server_disconnect_all_clients(server);
+    for 0..maxClients-1 {
+        server_reset_client(server, it);
     }
 }
 
@@ -257,6 +185,26 @@ void Server::ProcessLoopbackPacket( int clientIndex, const uint8_t * packetData,
     netcode_server_process_loopback_packet( m_server, clientIndex, packetData, packetBytes, packetSequence );
 }
 
+server_get_network_info :: (using server: *Server, clientIndex: int, info: *NetworkInfo) {
+    assert(running);
+    assert(clientIndex >= 0);
+    assert(clientIndex < maxClients);
+
+    if server_is_client_connected(server, clientIndex) {
+        assert(clientEndpoint[clientIndex] != null);
+
+        counters := reliable_endpoint_counters(clientEndpoint[clientIndex]);
+        info.numPacketsSent = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT];
+        info.numPacketsReceived = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED];
+        info.numPacketsAcked = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED];
+        info.RTT = reliable_endpoint_rtt(clientEndpoint[clientIndex]);
+        info.packetLoss = reliable_endpoint_packet_loss(clientEndpoint[clientIndex]);
+        info.sentBandwidth, info.receivedBandwidth, info.ackedBandwidth = reliable_endpoint_bandwidth(clientEndpoint[clientIndex]);
+    }
+}
+
+#scope_file
+
 void Server::TransmitPacketFunction( int clientIndex, uint16_t packetSequence, uint8_t * packetData, int packetBytes )
 {
     (void) packetSequence;
@@ -310,22 +258,4 @@ void Server::StaticSendLoopbackPacketCallbackFunction( void * context, int clien
 {
     Server * server = (Server*) context;
     server->SendLoopbackPacketCallbackFunction( clientIndex, packetData, packetBytes, packetSequence );
-}
-
-server_get_network_info :: (using server: *Server, clientIndex: int, info: *NetworkInfo) {
-    assert(running);
-    assert(clientIndex >= 0);
-    assert(clientIndex < maxClients);
-
-    if server_is_client_connected(server, clientIndex) {
-        assert(clientEndpoint[clientIndex] != null);
-
-        counters := reliable_endpoint_counters(clientEndpoint[clientIndex]);
-        info.numPacketsSent = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_SENT];
-        info.numPacketsReceived = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED];
-        info.numPacketsAcked = counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_ACKED];
-        info.RTT = reliable_endpoint_rtt(clientEndpoint[clientIndex]);
-        info.packetLoss = reliable_endpoint_packet_loss(clientEndpoint[clientIndex]);
-        info.sentBandwidth, info.receivedBandwidth, info.ackedBandwidth = reliable_endpoint_bandwidth(clientEndpoint[clientIndex]);
-    }
 }

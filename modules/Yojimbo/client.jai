@@ -200,9 +200,12 @@ client_is_loopback :: (using client: *Client) -> bool {
     return netcode_client_loopback(netClient) != 0;
 }
 
+// TODO(dlb): I'm pretty sure this is the loopback_send function? It's named very confusingly. Figure out what it does and improve the name.
 client_process_loopback_packet :: (using client: *Client, packetData: [] u8, packetSequence: u64) {
     netcode_client_process_loopback_packet(netClient, packetData, packetSequence);
 }
+
+#scope_file
 
 client_create_net_client :: (using client: *Client, address: Address) {
     client_destroy_net_client();

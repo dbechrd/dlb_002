@@ -46,7 +46,9 @@ Initialize the yojimbo library.
 Call this before calling any yojimbo library functions.
 @returns True if the library was successfully initialized, false otherwise.
 */
-yojimbo_init :: () -> bool {
+yojimbo_init :: ($T: Type) -> bool {
+    print("Type is %:\n%\n", T, type_info(T).*);
+    return true;
     // TODO(dlb): Init
     /*
     if ( netcode_init() != NETCODE_OK )

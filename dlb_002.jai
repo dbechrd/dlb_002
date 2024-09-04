@@ -2,6 +2,8 @@ main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
+    yojimbo_init(State);
+
     log_cpu_info();
     //yojimbo_tests();
     reliable_test();
