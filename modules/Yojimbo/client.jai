@@ -1,358 +1,263 @@
 #scope_module
 
-/**
-    Client implementation
+/*
+Client implementation
+*/
+ Client :: struct {
+    #as using base: BaseClient;
+
+    netClient    : netcode_client_t;  // netcode client data.
+    address      : Address;           // Original address passed to ctor.
+    boundAddress : Address;           // Address after socket bind, eg. with valid port
+    clientId     : u64;               // The globally unique client id (set on each call to connect)
+
+    /*
+    Override this callback to process packets sent from client to server over loopback.
+    @param clientIndex The client index in range [0,maxClients-1]
+    @param packetData The packet data (raw) to be sent to the server.
+    @param packetSequence The sequence number of the packet.
+    @see Client::ConnectLoopback
     */
-
-class Client : public BaseClient
-{
-public:
-
-    /**
-        The client constructor.
-        @param allocator The allocator for all memory used by the client.
-        @param address The address the client should bind to.
-        @param config The client/server configuration.
-        @param time The current time in seconds. See ClientInterface::AdvanceTime
-        */
-
-    explicit Client( Allocator & allocator, const Address & address, const ClientServerConfig & config, Adapter & adapter, double time );
-
-    ~Client();
-
-    void InsecureConnect( const uint8_t privateKey[], uint64_t clientId, const Address & address );
-
-    void InsecureConnect( const uint8_t privateKey[], uint64_t clientId, const Address serverAddresses[], int numServerAddresses );
-
-    void Connect( uint64_t clientId, uint8_t * connectToken );
-
-    void Disconnect();
-
-    void SendPackets();
-
-    void ReceivePackets();
-
-    void AdvanceTime( double time );
-
-    int GetClientIndex() const;
-
-    uint64_t GetClientId() const { return m_clientId; }
-
-    void ConnectLoopback( int clientIndex, uint64_t clientId, int maxClients );
-
-    void DisconnectLoopback();
-
-    bool IsLoopback() const;
-
-    void ProcessLoopbackPacket( const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    const Address & GetAddress() const { return m_boundAddress; }
-
-private:
-
-    bool GenerateInsecureConnectToken( uint8_t * connectToken,
-                                        const uint8_t privateKey[],
-                                        uint64_t clientId,
-                                        const Address serverAddresses[],
-                                        int numServerAddresses );
-
-    void CreateClient( const Address & address );
-
-    void DestroyClient();
-
-    void StateChangeCallbackFunction( int previous, int current );
-
-    static void StaticStateChangeCallbackFunction( void * context, int previous, int current );
-
-    void TransmitPacketFunction( uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    int ProcessPacketFunction( uint16_t packetSequence, uint8_t * packetData, int packetBytes );
-
-    void SendLoopbackPacketCallbackFunction( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    static void StaticSendLoopbackPacketCallbackFunction( void * context, int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence );
-
-    ClientServerConfig m_config;                    ///< Client/server configuration.
-    netcode_client_t * m_client;                    ///< netcode client data.
-    Address m_address;                              ///< Original address passed to ctor.
-    Address m_boundAddress;                         ///< Address after socket bind, eg. with valid port
-    uint64_t m_clientId;                            ///< The globally unique client id (set on each call to connect)
+    clientSendLoopbackPacketFunction :: #type (client: *Client, clientIndex: int, packetData: [] u8, packetSequence: u64);
 };
 
-Client::Client( Allocator & allocator, const Address & address, const ClientServerConfig & config, Adapter & adapter, double time )
-    : BaseClient( allocator, config, adapter, time ), m_config( config ), m_address( address )
-{
-    m_clientId = 0;
-    m_client = NULL;
-    m_boundAddress = m_address;
+/**
+The client constructor.
+@param address The address the client should bind to.
+@param config The client/server configuration.
+@param time The current time in seconds. See ClientInterface::AdvanceTime
+*/
+client_init :: (client: *Client, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
+    client_init(base, _config, _time);
+    address = _address;
+    boundAddress = address;
 }
 
-Client::~Client()
-{
+client_free :: (client: *Client) {
     // IMPORTANT: Please disconnect the client before destroying it
-    yojimbo_assert( m_client == NULL );
+    assert(netClient == null);
 }
 
-void Client::InsecureConnect( const uint8_t privateKey[], uint64_t clientId, const Address & address )
-{
-    InsecureConnect( privateKey, clientId, &address, 1 );
+client_insecure_connect :: (client: *Client, privateKey: [] u8, clientId: u64, address: Address) {
+    client_insecure_connect(client, privateKey, clientId, .{ 1, *address });
 }
 
-void Client::InsecureConnect( const uint8_t privateKey[], uint64_t clientId, const Address serverAddresses[], int numServerAddresses )
-{
-    yojimbo_assert( serverAddresses );
-    yojimbo_assert( numServerAddresses > 0 );
-    yojimbo_assert( numServerAddresses <= NETCODE_MAX_SERVERS_PER_CONNECT );
-    Disconnect();
-    CreateInternal();
-    m_clientId = clientId;
-    CreateClient( m_address );
-    if ( !m_client )
-    {
-        Disconnect();
+client_insecure_connect :: (using client: *Client, privateKey: [] u8, _clientId: u64, serverAddresses: [] Address) {
+    assert(serverAddresses.count > 0);
+    assert(serverAddresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
+
+    client_disconnect(client);
+    client_create_internal(client);
+    clientId = _clientId;
+    client_create_net_client(client, address);
+    if netClient == null {
+        client_disconnect(client);
         return;
     }
-    uint8_t connectToken[NETCODE_CONNECT_TOKEN_BYTES];
-    if ( !GenerateInsecureConnectToken( connectToken, privateKey, clientId, serverAddresses, numServerAddresses ) )
-    {
-        yojimbo_printf( YOJIMBO_LOG_LEVEL_ERROR, "error: failed to generate insecure connect token\n" );
-        SetClientState( CLIENT_STATE_ERROR );
+
+    connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8;
+    if !client_generate_insecure_connect_token(connectToken, privateKey, clientId, serverAddresses, numServerAddresses) {
+        yojimbo_log(.ERROR, "error: failed to generate insecure connect token\n");
+        clientState = .Error;
         return;
     }
-    netcode_client_connect( m_client, connectToken );
-    SetClientState( CLIENT_STATE_CONNECTING );
+    netcode_client_connect(netClient, connectToken);
+    clientState = .Connecting;
 }
 
-bool Client::GenerateInsecureConnectToken( uint8_t * connectToken,
-                                            const uint8_t privateKey[],
-                                            uint64_t clientId,
-                                            const Address serverAddresses[],
-                                            int numServerAddresses )
-{
-    char serverAddressStrings[NETCODE_MAX_SERVERS_PER_CONNECT][MaxAddressLength];
-    const char * serverAddressStringPointers[NETCODE_MAX_SERVERS_PER_CONNECT];
-    for ( int i = 0; i < numServerAddresses; ++i )
-    {
-        serverAddresses[i].ToString( serverAddressStrings[i], MaxAddressLength );
-        serverAddressStringPointers[i] = serverAddressStrings[i];
+client_generate_insecure_connect_token :: (using client: *Client, connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8, privateKey: [] u8, _clientId: u64, serverAddresses: [] Address) -> bool {
+    assert(serverAddresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
+
+    serverAddressStrings := New(serverAddresses.count, string,, temp);
+    for serverAddresses {
+        serverAddressStrings[i] = address_to_string(it,, temp);
     }
 
-    uint8_t userData[256];
-    memset( &userData, 0, sizeof(userData) );
-
-    return netcode_generate_connect_token( numServerAddresses,
-                                            serverAddressStringPointers,
-                                            serverAddressStringPointers,
-                                            m_config.timeout,
-                                            m_config.timeout,
-                                            clientId,
-                                            m_config.protocolId,
-                                            (uint8_t*)privateKey,
-                                            &userData[0],
-                                            connectToken ) == NETCODE_OK;
+    userData: [256] u8;
+    err := netcode_generate_connect_token(
+        serverAddressStrings,
+        serverAddressStrings,
+        m_config.timeout,
+        m_config.timeout,
+        _clientId,
+        m_config.protocolId,
+        privateKey,
+        userData,
+        connectToken
+    );
+    return err == NETCODE_OK;
 }
 
-void Client::Connect( uint64_t clientId, uint8_t * connectToken )
-{
-    yojimbo_assert( connectToken );
-    Disconnect();
-    CreateInternal();
-    m_clientId = clientId;
-    CreateClient( m_address );
-    netcode_client_connect( m_client, connectToken );
-    if ( netcode_client_state( m_client ) > NETCODE_CLIENT_STATE_DISCONNECTED )
-    {
-        SetClientState( CLIENT_STATE_CONNECTING );
-    }
-    else
-    {
-        Disconnect();
+client_connect :: (using client: *Client, _clientId: u64, connectToken: [] u8) {
+    assert(connectToken != null);
+
+    client_disconnect(client);
+    client_create_internal(client);
+    clientId = _clientId;
+    client_create_net_client(client, address);
+    netcode_client_connect(netClient, connectToken);
+    if netcode_client_state(netClient) > NETCODE_CLIENT_STATE_DISCONNECTED {
+        clientState = .Connecting;
+    } else {
+        client_disconnect(client);
     }
 }
 
-void Client::Disconnect()
-{
-    BaseClient::Disconnect();
-    DestroyClient();
-    DestroyInternal();
-    m_clientId = 0;
+client_disconnect :: (using client: *Client) {
+    client_disconnect(base);
+    client_destroy_net_client(client);
+    client_destroy_internal(client);
+    clientId = 0;
 }
 
-void Client::SendPackets()
-{
-    if ( !IsConnected() )
+client_send_packets :: (using client: *Client) {
+    if !client_is_connected(client) {
         return;
-    yojimbo_assert( m_client );
-    uint8_t * packetData = GetPacketBuffer();
-    int packetBytes;
-    uint16_t packetSequence = reliable_endpoint_next_packet_sequence( GetEndpoint() );
-    if ( GetConnection().GeneratePacket( GetContext(), packetSequence, packetData, m_config.maxPacketSize, packetBytes ) )
-    {
-        reliable_endpoint_send_packet( GetEndpoint(), packetData, packetBytes );
+    }
+
+    // This is a bit indirect, but it's asserting because reliable_endpoint_send_packet will call TransmitPacketFunction
+    assert(netClient != null);
+
+    packetBytes: int;
+    packetSequence := reliable_endpoint_next_packet_sequence(endpoint);
+    if connection_generate_packet(connection, packetSequence, packetBuffer, m_config.maxPacketSize, *packetBytes) {
+        reliable_endpoint_send_packet(endpoint, .{ packetBytes, packetBuffer.data });
     }
 }
 
-void Client::ReceivePackets()
-{
-    if ( !IsConnected() )
+client_receive_packets :: () {
+    if !client_is_connected(client) {
         return;
-    yojimbo_assert( m_client );
-    while ( true )
-    {
-        int packetBytes;
-        uint64_t packetSequence;
-        uint8_t * packetData = netcode_client_receive_packet( m_client, &packetBytes, &packetSequence );
-        if ( !packetData )
+    }
+
+    assert(netClient != null);
+    while (true) {
+        // TODO(dlb): Why doesn't this use packetBuffer? Hmm..
+        packetBytes: int;
+        packetSequence: u64;
+        packetData := netcode_client_receive_packet(netClient, *packetBytes, *packetSequence);
+        if !packetData.count {
             break;
-        reliable_endpoint_receive_packet( GetEndpoint(), packetData, packetBytes );
-        netcode_client_free_packet( m_client, packetData );
+        }
+
+        reliable_endpoint_receive_packet(endpoint, packetData, packetBytes);
+        netcode_client_free_packet(netClient, packetData);
     }
 }
 
-void Client::AdvanceTime( double time )
-{
-    BaseClient::AdvanceTime( time );
-    if ( m_client )
-    {
-        netcode_client_update( m_client, time );
-        const int state = netcode_client_state( m_client );
-        if ( state < NETCODE_CLIENT_STATE_DISCONNECTED )
-        {
-            Disconnect();
-            SetClientState( CLIENT_STATE_ERROR );
-        }
-        else if ( state == NETCODE_CLIENT_STATE_DISCONNECTED )
-        {
-            Disconnect();
-            SetClientState( CLIENT_STATE_DISCONNECTED );
-        }
-        else if ( state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST || state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE )
-        {
-            SetClientState( CLIENT_STATE_CONNECTING );
-        }
-        else
-        {
-            SetClientState( CLIENT_STATE_CONNECTED );
-        }
-        NetworkSimulator * networkSimulator = GetNetworkSimulator();
-        if ( networkSimulator && networkSimulator->IsActive() )
-        {
-            uint8_t ** packetData = (uint8_t**) alloca( sizeof( uint8_t*) * m_config.maxSimulatorPackets );
-            int * packetBytes = (int*) alloca( sizeof(int) * m_config.maxSimulatorPackets );
-            int numPackets = networkSimulator->ReceivePackets( m_config.maxSimulatorPackets, packetData, packetBytes, NULL );
-            for ( int i = 0; i < numPackets; ++i )
-            {
-                netcode_client_send_packet( m_client, (uint8_t*) packetData[i], packetBytes[i] );
-                YOJIMBO_FREE( networkSimulator->GetAllocator(), packetData[i] );
-            }
+client_advance_time :: (_time: Apollo_Time) {
+    client_advance_time(base, _time);
+    if netClient == null {
+        return;
+    }
+
+    netcode_client_update(netClient, time);
+    state := netcode_client_state(netClient);
+    if state < NETCODE_CLIENT_STATE_DISCONNECTED {
+        client_disconnect(client);
+        clientState = .Error;
+    } else if state == NETCODE_CLIENT_STATE_DISCONNECTED {
+        client_disconnect(client);
+        clientState = .Disconnected;
+    } else if state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST || state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE {
+        clientState = .Connecting;
+    } else {
+        clientState = .Connected;
+    }
+
+    if networkSimulator != null && network_simulator_is_active(networkSimulator) {
+        packetData := NewArray(config.maxSimulatorPackets, [] u8,, temp);
+        numPackets := network_simulator_receive_packets(networkSimulator, packetData, .{});
+        for 0..numPackets-1 {
+            netcode_client_send_packet(netClient, packetData[i]);
+            free(packetData[i]);
         }
     }
 }
 
-int Client::GetClientIndex() const
-{
-    return m_client ? netcode_client_index( m_client ) : -1;
+client_get_client_index :: (using client: *Client) -> int {
+    return ifx netClient != null then netcode_client_index(netClient) else -1;
 }
 
-void Client::ConnectLoopback( int clientIndex, uint64_t clientId, int maxClients )
-{
-    Disconnect();
-    CreateInternal();
-    m_clientId = clientId;
-    CreateClient( m_address );
-    netcode_client_connect_loopback( m_client, clientIndex, maxClients );
-    SetClientState( CLIENT_STATE_CONNECTED );
+client_connect_loopback :: (using client: *Client, _clientIndex: int, _clientId: u64, maxClients: int) {
+    client_disconnect(client);
+    client_create_internal(client);
+    clientId = _clientId;
+    client_create_net_client(address);
+    netcode_client_connect_loopback(netClient, _clientIndex, maxClients);
+    clientState = .Connected;
 }
 
-void Client::DisconnectLoopback()
-{
-    netcode_client_disconnect_loopback( m_client );
-    BaseClient::Disconnect();
-    DestroyClient();
-    DestroyInternal();
-    m_clientId = 0;
+client_disconnect_loopback :: (using client: *Client) {
+    netcode_client_disconnect_loopback(netClient);
+    client_disconnect(client);
+    client_destroy_net_client(client);
+    client_destroy_internal(client);
+    clientId = 0;
 }
 
-bool Client::IsLoopback() const
-{
-    return netcode_client_loopback( m_client ) != 0;
+client_is_loopback :: (using client: *Client) -> bool {
+    return netcode_client_loopback(netClient) != 0;
 }
 
-void Client::ProcessLoopbackPacket( const uint8_t * packetData, int packetBytes, uint64_t packetSequence )
-{
-    netcode_client_process_loopback_packet( m_client, packetData, packetBytes, packetSequence );
+client_process_loopback_packet :: (using client: *Client, packetData: [] u8, packetSequence: u64) {
+    netcode_client_process_loopback_packet(netClient, packetData, packetSequence);
 }
 
-void Client::CreateClient( const Address & address )
-{
-    DestroyClient();
-    char addressString[MaxAddressLength];
-    address.ToString( addressString, MaxAddressLength );
+client_create_net_client :: (using client: *Client, address: Address) {
+    client_destroy_net_client();
 
-    struct netcode_client_config_t netcodeConfig;
-    netcode_default_client_config(&netcodeConfig);
-    netcodeConfig.allocator_context             = &GetClientAllocator();
-    netcodeConfig.allocate_function             = StaticAllocateFunction;
-    netcodeConfig.free_function                 = StaticFreeFunction;
-    netcodeConfig.callback_context              = this;
-    netcodeConfig.state_change_callback         = StaticStateChangeCallbackFunction;
-    netcodeConfig.send_loopback_packet_callback = StaticSendLoopbackPacketCallbackFunction;
-    m_client = netcode_client_create(addressString, &netcodeConfig, GetTime());
+    // TODO(dlb): Could we maybe.. *not* convert our addresses back to strings just to call into another library? :/
+    addressString := address_to_string(address,, temp);
 
-    if ( m_client )
-    {
-        m_boundAddress.SetPort( netcode_client_get_port( m_client ) );
+    netcodeConfig: netcode_client_config_t;
+    netcodeConfig.callback_context              = cast(*void) client;
+    netcodeConfig.state_change_callback         = client_state_change_callback;
+    netcodeConfig.send_loopback_packet_callback = send_loopback_packet_callback;
+    netClient = netcode_client_create(addressString, *netcodeConfig, GetTime());  // TODO: GetTime() ??
+
+    if netClient != null {
+        boundAddress.port = netcode_client_get_port(netClient);
     }
 }
 
-void Client::DestroyClient()
-{
-    if ( m_client )
-    {
-        m_boundAddress = m_address;
-        netcode_client_destroy( m_client );
-        m_client = NULL;
+client_destroy_net_client :: (using client: *Client) {
+    if netClient != null {
+        boundAddress = address;
+        netcode_client_destroy(netClient);
+        netClient = null;
     }
 }
 
-void Client::StateChangeCallbackFunction( int previous, int current )
-{
-    (void) previous;
-    (void) current;
-}
+client_transmit_packet_function :: (ctx: *void, id: u64, packetSequence: u16, packetData: [] u8) {
+    using client := cast(*Client) ctx;
 
-void Client::StaticStateChangeCallbackFunction( void * context, int previous, int current )
-{
-    Client * client = (Client*) context;
-    client->StateChangeCallbackFunction( previous, current );
-}
+    assert(netClient != null);
 
-void Client::TransmitPacketFunction( uint16_t packetSequence, uint8_t * packetData, int packetBytes )
-{
-    (void) packetSequence;
-    NetworkSimulator * networkSimulator = GetNetworkSimulator();
-    if ( networkSimulator && networkSimulator->IsActive() )
-    {
-        networkSimulator->SendPacket( 0, packetData, packetBytes );
-    }
-    else
-    {
-        netcode_client_send_packet( m_client, packetData, packetBytes );
+    if networkSimulator != null && network_simulator_is_active(networkSimulator) {
+        network_simulator_send_packet(networkSimulator, 0, packetData);
+    } else {
+        netcode_client_send_packet(netClient, packetData);
     }
 }
 
-int Client::ProcessPacketFunction( uint16_t packetSequence, uint8_t * packetData, int packetBytes )
-{
-    return (int) GetConnection().ProcessPacket( GetContext(), packetSequence, packetData, packetBytes );
+client_process_packet_function :: (ctx: *void, id: u64, packetSequence: u16, packetData: [] u8) -> int {
+    using client := cast(*Client) ctx;
+
+    return ifx connection_process_packet(connection, packetSequence, packetData) then 1 else 0;
 }
 
-void Client::SendLoopbackPacketCallbackFunction( int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence )
-{
-    GetAdapter().ClientSendLoopbackPacket( clientIndex, packetData, packetBytes, packetSequence );
+client_state_change_callback :: (ctx: *void, previous: int, current: int) {
+    // intentionally empty callback, we don't care about these events
 }
 
-void Client::StaticSendLoopbackPacketCallbackFunction( void * context, int clientIndex, const uint8_t * packetData, int packetBytes, uint64_t packetSequence )
-{
-    Client * client = (Client*) context;
-    client->SendLoopbackPacketCallbackFunction( clientIndex, packetData, packetBytes, packetSequence );
+//NOTE(dlb): This is some kind of user-provided callback on Client in C++, but idk if it's actually useful..
+send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] u8, packetSequence: u64) {
+    using client := cast(*Client) ctx;
+
+    assert(_clientIndex == clientIndex);
+
+    if clientSendLoopbackPacketFunction != null {
+        clientSendLoopbackPacketFunction(client, _clientIndex, packetData, packetSequence);
+    }
 }
