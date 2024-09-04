@@ -17,13 +17,6 @@ BaseServer :: struct {
     // callbacks for packet read/write
     transmitPacketFunction : TransmitPacketFunction;
     processPacketFunction  : ProcessPacketFunction;
-
-    // TODO(dlb)[cleanup]: Dumb getters from the C++ header. Probably don't need these.
-    // bool IsRunning() const { return m_running; }
-    // int GetMaxClients() const { return m_maxClients; }
-    // double GetTime() const { return m_time; }
-    // uint8_t * GetPacketBuffer() { return m_packetBuffer; }
-    // class NetworkSimulator * GetNetworkSimulator() { return m_networkSimulator; }
 };
 
 server_init :: (using server: *BaseServer, _config: ClientServerConfig, _time: Apollo_Time) {

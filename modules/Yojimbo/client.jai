@@ -18,7 +18,7 @@ Client implementation
     @param packetSequence The sequence number of the packet.
     @see Client::ConnectLoopback
     */
-    clientSendLoopbackPacketFunction :: #type (client: *Client, clientIndex: int, packetData: [] u8, packetSequence: u64);
+    onClientSendLoopbackPacket :: #type (client: *Client, clientIndex: int, packetData: [] u8, packetSequence: u64);
 };
 
 /**
@@ -31,6 +31,8 @@ client_init :: (client: *Client, _address: Address, _config: ClientServerConfig,
     client_init(base, _config, _time);
     address = _address;
     boundAddress = address;
+    transmitPacketFunction = client_transmit_packet_function;
+    processPacketFunction = client_process_packet_function;
 }
 
 client_free :: (client: *Client) {
@@ -131,12 +133,12 @@ client_receive_packets :: () {
     }
 
     assert(netClient != null);
-    while (true) {
+    while true {
         // TODO(dlb): Why doesn't this use packetBuffer? Hmm..
         packetBytes: int;
         packetSequence: u64;
         packetData := netcode_client_receive_packet(netClient, *packetBytes, *packetSequence);
-        if !packetData.count {
+        if packetData.count == 0 {
             break;
         }
 
@@ -169,8 +171,8 @@ client_advance_time :: (_time: Apollo_Time) {
         packetData := NewArray(config.maxSimulatorPackets, [] u8,, temp);
         numPackets := network_simulator_receive_packets(networkSimulator, packetData, .{});
         for 0..numPackets-1 {
-            netcode_client_send_packet(netClient, packetData[i]);
-            free(packetData[i]);
+            netcode_client_send_packet(netClient, packetData[it]);
+            array_free(packetData[it]);
         }
     }
 }
@@ -217,7 +219,7 @@ client_create_net_client :: (using client: *Client, address: Address) {
     netcodeConfig.callback_context              = cast(*void) client;
     netcodeConfig.state_change_callback         = client_state_change_callback;
     netcodeConfig.send_loopback_packet_callback = send_loopback_packet_callback;
-    netClient = netcode_client_create(addressString, *netcodeConfig, GetTime());  // TODO: GetTime() ??
+    netClient = netcode_client_create(addressString, *netcodeConfig, time);
 
     if netClient != null {
         boundAddress.port = netcode_client_get_port(netClient);
@@ -260,7 +262,7 @@ send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] 
 
     assert(_clientIndex == clientIndex);
 
-    if clientSendLoopbackPacketFunction != null {
-        clientSendLoopbackPacketFunction(client, _clientIndex, packetData, packetSequence);
+    if onClientSendLoopbackPacket != null {
+        onClientSendLoopbackPacket(client, _clientIndex, packetData, packetSequence);
     }
 }
