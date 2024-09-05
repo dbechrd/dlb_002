@@ -22,7 +22,7 @@ Server :: struct {
     onClientDisconnected :: #type (server: *Server, clientIndex: int);
 
     /*
-    Override this callback to process packets sent from client to server over loopback.
+    Override this callback to process packets sent from server to client over loopback.
     @param clientIndex The client index in range [0,maxClients-1]
     @param packetData The packet data (raw) to be sent to the server.
     @param packetBytes The number of packet bytes in the server.
@@ -48,6 +48,12 @@ server_free :: (using server: *Server) {
     assert(server == null);
 }
 
+/*
+Start the server and allocate client slots.
+Each client that connects to this server occupies one of the client slots allocated by this function.
+@param maxClients The number of client slots to allocate. Must be in range [1,MaxClients]
+@see Server::Stop
+*/
 server_start :: (using server: *Server, _maxClients: int) {
     if running {
         server_stop(server);
@@ -75,6 +81,12 @@ server_start :: (using server: *Server, _maxClients: int) {
     boundAddress.port = netcode_server_get_port(netServer);
 }
 
+/*
+Stop the server and free client slots.
+Any clients that are connected at the time you call stop will be disconnected.
+When the server is stopped, clients cannot connect to the server.
+@see Server::Start.
+*/
 server_stop :: (using server: *Server) {
     if netServer != null {
         boundAddress = address;
@@ -85,6 +97,11 @@ server_stop :: (using server: *Server) {
     server_stop(base);
 }
 
+/*
+Disconnect the client at the specified client index.
+@param clientIndex The index of the client to disconnect in range [0,maxClients-1], where maxClients is the number of client slots allocated in Server::Start.
+@see Server::IsClientConnected
+*/
 server_disconnect_client :: (using server: *Server, clientIndex: int) {
     assert(netServer != null);
 
@@ -92,6 +109,10 @@ server_disconnect_client :: (using server: *Server, clientIndex: int) {
     server_reset_client(server, clientIndex);
 }
 
+/*
+Disconnect all clients from the server.
+Client slots remain allocated as per the last call to Server::Start, they are simply made available for new clients to connect.
+*/
 server_disconnect_all_clients :: (using server: *Server) {
     assert(netServer != null);
 
@@ -101,6 +122,10 @@ server_disconnect_all_clients :: (using server: *Server) {
     }
 }
 
+/*
+Send packets to connected clients.
+This function drives the sending of packets that transmit messages to clients.
+*/
 server_send_packets :: (using server: *Server) {
     if netServer != null {
         0..maxClients-1 {
@@ -116,6 +141,10 @@ server_send_packets :: (using server: *Server) {
     }
 }
 
+/*
+Receive packets from connected clients.
+This function drives the procesing of messages included in packets received from connected clients.
+*/
 server_receive_packets :: (using server: *Server) {
     if netServer != null {
         for 0..maxClients-1 {
@@ -134,6 +163,11 @@ server_receive_packets :: (using server: *Server) {
     }
 }
 
+/*
+Advance server time.
+Call this at the end of each frame to advance the server time forward.
+*/
+
 server_advance_time :: (using server: *Server, _time: Apollo_Time) {
     if netServer != null {
         netcode_server_update(netServer, _time);
@@ -150,43 +184,98 @@ server_advance_time :: (using server: *Server, _time: Apollo_Time) {
     }
 }
 
+/*
+Is a client connected to a client slot?
+@param clientIndex the index of the client slot in [0,maxClients-1], where maxClients corresponds to the value passed into the last call to Server::Start.
+@returns True if the client is connected.
+*/
 server_is_client_connected :: (using server: *Server, clientIndex: int) {
     return netcode_server_client_connected(netServer, clientIndex) != 0;
 }
 
+/*
+Get the unique id of the client
+@param clientIndex the index of the client slot in [0,maxClients-1], where maxClients corresponds to the value passed into the last call to Server::Start.
+@returns The unique id of the client.
+*/
 server_get_client_id :: (using server: *Server, clientIndex: int) -> u64 {
     return netcode_server_client_id(netServer, clientIndex);
 }
 
-// dafuq this for? should it return *u8 or [] u8?
+/*
+Get the user data of the client.
+@param clientIndex the index of the client slot in [0,maxClients-1], where maxClients corresponds to the value passed into the last call to Server::Start.
+@returns The user data of the client.
+*/
 server_get_client_user_data :: (using server: *Server, clientIndex: int) -> [] u8 {
+    // TODO(dlb): dafuq this for? should it return *u8 or [] u8?
     return netcode_server_client_user_data(netServer, clientIndex);
 }
 
+/*
+Get the address of the client
+@param clientIndex the index of the client slot in [0,maxClients-1], where maxClients corresponds to the value passed into the last call to Server::Start.
+@returns The address of the client.
+*/
 server_get_client_address :: (using server: *Server, clientIndex: int) -> *netcode_address_t {
     return netcode_server_client_address(netServer, clientIndex);
 }
 
+/*
+Get the number of clients that are currently connected to the server.
+@returns the number of connected clients.
+*/
 server_get_num_connected_clients :: () -> int {
     return netcode_server_num_connected_clients(netServer);
 }
 
+/*
+Connect a loopback client.
+This allows you to have local clients connected to a server, for example for integrated server or singleplayer.
+@param clientIndex The index of the client.
+@param clientId The unique client id.
+@param userData User data for this client. Optional. Pass NULL if not needed.
+*/
 server_connect_loopback_client :: (using server: *Server, clientIndex: int, clientId: u64, userData: [] u8) {
     netcode_server_connect_loopback_client(netServer, clientIndex, clientId, userData);
 }
 
+/*
+Disconnect a loopback client.
+Loopback clients are not disconnected by regular Disconnect or DisconnectAllClient calls. You need to call this function instead.
+@param clientIndex The index of the client to disconnect. Must already be a connected loopback client.
+*/
 server_disconnect_loopback_client :: (using server: *Server, clientIndex: int) {
     netcode_server_disconnect_loopback_client(netServer, clientIndex);
 }
 
+/*
+Is this client a loopback client?
+@param clientIndex The client index.
+@returns true if the client is a connected loopback client, false otherwise.
+*/
 server_is_loopback_client :: (using server: *Server, clientIndex: int) -> bool {
     return netcode_server_client_loopback(netServer, clientIndex) != 0;
 }
 
-server_process_loopback_client :: (using server: *Server, clientIndex: int, packetData: [] u8, packetSequence: u64) {
+/*
+Process loopback packet.
+Use this to pass packets from a client directly to the loopback client slot on the server.
+@param clientIndex The client index. Must be an already connected loopback client.
+@param packetData The packet data to process.
+@param packetBytes The number of bytes of packet data.
+@param packetSequence The packet sequence number.
+*/
+server_process_loopback_packet :: (using server: *Server, clientIndex: int, packetData: [] u8, packetSequence: u64) {
     netcode_server_process_loopback_packet(netServer, clientIndex, packetData, packetBytes, packetSequence);
 }
 
+/*
+Get client network info.
+Call this to receive information about the client network connection, eg. round trip time, packet loss %, # of packets sent and so on.
+@param clientIndex The index of the client.
+@param info The struct to be filled with network info [out].
+*/
 server_get_network_info :: (using server: *Server, clientIndex: int, info: *NetworkInfo) {
     assert(running);
     assert(clientIndex >= 0);

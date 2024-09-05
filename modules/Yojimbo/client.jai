@@ -218,7 +218,7 @@ client_create_net_client :: (using client: *Client, address: Address) {
     netcodeConfig: netcode_client_config_t;
     netcodeConfig.callback_context              = cast(*void) client;
     netcodeConfig.state_change_callback         = client_state_change_callback;
-    netcodeConfig.send_loopback_packet_callback = send_loopback_packet_callback;
+    netcodeConfig.send_loopback_packet_callback = client_send_loopback_packet_callback;
     netClient = netcode_client_create(addressString, *netcodeConfig, time);
 
     if netClient != null {
@@ -257,7 +257,7 @@ client_state_change_callback :: (ctx: *void, previous: int, current: int) {
 }
 
 //NOTE(dlb): This is some kind of user-provided callback on Client in C++, but idk if it's actually useful..
-send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] u8, packetSequence: u64) {
+client_send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] u8, packetSequence: u64) {
     using client := cast(*Client) ctx;
 
     assert(_clientIndex == clientIndex);

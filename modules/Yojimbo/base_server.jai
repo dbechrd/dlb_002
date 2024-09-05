@@ -108,6 +108,11 @@ server_advance_time :: (using server: *BaseServer, _time: Apollo_Time) {
     }
 }
 
+/*
+Create a message of the specified type for a specific client.
+@param clientIndex The index of the client this message belongs to. Determines which client heap is used to allocate the message.
+@param type The type of the message to create. The message types corresponds to the message factory created by the adapter set on the server.
+*/
 server_create_message :: (using server: *BaseServer, clientIndex: int, type: int) -> *Message {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
@@ -140,9 +145,12 @@ server_get_network_info :: (using server: *BaseServer, clientIndex: int, info: *
     assert(false, "Call this on the subtype");
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// TODO(dlb)[cleanup]: These are all really pointless wrappers.. Delete all this OOP shit.
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/*
+Can we send a message to a particular client on a channel?
+@param clientIndex The index of the client to send a message to.
+@param channelIndex The channel index in range [0,numChannels-1].
+@returns True if a message can be sent over the channel, false otherwise.
+*/
 server_can_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> bool {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
@@ -159,6 +167,12 @@ server_has_messages_to_send :: (using server: *BaseServer, clientIndex: int, cha
     connection_has_messages_to_send(clientConnection[clientIndex], channelIndex);
 }
 
+/*
+Send a message to a client over a channel.
+@param clientIndex The index of the client to send a message to.
+@param channelIndex The channel index in range [0,numChannels-1].
+@param message The message to send.
+*/
 server_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int, message: *Message) {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
@@ -167,7 +181,13 @@ server_send_message :: (using server: *BaseServer, clientIndex: int, channelInde
     connection_send_message(clientConnection[clientIndex], channelIndex, message);
 }
 
-server_send_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> *Message {
+/*
+Receive a message from a client over a channel.
+@param clientIndex The index of the client to receive messages from.
+@param channelIndex The channel index in range [0,numChannels-1].
+@returns The message received, or NULL if no message is available. Make sure to release this message by calling Server::ReleaseMessage.
+*/
+server_receive_message :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> *Message {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
     assert(clientConnection[clientIndex] != null);
@@ -175,6 +195,7 @@ server_send_message :: (using server: *BaseServer, clientIndex: int, channelInde
     connection_receive_message(clientConnection[clientIndex], channelIndex);
 }
 
+// TODO(dlb): This should be in #scope_file, but we can't do that until we merge BaseServer into Server.jai.
 server_reset_client :: (using server: *BaseServer, clientIndex: int) {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
