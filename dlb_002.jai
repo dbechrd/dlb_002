@@ -1,3 +1,7 @@
+MsgLogin :: struct {
+    using #as base: Message;
+}
+
 main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;

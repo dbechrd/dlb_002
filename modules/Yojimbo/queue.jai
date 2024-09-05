@@ -5,9 +5,9 @@ A simple queue.
 This is a FIFO queue. First entry in, first entry out.
 */
 Queue :: struct ($T: Type) {
-    entries: [] T;    // Array of entries backing the queue (circular buffer).
-    startIndex: int;  // The start index for the queue. This is the next value that gets popped off.
-    count: int;  // The number of entries currently stored in the queue.
+    entries    : [] T;  // Array of entries backing the queue (circular buffer).
+    startIndex : int;   // The start index for the queue. This is the next value that gets popped off.
+    count      : int;   // The number of entries currently stored in the queue.
 };
 
 /*
@@ -33,7 +33,7 @@ Get the size of the queue.
 This is the maximum number of values that can be pushed on the queue.
 @returns The size of the queue.
 */
-queue_capacity :: (using queue: Queue) -> int {
+queue_capacity :: inline (using queue: Queue) -> int {
     return entries.count;
 }
 
@@ -41,7 +41,7 @@ queue_capacity :: (using queue: Queue) -> int {
 Is the queue currently empty?
 @returns True if there are no entries in the queue.
 */
-queue_empty :: (using queue: Queue) -> bool {
+queue_empty :: inline (using queue: Queue) -> bool {
     return count == 0;
 }
 
@@ -49,7 +49,7 @@ queue_empty :: (using queue: Queue) -> bool {
 Is the queue currently full?
 @returns True if the queue is full. False otherwise.
 */
-queue_full :: (using queue: Queue) -> bool {
+queue_full :: inline (using queue: Queue) -> bool {
     return count == entries.count;
 }
 
@@ -95,7 +95,7 @@ queue_pop :: (using queue: *Queue) -> queue.T {
 /*
 Clear all entries in the queue and reset back to default state.
 */
-queue_clear :: (using queue: *Queue) {
+queue_clear :: inline (using queue: *Queue) {
     startIndex = 0;
     count = 0;
 }

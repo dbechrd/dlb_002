@@ -83,7 +83,6 @@ yojimbo_shutdown :: () {
 #import "Basic";
 #import "dlb";
 
-#load "adapter.jai";
 #load "address.jai";
 #load "base_client.jai";
 #load "base_server.jai";
@@ -99,9 +98,8 @@ yojimbo_shutdown :: () {
 #load "queue.jai";
 // #load "reliable_ordered_channel.jai";
 #load "sequence_buffer.jai";
-// #load "server_interface.jai";                // TODO: Steal doc comments from here
 // #load "server.jai";                          // done, except netcode
-// #load "unreliable_unordered_channel.jai";
+#load "unreliable_unordered_channel.jai";
 #load "utils.jai";
 
 yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {

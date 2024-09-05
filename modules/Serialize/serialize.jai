@@ -73,7 +73,7 @@ IMPORTANT: Because most machines are little endian, serialize defines network by
 @param value The input value in local byte order. Supported integer types: uint64_t, uint32_t, uint16_t.
 @returns The input value converted to network byte order. If this processor is little endian the output is the same as the input. If the processor is big endian, the output is the input byte swapped.
 */
-host_to_network :: inline ($T value) -> T {
+host_to_network :: inline (value: $T) -> T {
     #if LITTLE_ENDIAN {
         return value;
     } else {
@@ -87,7 +87,7 @@ IMPORTANT: Because most machines are little endian, serialize defines network by
 @param value The input value in network byte order. Supported integer types: uint64_t, uint32_t, uint16_t.
 @returns The input value converted to local byte order. If this processor is little endian the output is the same as the input. If the processor is big endian, the output is the input byte swapped.
 */
-network_to_host :: inline ($T value) -> T {
+network_to_host :: inline (value: $T) -> T {
     #if LITTLE_ENDIAN {
         return value;
     } else {
@@ -128,6 +128,7 @@ BitWriter :: struct {
     bitsWritten : int;     // The number of bits written so far.
     wordIndex   : int;     // The current word index. The next word flushed to memory will be at this index in data.
     scratchBits : int;     // The number of bits in scratch. When this is >= 32, the low 32 bits of scratch is flushed to memory as a dword and scratch is shifted right by 32.
+}
 
 /*
 Bit writer constructor.
@@ -299,7 +300,7 @@ Would the bit reader would read past the end of the buffer if it read this many 
 @param bits The number of bits that would be read.
 @returns True if reading the number of bits would read past the end of the buffer.
 */
-bit_reader_would_read_past_end :: (using reader: *BitReader, int bits) -> bool {
+bit_reader_would_read_past_end :: (using reader: *BitReader, bits: int) -> bool {
     return bitsRead + bits > numBits;
 }
 
@@ -406,6 +407,16 @@ bit_reader_get_align_bits :: (using reader: *BitReader) -> int {
     return (8 - bitsRead % 8) % 8;
 }
 
+StreamType :: enum {
+    Write;
+    Read;
+    Measure;
+}
+
+Stream :: struct {
+    type: StreamType;
+}
+
 /*
 Stream class for writing bitpacked data.
 This class is a wrapper around the bit writer class. Its purpose is to provide unified interface for reading and writing.
@@ -415,11 +426,13 @@ IMPORTANT: Generally, you don't call methods on this class directly. Use the ser
 @see BitWriter
 */
 WriteStream :: struct {
+    using #as base := Stream.{ type = .Write };
+
     isWriting :: true;
     isReading :: false;
 
     writer: BitWriter;  // The bit writer used for all bitpacked write operations.
-};
+}
 
 /*
 Write stream constructor.
@@ -534,11 +547,13 @@ IMPORTANT: Generally, you don't call methods on this class directly. Use the ser
 @see BitReader
 */
 ReadStream :: struct {
+    using #as base := Stream.{ type = .Read };
+
     isWriting :: false;
     isReading :: true;
 
     reader: BitReader;  // The bit reader used for all bitpacked read operations.
-};
+}
 
 /*
 Read stream constructor.
@@ -611,7 +626,7 @@ stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool {
 Serialize an align (read).
 @returns Returns true if the serialize read succeeded. False otherwise.
 */
-stream_align :: (using stream: *ReadStream) -> {
+stream_align :: (using stream: *ReadStream) -> bool {
     alignBits := bit_reader_get_align_bits(reader);
     if bit_reader_would_read_past_end(reader, alignBits) {
         return false;
@@ -655,11 +670,13 @@ Note that when the serialization includes alignment to byte (see MeasureStream::
 @see BitReader
 */
 MeasureStream :: struct {
+    using #as base := Stream.{ type = .Measure };
+
     isWriting :: true;
     isReading :: false;
 
     bitsWritten: int;  // Counts the number of bits written.
-};
+}
 
 /*
 Serialize an integer (measure).

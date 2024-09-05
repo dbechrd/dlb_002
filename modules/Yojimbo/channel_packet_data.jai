@@ -48,8 +48,6 @@ channel_packet_data_free :: (packetData: *ChannelPacketData) {
 }
 
 channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *$S, messageFactory: *MessageFactory, channelConfigs: [MaxChannels] ChannelConfig, numChannels: int) -> bool {
-    assert(packetData.flags & .Initialized);
-
     #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
         startBits := stream_get_bits_processed(stream);
     }
@@ -155,7 +153,7 @@ serialize_messages :: (stream: *$S, messageFactory: *MessageFactory, messages: *
 
         assert(messages.*[it] != null);
 
-        if !message_factory.serialize(stream, messages.*[it]) {
+        if !messageFactory.serializeRouter(stream, messages.*[it]) {
             yojimbo_log(.ERROR, "error: failed to serialize message of type % (serialize_messages[ordered = %])\n", messageTypes[it], ordered);
             return false;
         }

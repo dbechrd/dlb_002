@@ -148,7 +148,7 @@ connection_generate_packet :: (using connection: *Connection, packetSequence: u1
         availableBits := packetData.count * 8 - ConservativePacketHeaderBits;
 
         for 0..connectionConfig.numChannels-1 {
-            packetDataBits := channel_get_packet_data(channels[channelIndex], *channelData[channelIndex], packetSequence, availableBits);
+            packetDataBits := channel_generate_packet_data(channels[channelIndex], *channelData[channelIndex], packetSequence, availableBits);
             if packetDataBits > 0 {
                 availableBits -= ConservativeChannelHeaderBits;
                 availableBits -= packetDataBits;

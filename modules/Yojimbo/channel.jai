@@ -56,7 +56,7 @@ channel_has_messages_to_send :: (channel: *Channel) -> bool {
 }
 
 // Queue a message for send
-channel_send_message :: (channel: *Channel) {
+channel_send_message :: (channel: *Channel, message: *Message) {
     assert(false, "Call this on the subtype");
 }
 
@@ -79,7 +79,7 @@ channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
 // @returns The number of bits of packet data written by the channel.
 // @see ConnectionPacket
 // @see Connection::GeneratePacket
-channel_get_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
+channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
     assert(false, "Call this on the subtype");
 }
 
