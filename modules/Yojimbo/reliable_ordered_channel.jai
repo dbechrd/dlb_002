@@ -191,17 +191,19 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
             //////////////// continue here /////////////////
             fragmentBits := GetFragmentPacketData( packetData, messageId, fragmentId, fragmentData, fragmentBytes, numFragments, messageType );
             AddFragmentPacketEntry( messageId, fragmentId, packetSequence );
+            ////////////////////////////////////////////////
             return fragmentBits;
         }
     } else {
         numMessageIds := 0;
         messageIds := NewArray(config.maxMessagesPerPacket, u16,, temp);
-        //////////////// continue here /////////////////
-        messageBits := GetMessagesToSend( messageIds, numMessageIds, availableBits, context );
+        numMessageIds, messageBits := channel_get_messages_to_send(channel, messageIds, availableBits);
 
         if numMessageIds > 0 {
+            //////////////// continue here /////////////////
             GetMessagePacketData( packetData, messageIds, numMessageIds );
             AddMessagePacketEntry( messageIds, numMessageIds, packetSequence );
+            ////////////////////////////////////////////////
             return messageBits;
         }
     }
@@ -228,78 +230,78 @@ Takes care not to send messages too rapidly by respecting ChannelConfig::message
 @returns Estimate of the number of bits required to serialize the messages (upper bound).
 @see GetMessagePacketData
 */
-int ReliableOrderedChannel::GetMessagesToSend( uint16_t * messageIds, int & numMessageIds, int availableBits, void *context )
-{
-    yojimbo_assert( HasMessagesToSend() );
+channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, messageIds: [] u16, availableBits: int) -> numMessageIds: int, usedBits: int {
+    assert(channel_has_messages_to_send(channel));
 
-    numMessageIds = 0;
+    numMessageIds := 0;
 
-    if ( m_config.packetBudget > 0 )
-        availableBits = yojimbo_min( m_config.packetBudget * 8, availableBits );
+    budgetedBits = availableBits;
+    if config.packetBudget > 0 {
+        budgetedBits = min(config.packetBudget * 8, availableBits);
+    }
 
-    const int giveUpBits = 4 * 8;
-    const int messageTypeBits = bits_required( 0, m_messageFactory->GetNumTypes() - 1 );
-    const int messageLimit = yojimbo_min( m_config.messageSendQueueSize, m_config.messageReceiveQueueSize );
-    uint16_t previousMessageId = 0;
-    int usedBits = ConservativeMessageHeaderBits;
-    int giveUpCounter = 0;
-#ifdef YOJIMBO_DEBUG
-    const int maxBits = availableBits;
-#endif // YOJIMBO_DEBUG
+    giveUpBits := 4 * 8;
+    giveUpCounter := 0;
 
-    for ( int i = 0; i < messageLimit; ++i )
-    {
-        if ( availableBits - usedBits < giveUpBits )
+    messageTypeBits := bits_required(0, messageFactory.messageTypes.count - 1);
+
+    messageLimit := min(config.messageSendQueueSize, config.messageReceiveQueueSize);
+    previousMessageId: u16 = 0;
+    usedBits := ConservativeMessageHeaderBits;
+    #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
+        maxBits := availableBits;
+    }
+
+    for 0..messageLimit-1 {
+        if availableBits - usedBits < giveUpBits {
             break;
-
-        if ( giveUpCounter > m_config.messageSendQueueSize )
+        }
+        if giveUpCounter > config.messageSendQueueSize {
             break;
+        }
+        if numMessageIds == config.maxMessagesPerPacket {
+            break;
+        }
 
-        uint16_t messageId = m_oldestUnackedMessageId + i;
-        MessageSendQueueEntry * entry = m_messageSendQueue->Find( messageId );
-        if ( !entry )
+        messageId := oldestUnackedMessageId + it;
+        entry := sequence_buffer_find(*messageSendQueue, messageId);
+        if entry == null {
             continue;
+        }
 
-        if ( entry->block )
+        if entry.message.blockData.count > 0 {
             break;
+        }
 
-        // Increase your max packet size!
-        yojimbo_assert( entry->measuredBits <= uint32_t(maxBits) );
+        #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
+            assert(entry.measuredBits <= cast(u32) maxBits, "Increase your max packet size!");
+        }
 
-        if ( entry->timeLastSent + m_config.messageResendTime <= m_time && availableBits >= (int) entry->measuredBits )
-        {
-            int messageBits = entry->measuredBits + messageTypeBits;
+        if entry.timeLastSent + config.messageResendTime <= time && availableBits >= cast(int) entry.measuredBits {
+            messageBits: int = entry.measuredBits + messageTypeBits;
 
-            if ( numMessageIds == 0 )
-            {
+            if numMessageIds == 0 {
                 messageBits += 16;
-            }
-            else
-            {
-                MeasureStream stream;
-                stream.SetContext( context );
-                stream.SetAllocator( &m_messageFactory->GetAllocator() );
-                serialize_sequence_relative( stream, previousMessageId, messageId );
-                messageBits += stream.GetBitsProcessed();
+            } else {
+                stream: MeasureStream;
+                serialize_sequence_relative(stream, previousMessageId, messageId);
+                messageBits += stream_get_bits_processed(stream);
             }
 
-            if ( usedBits + messageBits > availableBits )
-            {
-                giveUpCounter++;
+            if usedBits + messageBits > availableBits {
+                giveUpCounter += 1;
                 continue;
             }
 
             usedBits += messageBits;
-            messageIds[numMessageIds++] = messageId;
+            messageIds[numMessageIds] = messageId;
+            numMessageIds += 1;
             previousMessageId = messageId;
-            entry->timeLastSent = m_time;
+            entry.timeLastSent = time;
         }
-
-        if ( numMessageIds == m_config.maxMessagesPerPacket )
-            break;
     }
 
-    return usedBits;
+    return numMessageIds, usedBits;
 }
 
 /*
@@ -311,27 +313,21 @@ Messages have references added to them when they are added to the packet. They a
 @param numMessageIds The number of message ids in the array.
 @see GetMessagesToSend
 */
-void ReliableOrderedChannel::GetMessagePacketData( ChannelPacketData & packetData, const uint16_t * messageIds, int numMessageIds )
-{
-    yojimbo_assert( messageIds );
+channel_get_message_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageIds: [] u16) {
+    packetData.channelIndex = channelIndex;
+    packetData.message.numMessages = messageIds.count;
 
-    packetData.Initialize();
-    packetData.channelIndex = GetChannelIndex();
-    packetData.message.numMessages = numMessageIds;
-
-    if ( numMessageIds == 0 )
+    if messageIds.count == 0 {
         return;
+    }
 
-    packetData.message.messages = (Message**) YOJIMBO_ALLOCATE( m_messageFactory->GetAllocator(), sizeof( Message* ) * numMessageIds );
+    packetData.message.messages = NewArray(messageIds.count, *Message);
 
-    for ( int i = 0; i < numMessageIds; ++i )
-    {
-        MessageSendQueueEntry * entry = m_messageSendQueue->Find( messageIds[i] );
-        yojimbo_assert( entry );
-        yojimbo_assert( entry->message );
-        yojimbo_assert( entry->message->GetRefCount() > 0 );
-        packetData.message.messages[i] = entry->message;
-        m_messageFactory->AcquireMessage( packetData.message.messages[i] );
+    for 0..messageIds.count-1 {
+        entry = sequence_buffer_find(*messageSendQueue, messageIds[it]);
+        assert(entry != null);
+        assert(entry.message != null);
+        packetData.message.messages[it] = entry.message;
     }
 }
 
@@ -342,20 +338,17 @@ This lets us look up the set of messages that were included in that packet later
 @param numMessageIds The number of message ids in the array.
 @param sequence The sequence number of the connection packet the messages were included in.
 */
-void ReliableOrderedChannel::AddMessagePacketEntry( const uint16_t * messageIds, int numMessageIds, uint16_t sequence )
-{
-    SentPacketEntry * sentPacket = m_sentPackets->Insert( sequence, true );
-    yojimbo_assert( sentPacket );
-    if ( sentPacket )
-    {
-        sentPacket->acked = 0;
-        sentPacket->block = 0;
-        sentPacket->timeSent = m_time;
-        sentPacket->messageIds = &m_sentPacketMessageIds[ ( sequence % m_config.sentPacketBufferSize ) * m_config.maxMessagesPerPacket ];
-        sentPacket->numMessageIds = numMessageIds;
-        for ( int i = 0; i < numMessageIds; ++i )
-        {
-            sentPacket->messageIds[i] = messageIds[i];
+channel_add_message_packet_entry :: (using channel: *ReliableOrderedChannel, messageIds: [] u16, sequence: u16) {
+    sentPacket = sequence_buffer_insert(*sentPackets, sequence, guaranteedOrder = true);
+    assert(sentPacket != null);
+    if sentPacket != null {
+        sentPacket.acked = false;
+        sentPacket.block = false;
+        sentPacket.timeSent = time;
+        sentPacket.messageIds = *sentPacketMessageIds[(sequence % config.sentPacketBufferSize) * config.maxMessagesPerPacket];
+        sentPacket.numMessageIds = numMessageIds;
+        for 0..numMessageIds-1 {
+            sentPacket.messageIds[it] = messageIds[it];
         }
     }
 }

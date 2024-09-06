@@ -49,11 +49,11 @@ sequence_buffer_reset :: (using sequenceBuffer: *SequenceBuffer) {
 Insert an entry in the sequence buffer.
 IMPORTANT: If another entry exists at the sequence modulo buffer size, it is overwritten.
 @param sequence The sequence number.
-@param guaranteed_order Whether sequence is always the newest value (when sending) or can be out of order (when receiving).
+@param guaranteedOrder Whether sequence is always the newest value (when sending) or can be out of order (when receiving).
 @returns The sequence buffer entry, which you must fill with your data. NULL if a sequence buffer entry could not be added for your sequence number (if the sequence number is too old for example).
 */
-sequence_buffer_insert :: (using sequenceBuffer: *SequenceBuffer, sequence: u16, guaranteed_order: bool = false) -> *sequenceBuffer.T {
-    if guaranteed_order || yojimbo_sequence_greater_than(sequence + 1, nextSequence) {
+sequence_buffer_insert :: (using sequenceBuffer: *SequenceBuffer, sequence: u16, guaranteedOrder: bool = false) -> *sequenceBuffer.T {
+    if guaranteedOrder || yojimbo_sequence_greater_than(sequence + 1, nextSequence) {
         sequence_buffer_remove_entries(sequenceBuffer, nextSequence, sequence);
         nextSequence = sequence + 1;
     } else if yojimbo_sequence_less_than(sequence, nextSequence - entrySequence.count) {
