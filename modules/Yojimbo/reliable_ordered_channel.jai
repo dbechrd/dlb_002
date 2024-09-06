@@ -356,121 +356,103 @@ channel_add_message_packet_entry :: (using channel: *ReliableOrderedChannel, mes
 /*
 Process messages included in a packet.
 Any messages that have not already been received are added to the message receive queue. Messages that are added to the receive queue have a reference added. See Message::AddRef.
-@param numMessages The number of messages to process.
 @param messages Array of pointers to messages.
 */
-void ReliableOrderedChannel::ProcessPacketMessages( int numMessages, Message ** messages )
-{
-    const uint16_t minMessageId = m_receiveMessageId;
-    const uint16_t maxMessageId = m_receiveMessageId + m_config.messageReceiveQueueSize - 1;
+channel_process_packet_messages :: (using channel: *ReliableOrderedChannel, messages: [] *Message) {
+    minMessageId := receiveMessageId;
+    maxMessageId := receiveMessageId + cast(u16) config.messageReceiveQueueSize - 1;
 
-    for ( int i = 0; i < (int) numMessages; ++i )
-    {
-        Message * message = messages[i];
+    for messages {
+        assert(it != null);
 
-        yojimbo_assert( message );
-
-        const uint16_t messageId = message->GetId();
-
-        if ( yojimbo_sequence_less_than( messageId, minMessageId ) )
+        if yojimbo_sequence_less_than(message.id, minMessageId) {
             continue;
+        }
 
-        if ( yojimbo_sequence_greater_than( messageId, maxMessageId ) )
-        {
+        if yojimbo_sequence_greater_than(message.id, maxMessageId) {
             // Did you forget to dequeue messages on the receiver?
-            yojimbo_printf( YOJIMBO_LOG_LEVEL_ERROR, "sequence overflow: %d vs. [%d,%d]\n", messageId, minMessageId, maxMessageId );
-            SetErrorLevel( CHANNEL_ERROR_DESYNC );
+            yojimbo_log(.ERROR, "sequence overflow: % vs. [%,%]\n", message.id, minMessageId, maxMessageId);
+            errorLevel = .Desync;
             return;
         }
 
-        if ( m_messageReceiveQueue->Find( messageId ) )
+        if sequence_buffer_find(*messageReceiveQueue, message.id) {
             continue;
+        }
 
-        yojimbo_assert( !m_messageReceiveQueue->GetAtIndex( m_messageReceiveQueue->GetIndex( messageId ) ) );
+        assert(sequence_buffer_get_at_index(*messageReceiveQueue, sequence_buffer_get_index(*messageReceiveQueue, message.id)) == null);
 
-        MessageReceiveQueueEntry * entry = m_messageReceiveQueue->Insert( messageId );
-        if ( !entry )
-        {
+        entry := sequence_buffer_insert(*messageReceiveQueue, message.id);
+        if entry == null {
             // For some reason we can't insert the message in the receive queue
-            SetErrorLevel( CHANNEL_ERROR_DESYNC );
+            errorLevel = .Desync;
             return;
         }
 
-        entry->message = message;
-
-        m_messageFactory->AcquireMessage( message );
+        entry.message = message;
     }
 }
 
-void ReliableOrderedChannel::ProcessPacketData( const ChannelPacketData & packetData, uint16_t packetSequence )
-{
-    if ( m_errorLevel != CHANNEL_ERROR_NONE )
-        return;
-
-    if ( packetData.messageFailedToSerialize )
-    {
-        // A message failed to serialize read for some reason, eg. mismatched read/write.
-        SetErrorLevel( CHANNEL_ERROR_FAILED_TO_SERIALIZE );
+channel_process_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, packetSequence: u16) {
+    if errorLevel != .None {
         return;
     }
 
-    (void)packetSequence;
-
-    if ( packetData.blockMessage )
-    {
-        ProcessPacketFragment( packetData.block.messageType,
-                                packetData.block.messageId,
-                                packetData.block.numFragments,
-                                packetData.block.fragmentId,
-                                packetData.block.fragmentData,
-                                packetData.block.fragmentSize,
-                                packetData.block.message );
+    if packetData.flags & .FailedToSerialize {
+        // A message failed to deserialize for some reason, eg. mismatched read/write.
+        errorLevel = .FailedToDeserialize;
+        return;
     }
-    else
-    {
-        ProcessPacketMessages( packetData.message.numMessages, packetData.message.messages );
+
+    if packetData.flags & .BlockMessage {
+        // TODO(dlb): Wtf is this shit? Just pass the block, bro. -_-
+        process_packet_fragment(
+            channel,
+            packetData.block.messageType,
+            packetData.block.messageId,
+            packetData.block.numFragments,
+            packetData.block.fragmentId,
+            packetData.block.fragmentData,
+            packetData.block.fragmentSize,
+            packetData.block.message
+        );
+    } else {
+        process_packet_messages(channel, packetData.message.messages);
     }
 }
 
-void ReliableOrderedChannel::ProcessAck( uint16_t ack )
-{
-    SentPacketEntry * sentPacketEntry = m_sentPackets->Find( ack );
-    if ( !sentPacketEntry )
+channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
+    sentPacketEntry = sequence_buffer_find(*sentPackets, ack);
+    if sentPacketEntry == null {
         return;
+    }
 
-    yojimbo_assert( !sentPacketEntry->acked );
+    assert(!sentPacketEntry.acked);
 
-    for ( int i = 0; i < (int) sentPacketEntry->numMessageIds; ++i )
-    {
-        const uint16_t messageId = sentPacketEntry->messageIds[i];
-        MessageSendQueueEntry * sendQueueEntry = m_messageSendQueue->Find( messageId );
-        if ( sendQueueEntry )
-        {
-            yojimbo_assert( sendQueueEntry->message );
-            yojimbo_assert( sendQueueEntry->message->GetId() == messageId );
-            m_messageFactory->ReleaseMessage( sendQueueEntry->message );
-            m_messageSendQueue->Remove( messageId );
-            UpdateOldestUnackedMessageId();
+    for 0..sentPacketEntry.numMessageIds-1 {
+        messageId := sentPacketEntry.messageIds[it];
+        sendQueueEntry := sequence_buffer_find(*messageSendQueue, messageId);
+        if sendQueueEntry != null {
+            assert(sendQueueEntry.message != null);
+            assert(sendQueueEntry.message.id == messageId);
+            sequence_buffer_remove(*messageSendQueue, messageId);
+            channel_update_oldest_unacked_message_id(channel);
         }
     }
 
-    if ( !m_config.disableBlocks && sentPacketEntry->block && m_sendBlock->active && m_sendBlock->blockMessageId == sentPacketEntry->blockMessageId )
-    {
-        const int messageId = sentPacketEntry->blockMessageId;
-        const int fragmentId = sentPacketEntry->blockFragmentId;
+    if !config.disableBlocks && sentPacketEntry.block && sendBlock.active && sendBlock.blockMessageId == sentPacketEntry.blockMessageId {
+        messageId := sentPacketEntry->blockMessageId;
+        fragmentId := sentPacketEntry->blockFragmentId;
 
-        if ( !m_sendBlock->ackedFragment->GetBit( fragmentId ) )
-        {
-            m_sendBlock->ackedFragment->SetBit( fragmentId );
-            m_sendBlock->numAckedFragments++;
-            if ( m_sendBlock->numAckedFragments == m_sendBlock->numFragments )
-            {
-                m_sendBlock->active = false;
-                MessageSendQueueEntry * sendQueueEntry = m_messageSendQueue->Find( messageId );
-                yojimbo_assert( sendQueueEntry );
-                m_messageFactory->ReleaseMessage( sendQueueEntry->message );
-                m_messageSendQueue->Remove( messageId );
-                UpdateOldestUnackedMessageId();
+        if !sendBlock.ackedFragment[fragmentId] {
+            sendBlock.ackedFragment[fragmentId] = true;
+            sendBlock.numAckedFragments += 1;
+            if sendBlock.numAckedFragments == sendBlock.numFragments {
+                sendBlock.active = false;
+                sendQueueEntry := sequence_buffer_find(*messageSendQueue, messageId);
+                assert(sendQueueEntry != null);
+                sequence_buffer_remove(*messageSendQueue, messageId);
+                channel_update_oldest_unacked_message_id(channel);
             }
         }
     }
@@ -483,20 +465,17 @@ Because of this it is necessary to periodically walk forward from the previous o
 This lets us know our starting point for considering messages to include in the next packet we send.
 @see GetMessagesToSend
 */
-void ReliableOrderedChannel::UpdateOldestUnackedMessageId()
-{
-    const uint16_t stopMessageId = m_messageSendQueue->GetSequence();
+channel_update_oldest_unacked_message_id :: (using channel: *ReliableOrderedChannel) {
+    stopMessageId = messageSendQueue.nextSequence;
 
-    while ( true )
-    {
-        if ( m_oldestUnackedMessageId == stopMessageId || m_messageSendQueue->Find( m_oldestUnackedMessageId ) )
-        {
+    while true {
+        if oldestUnackedMessageId == stopMessageId || sequence_buffer_exists(*messageSendQueue, oldestUnackedMessageId) {
             break;
         }
-        ++m_oldestUnackedMessageId;
+        oldestUnackedMessageId += 1;
     }
 
-    yojimbo_assert( !yojimbo_sequence_greater_than( m_oldestUnackedMessageId, stopMessageId ) );
+    assert(!yojimbo_sequence_greater_than(oldestUnackedMessageId, stopMessageId));
 }
 
 /*
