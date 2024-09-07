@@ -14,19 +14,19 @@ ChannelPacketData :: struct {
     }
 
     BlockData :: struct {
-        message: *Message;
-        fragmentData: [] u8;  // TODO(dlb): fragmentData: [] u8 and get rid of `fragmentSize`
-        messageId: u16;
-        fragmentId: u16;
-        numFragments: u16;
-        messageType: int;
+        message      : *Message;
+        fragmentData : [] u8;
+        messageId    : u16;
+        fragmentId   : u16;
+        numFragments : u16;
+        messageType  : int;
     }
 
     channelIndex: u16;
     flags: Flags;
     union {
-        message: MessageData;
-        block: BlockData;
+        message : MessageData;
+        block   : BlockData;
     }
 };
 

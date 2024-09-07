@@ -6,10 +6,10 @@ Server implementation.
 Server :: struct {
     #as using base: BaseServer;
 
-    netServer    : *netcode_server_t;
-    address      : Address;             // original address passed to ctor
-    boundAddress : Address;             // address after socket bind, eg. valid port
-    privateKey   : [KeyBytes] u8;
+    netServer    : *netcode_server_t;  // netcode server data.
+    address      : Address;            // original address passed to ctor
+    boundAddress : Address;            // address after socket bind, eg. valid port
+    privateKey   : [KeyBytes] u8;      // server-side private key for encryption
 
     /*
     Override this to get a callback when a client connects on the server.

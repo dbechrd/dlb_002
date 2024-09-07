@@ -66,7 +66,7 @@ channel_free :: (using channel: *ReliableOrderedChannel) {
     sequence_buffer_free(messageReceiveQueue);
     array_free(sentPacketMessageIds);
 
-    send_block_data_free((sendBlock);
+    send_block_data_free(sendBlock);
     free(sendBlock);
     receive_block_data_free(receiveBlock);
     free(receiveBlock);
@@ -179,19 +179,10 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
             return 0;
         }
 
-        messageId: u16;
-        fragmentId: u16;
-        fragmentBytes: int;
-        numFragments: int;
-        messageType: int;
-
-        fragmentData := GetFragmentToSend( messageId, fragmentId, fragmentBytes, numFragments, messageType );
-
+        fragmentData, messageId, fragmentId, fragmentBytes, numFragments, messageType := channel_get_fragment_to_send(channel);
         if fragmentData != null {
-            //////////////// continue here /////////////////
-            fragmentBits := GetFragmentPacketData( packetData, messageId, fragmentId, fragmentData, fragmentBytes, numFragments, messageType );
-            AddFragmentPacketEntry( messageId, fragmentId, packetSequence );
-            ////////////////////////////////////////////////
+            fragmentBits := channel_get_fragment_packet_data(channel, packetData, messageId, fragmentId, fragmentData, fragmentBytes, numFragments, messageType);
+            channel_add_fragment_packet_entry(channel, messageId, fragmentId, packetSequence);
             return fragmentBits;
         }
     } else {
@@ -200,10 +191,8 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
         numMessageIds, messageBits := channel_get_messages_to_send(channel, messageIds, availableBits);
 
         if numMessageIds > 0 {
-            //////////////// continue here /////////////////
-            GetMessagePacketData( packetData, messageIds, numMessageIds );
-            AddMessagePacketEntry( messageIds, numMessageIds, packetSequence );
-            ////////////////////////////////////////////////
+            channel_get_message_packet_data(channel, packetData, messageIds, numMessageIds);
+            channel_add_message_packet_entry(channel, messageIds, numMessageIds, packetSequence);
             return messageBits;
         }
     }
@@ -268,7 +257,6 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
         if entry == null {
             continue;
         }
-
         if entry.message.blockData.count > 0 {
             break;
         }
@@ -441,8 +429,8 @@ channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
     }
 
     if !config.disableBlocks && sentPacketEntry.block && sendBlock.active && sendBlock.blockMessageId == sentPacketEntry.blockMessageId {
-        messageId := sentPacketEntry->blockMessageId;
-        fragmentId := sentPacketEntry->blockFragmentId;
+        messageId := sentPacketEntry.blockMessageId;
+        fragmentId := sentPacketEntry.blockFragmentId;
 
         if !sendBlock.ackedFragment[fragmentId] {
             sendBlock.ackedFragment[fragmentId] = true;
@@ -505,81 +493,61 @@ The next block fragment is selected by scanning left to right over the set of fr
 @param messageType The type of message the block is attached to. See MessageFactory.
 @returns Pointer to the fragment data.
 */
-uint8_t * ReliableOrderedChannel::GetFragmentToSend( uint16_t & messageId, uint16_t & fragmentId, int & fragmentBytes, int & numFragments, int & messageType )
-{
-    MessageSendQueueEntry * entry = m_messageSendQueue->Find( m_oldestUnackedMessageId );
+channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> fragmentData: [] u8, messageId: u16, fragmentId: u16, fragmentBytes: int, numFragments: int, messageType: int {
+    entry := sequence_buffer_find(*messageSendQueue, oldestUnackedMessageId);
+    assert(entry != null);
 
-    yojimbo_assert( entry );
-    yojimbo_assert( entry->block );
+    message := entry.message;
+    assert(message.blockData.count > 0);
 
-    BlockMessage * blockMessage = (BlockMessage*) entry->message;
-
-    yojimbo_assert( blockMessage );
-
-    messageId = blockMessage->GetId();
-
-    const int blockSize = blockMessage->GetBlockSize();
-
-    if ( !m_sendBlock->active )
-    {
+    if !sendBlock.active {
         // start sending this block
+        sendBlock.active = true;
+        sendBlock.blockSize = message.blockData.count;
+        sendBlock.blockMessageId = message.id;
+        sendBlock.numFragments = cast(int) ceil(message.blockData.count / cast(float) config.blockFragmentSize);
+        sendBlock.numAckedFragments = 0;
 
-        m_sendBlock->active = true;
-        m_sendBlock->blockSize = blockSize;
-        m_sendBlock->blockMessageId = messageId;
-        m_sendBlock->numFragments = (int) ceil( blockSize / float( m_config.blockFragmentSize ) );
-        m_sendBlock->numAckedFragments = 0;
+        maxFragmentsPerBlock := channel_config_get_max_fragments_per_block(config);
 
-        const int MaxFragmentsPerBlock = m_config.GetMaxFragmentsPerBlock();
+        assert(sendBlock.numFragments > 0);
+        assert(sendBlock.numFragments <= maxFragmentsPerBlock);
 
-        yojimbo_assert( m_sendBlock->numFragments > 0 );
-        yojimbo_assert( m_sendBlock->numFragments <= MaxFragmentsPerBlock );
+        clear_all_bits(*sendBlock.ackedFragment);
 
-        m_sendBlock->ackedFragment->Clear();
-
-        for ( int i = 0; i < MaxFragmentsPerBlock; ++i )
-            m_sendBlock->fragmentSendTime[i] = -1.0;
+        for 0..maxFragmentsPerBlock-1 {
+            sendBlock.fragmentSendTime[it] = .{};
+        }
     }
 
-    numFragments = m_sendBlock->numFragments;
-
     // find the next fragment to send (there may not be one)
-
-    fragmentId = 0xFFFF;
-
-    for ( int i = 0; i < m_sendBlock->numFragments; ++i )
-    {
-        if ( !m_sendBlock->ackedFragment->GetBit( i ) && m_sendBlock->fragmentSendTime[i] + m_config.blockFragmentResendTime < m_time )
-        {
-            fragmentId = uint16_t( i );
+    fragmentId: u16 = 0xFFFF;
+    for 0..sendBlock.numFragments-1 {
+        if !sendBlock.ackedFragment[it] && sendBlock.fragmentSendTime[it] + config.blockFragmentResendTime < time {
+            fragmentId = cast(u16) it;
             break;
         }
     }
 
-    if ( fragmentId == 0xFFFF )
-        return NULL;
-
-    // allocate and return a copy of the fragment data
-
-    messageType = blockMessage->GetType();
-
-    fragmentBytes = m_config.blockFragmentSize;
-
-    const int fragmentRemainder = blockSize % m_config.blockFragmentSize;
-
-    if ( fragmentRemainder && fragmentId == m_sendBlock->numFragments - 1 )
-        fragmentBytes = fragmentRemainder;
-
-    uint8_t * fragmentData = (uint8_t*) YOJIMBO_ALLOCATE( m_messageFactory->GetAllocator(), fragmentBytes );
-
-    if ( fragmentData )
-    {
-        memcpy( fragmentData, blockMessage->GetBlockData() + fragmentId * m_config.blockFragmentSize, fragmentBytes );
-
-        m_sendBlock->fragmentSendTime[fragmentId] = m_time;
+    if fragmentId == 0xFFFF {
+        return null;
     }
 
-    return fragmentData;
+    // allocate and return a copy of the fragment data
+    fragmentBytes := config.blockFragmentSize;
+    fragmentRemainder := message.blockData.count % config.blockFragmentSize;
+    if fragmentRemainder && fragmentId == sendBlock.numFragments-1 {
+        fragmentBytes = fragmentRemainder;
+    }
+
+    fragmentData := NewArray(fragmentBytes, u8);
+    if fragmentData != null {
+        memcpy(fragmentData.data, message.blockData.data + fragmentId * config.blockFragmentSize, fragmentBytes);
+        sendBlock.fragmentSendTime[fragmentId] = time;
+    }
+
+    // TODO(dlb): The return value here is absolutely ridiculous.. maybe make a struct?
+    return fragmentData, message.id, fragmentId, fragmentBytes, sendBlock.numFragments, message.type;
 }
 
 /*
@@ -589,52 +557,32 @@ This is the payload function that fills the channel packet data while we are sen
 @param messageId The id of the message that the block is attached to.
 @param fragmentId The id of the block fragment being sent.
 @param fragmentData The fragment data.
-@param fragmentSize The size of the fragment data (bytes).
 @param numFragments The number of fragments in the block.
 @param messageType The type of message the block is attached to.
 @returns An estimate of the number of bits required to serialize the block message and fragment data (upper bound).
 */
-int ReliableOrderedChannel::GetFragmentPacketData( ChannelPacketData & packetData,
-                                                    uint16_t messageId,
-                                                    uint16_t fragmentId,
-                                                    uint8_t * fragmentData,
-                                                    int fragmentSize,
-                                                    int numFragments,
-                                                    int messageType )
-{
-    packetData.Initialize();
-
-    packetData.channelIndex = GetChannelIndex();
-
-    packetData.blockMessage = 1;
-
+channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageId: u16, fragmentId: u16, fragmentData: [] u8, numFragments: int, messageType: int) -> int {
+    packetData.channelIndex = channelIndex;
+    packetData.flags |= .BlockMessage;
     packetData.block.fragmentData = fragmentData;
     packetData.block.messageId = messageId;
     packetData.block.fragmentId = fragmentId;
-    packetData.block.fragmentSize = fragmentSize;
     packetData.block.numFragments = numFragments;
     packetData.block.messageType = messageType;
 
-    const int messageTypeBits = bits_required( 0, m_messageFactory->GetNumTypes() - 1 );
+    messageTypeBits := bits_required(0, messageFactory.messageTypes.count-1);
+    fragmentBits := ConservativeFragmentHeaderBits + fragmentSize * 8;
 
-    int fragmentBits = ConservativeFragmentHeaderBits + fragmentSize * 8;
+    if fragmentId == 0 {
+        entry := sequence_buffer_find(*messageSendQueue, packetData.block.messageId);
 
-    if ( fragmentId == 0 )
-    {
-        MessageSendQueueEntry * entry = m_messageSendQueue->Find( packetData.block.messageId );
+        assert(entry != null);
+        assert(entry.message != null);
 
-        yojimbo_assert( entry );
-        yojimbo_assert( entry->message );
-
-        packetData.block.message = (BlockMessage*) entry->message;
-
-        m_messageFactory->AcquireMessage( packetData.block.message );
-
-        fragmentBits += entry->measuredBits + messageTypeBits;
-    }
-    else
-    {
-        packetData.block.message = NULL;
+        packetData.block.message = entry.message;
+        fragmentBits += entry.measuredBits + messageTypeBits;
+    } else {
+        packetData.block.message = null;
     }
 
     return fragmentBits;
@@ -647,19 +595,18 @@ This lets us look up the fragment that was in the packet later on when it is ack
 @param fragmentId The fragment id.
 @param sequence The sequence number of the packet the fragment was included in.
 */
-void ReliableOrderedChannel::AddFragmentPacketEntry( uint16_t messageId, uint16_t fragmentId, uint16_t sequence )
-{
-    SentPacketEntry * sentPacket = m_sentPackets->Insert( sequence, true );
-    yojimbo_assert( sentPacket );
-    if ( sentPacket )
-    {
-        sentPacket->numMessageIds = 0;
-        sentPacket->messageIds = NULL;
-        sentPacket->timeSent = m_time;
-        sentPacket->acked = 0;
-        sentPacket->block = 1;
-        sentPacket->blockMessageId = messageId;
-        sentPacket->blockFragmentId = fragmentId;
+channel_add_fragment_packet_entry :: (using channel: *ReliableOrderedChannel, messageId: u16, fragmentId: u16, sequence: u16) {
+    sentPacket := sequence_buffer_insert(*sentPackets, sequence, true);
+    assert(sentPacket != null);
+
+    if sentPacket != null {
+        sentPacket.timeSent = time;
+        sentPacket.messageIds = null;
+        sentPacket.numMessageIds = 0;
+        sentPacket.acked = 0;
+        sentPacket.block = 1;
+        sentPacket.blockMessageId = messageId;
+        sentPacket.blockFragmentId = fragmentId;
     }
 }
 
@@ -674,122 +621,99 @@ The fragment is added to the set of received fragments for the block. When all p
 @param fragmentBytes The size of the fragment data in bytes.
 @param blockMessage Pointer to the block message. Passed this in only with the first fragment (0), pass NULL for all other fragments.
 */
-void ReliableOrderedChannel::ProcessPacketFragment( int messageType,
-                                                    uint16_t messageId,
-                                                    int numFragments,
-                                                    uint16_t fragmentId,
-                                                    const uint8_t * fragmentData,
-                                                    int fragmentBytes,
-                                                    BlockMessage * blockMessage )
-{
-    yojimbo_assert( !m_config.disableBlocks );
+channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, messageType: int, messageId: u16, numFragments: int, fragmentId: u16, fragmentData: [] u8, blockMessage: *Message) {
+    assert(!config.disableBlocks);
 
-    if ( fragmentData )
-    {
-        const uint16_t expectedMessageId = m_messageReceiveQueue->GetSequence();
-        if ( messageId != expectedMessageId )
+    if fragmentData.count > 0 {
+        expectedMessageId = messageReceiveQueue.nextSequence;
+        if messageId != expectedMessageId {
             return;
+        }
 
         // start receiving a new block
+        if !receiveBlock.active {
+            maxFragmentsPerBlock := channel_config_get_max_fragments_per_block(config);
+            assert(numFragments >= 0);
+            assert(numFragments <= maxFragmentsPerBlock);
 
-        if ( !m_receiveBlock->active )
-        {
-            yojimbo_assert( numFragments >= 0 );
-            yojimbo_assert( numFragments <= m_config.GetMaxFragmentsPerBlock() );
-
-            m_receiveBlock->active = true;
-            m_receiveBlock->numFragments = numFragments;
-            m_receiveBlock->numReceivedFragments = 0;
-            m_receiveBlock->messageId = messageId;
-            m_receiveBlock->blockSize = 0;
-            m_receiveBlock->receivedFragment->Clear();
+            receiveBlock.active = true;
+            receiveBlock.numFragments = numFragments;
+            receiveBlock.numReceivedFragments = 0;
+            receiveBlock.messageId = messageId;
+            receiveBlock.blockSize = 0;
+            clear_all_bits(*receiveBlock.receivedFragment);
         }
 
         // validate fragment
-
-        if ( fragmentId >= m_receiveBlock->numFragments )
-        {
+        if fragmentId >= receiveBlock.numFragments {
             // The fragment id is out of range.
-            SetErrorLevel( CHANNEL_ERROR_DESYNC );
+            errorLevel = .Desync;
             return;
         }
 
-        if ( numFragments != m_receiveBlock->numFragments )
-        {
+        if numFragments != receiveBlock.numFragments {
             // The number of fragments is out of range.
-            SetErrorLevel( CHANNEL_ERROR_DESYNC );
+            errorLevel = .Desync;
             return;
         }
 
         // receive the fragment
+        if !receiveBlock.receivedFragment[fragmentId] {
+            receiveBlock.receivedFragment[fragmentId] = true;
 
-        if ( !m_receiveBlock->receivedFragment->GetBit( fragmentId ) )
-        {
-            m_receiveBlock->receivedFragment->SetBit( fragmentId );
+            memcpy(receiveBlock.blockData.data + fragmentId * config.blockFragmentSize, fragmentData.data, fragmentBytes);
 
-            memcpy( m_receiveBlock->blockData + fragmentId * m_config.blockFragmentSize, fragmentData, fragmentBytes );
-
-            if ( fragmentId == 0 )
-            {
-                m_receiveBlock->messageType = messageType;
+            // first fragment
+            if fragmentId == 0 {
+                receiveBlock.messageType = messageType;
             }
 
-            if ( fragmentId == m_receiveBlock->numFragments - 1 )
-            {
-                m_receiveBlock->blockSize = ( m_receiveBlock->numFragments - 1 ) * m_config.blockFragmentSize + fragmentBytes;
+            // last fragment
+            if fragmentId == receiveBlock.numFragments-1 {
+                receiveBlock.blockSize = (receiveBlock.numFragments-1) * config.blockFragmentSize + fragmentBytes;
 
-                if ( m_receiveBlock->blockSize > (uint32_t) m_config.maxBlockSize )
-                {
+                if receiveBlock.blockSize > cast(u32) config.maxBlockSize {
                     // The block size is outside range
-                    SetErrorLevel( CHANNEL_ERROR_DESYNC );
+                    errorLevel = .Desync;
                     return;
                 }
             }
 
-            m_receiveBlock->numReceivedFragments++;
+            receiveBlock.numReceivedFragments += 1;
 
-            if ( fragmentId == 0 )
-            {
+            if fragmentId == 0 {
                 // save block message (sent with fragment 0)
-                m_receiveBlock->blockMessage = blockMessage;
-                m_messageFactory->AcquireMessage( m_receiveBlock->blockMessage );
+                receiveBlock.blockMessage = blockMessage;
             }
 
-            if ( m_receiveBlock->numReceivedFragments == m_receiveBlock->numFragments )
-            {
+            if receiveBlock.numReceivedFragments == receiveBlock.numFragments {
                 // finished receiving block
-
-                if ( m_messageReceiveQueue->GetAtIndex( m_messageReceiveQueue->GetIndex( messageId ) ) )
-                {
+                if sequence_buffer_exists(*messageReceiveQueue, messageId) {
                     // Did you forget to dequeue messages on the receiver?
-                    SetErrorLevel( CHANNEL_ERROR_DESYNC );
+                    errorLevel = .Desync;
                     return;
                 }
 
-                blockMessage = m_receiveBlock->blockMessage;
+                assert(receiveBlock.blockMessage != null);
 
-                yojimbo_assert( blockMessage );
-
-                uint8_t * blockData = (uint8_t*) YOJIMBO_ALLOCATE( m_messageFactory->GetAllocator(), m_receiveBlock->blockSize );
-
-                if ( !blockData )
-                {
+                blockData = NewArray(receiveBlock.blockSize, u8);
+                if blockData == null {
                     // Not enough memory to allocate block data
-                    SetErrorLevel( CHANNEL_ERROR_OUT_OF_MEMORY );
+                    errorLevel = .OutOfMemory;
                     return;
                 }
 
-                memcpy( blockData, m_receiveBlock->blockData, m_receiveBlock->blockSize );
+                memcpy(blockData.data, receiveBlock.blockData.data, receiveBlock.blockSize);
 
-                blockMessage->AttachBlock( m_messageFactory->GetAllocator(), blockData, m_receiveBlock->blockSize );
+                receiveBlock.blockMessage.id = messageId;
+                receiveBlock.blockMessage.blockData = blockData;
 
-                blockMessage->SetId( messageId );
+                entry := sequence_buffer_insert(*messageReceiveQueue, messageId);
+                assert(entry != null);
+                entry.message = receiveBlock.blockMessage;
 
-                MessageReceiveQueueEntry * entry = m_messageReceiveQueue->Insert( messageId );
-                yojimbo_assert( entry );
-                entry->message = blockMessage;
-                m_receiveBlock->active = false;
-                m_receiveBlock->blockMessage = NULL;
+                m_receiveBlock.active = false;
+                m_receiveBlock.blockMessage = null;
             }
         }
     }
@@ -840,7 +764,7 @@ SendBlockData :: struct {
     numFragments      : int;             // Number of fragments in the block being sent.
     numAckedFragments : int;             // Number of acked fragments in the block being sent.
     blockMessageId    : u16;             // The message id the block is attached to.
-    ackedFragment     : BitArray;        // Has fragment n been received?
+    ackedFragment     : Bit_Array;       // Has fragment n been received?
     fragmentSendTime  : [] Apollo_Time;  // Last time fragment was sent.
 };
 
@@ -872,15 +796,15 @@ Stores the fragments received over the network for the block, and completes once
 IMPORTANT: Although there can be multiple block messages in the message send and receive queues, only one data block can be in flight over the wire at a time.
 */
 ReceiveBlockData :: struct {
-    active               : bool;           // True if we are currently receiving a block.
-    numFragments         : int;            // The number of fragments in this block
-    numReceivedFragments : int;            // The number of fragments received.
-    messageId            : u16;            // The message id corresponding to the block.
-    messageType          : int;            // Message type of the block being received.
-    blockSize            : u32;            // Block size in bytes.
-    receivedFragment     : BitArray;       // Has fragment n been received?
-    blockData            : [] u8;          // Block data for receive.
-    blockMessage         : *BlockMessage;  // Block message (sent with fragment 0).
+    active               : bool;       // True if we are currently receiving a block.
+    numFragments         : int;        // The number of fragments in this block
+    numReceivedFragments : int;        // The number of fragments received.
+    messageId            : u16;        // The message id corresponding to the block.
+    messageType          : int;        // Message type of the block being received.
+    blockSize            : u32;        // Block size in bytes.
+    receivedFragment     : Bit_Array;  // Has fragment n been received?
+    blockData            : [] u8;      // Block data for receive.
+    blockMessage         : *Message;   // Block message (sent with fragment 0).
 };
 
 receive_block_data_init :: (using receiveBlockData: *ReceiveBlockData, maxBlockSize: int, maxFragmentsPerBlock: int) {

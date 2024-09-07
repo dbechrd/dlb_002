@@ -46,9 +46,7 @@ Initialize the yojimbo library.
 Call this before calling any yojimbo library functions.
 @returns True if the library was successfully initialized, false otherwise.
 */
-yojimbo_init :: ($T: Type) -> bool {
-    print("Type is %:\n%\n", T, type_info(T).*);
-    return true;
+yojimbo_init :: () -> bool {
     // TODO(dlb): Init
     /*
     if ( netcode_init() != NETCODE_OK )
@@ -59,6 +57,7 @@ yojimbo_init :: ($T: Type) -> bool {
 
     return sodium_init() != -1;
     */
+    return true;
 }
 
 /*
@@ -96,7 +95,7 @@ yojimbo_shutdown :: () {
 #load "network_info.jai";
 #load "network_simulator.jai";
 #load "queue.jai";
-// #load "reliable_ordered_channel.jai";
+#load "reliable_ordered_channel.jai";
 #load "sequence_buffer.jai";
 // #load "server.jai";                          // done, except netcode
 #load "unreliable_unordered_channel.jai";

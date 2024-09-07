@@ -3,13 +3,13 @@
 /*
 Client implementation
 */
- Client :: struct {
+Client :: struct {
     #as using base: BaseClient;
 
-    netClient    : netcode_client_t;  // netcode client data.
-    address      : Address;           // Original address passed to ctor.
-    boundAddress : Address;           // Address after socket bind, eg. with valid port
-    clientId     : u64;               // The globally unique client id (set on each call to connect)
+    netClient    : *netcode_client_t;  // netcode client data.
+    address      : Address;            // Original address passed to ctor.
+    boundAddress : Address;            // Address after socket bind, eg. with valid port
+    clientId     : u64;                // The globally unique client id (set on each call to connect)
 
     /*
     Override this callback to process packets sent from client to server over loopback.

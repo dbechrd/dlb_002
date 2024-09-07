@@ -1,12 +1,11 @@
-MsgLogin :: struct {
-    using #as base: Message;
-}
-
 main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
-    yojimbo_init(State);
+    foo := int.[1, 2, 3, 4, 5];
+    bar := cast(*void) *foo;
+
+    yojimbo_init();
 
     log_cpu_info();
     //yojimbo_tests();
