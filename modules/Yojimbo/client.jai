@@ -75,7 +75,6 @@ client_generate_insecure_connect_token :: (using client: *Client, connectToken: 
         serverAddressStrings[i] = address_to_string(it,, temp);
     }
 
-    userData: [256] u8;
     err := netcode_generate_connect_token(
         serverAddressStrings,
         serverAddressStrings,
@@ -84,7 +83,7 @@ client_generate_insecure_connect_token :: (using client: *Client, connectToken: 
         _clientId,
         m_config.protocolId,
         privateKey,
-        userData,
+        null,
         connectToken
     );
     return err == NETCODE_OK;

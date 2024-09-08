@@ -61,8 +61,6 @@ NETCODE_ADDRESS_NONE :: 0;
 NETCODE_ADDRESS_IPV4 :: 1;
 NETCODE_ADDRESS_IPV6 :: 2;
 
-#scope_export
-
 netcode_init :: () -> int {
     assert(!netcode.initialized);
 
@@ -324,12 +322,13 @@ netcode_network_simulator_t :: struct {
 
 #import "Basic";
 #import "Socket";
+#import "dlb";
 
 NETCODE_SOCKET_IPV6 :: 1;
 NETCODE_SOCKET_IPV4 :: 2;
 
-NETCODE_CONNECT_TOKEN_NONCE_BYTES     :: 24;
 NETCODE_CONNECT_TOKEN_PRIVATE_BYTES   :: 1024;
+NETCODE_CONNECT_TOKEN_NONCE_BYTES     :: 24;
 NETCODE_CHALLENGE_TOKEN_BYTES         :: 300;
 NETCODE_CHALLENGE_TOKEN_NONCE_BYTES   :: 12;
 NETCODE_VERSION_INFO_BYTES            :: 13;
@@ -351,17 +350,29 @@ NETCODE_NUM_DISCONNECT_PACKETS :: 10;
 
 NETCODE_ADDRESS_MAP_BUCKETS :: NETCODE_MAX_CLIENTS;
 
-netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    #if NETCODE_ENABLE_LOGGING {
-        log(format_string, ..args, loc, flags,, temp);
-    }
-}
+// ----------------------------------------------------------------
+
+EncryptionKeyBuf  :: [NETCODE_KEY_BYTES] u8;
+ConnectTokenBuf   :: [NETCODE_CONNECT_TOKEN_PRIVATE_BYTES] u8;
+BigNonceBuf       :: [NETCODE_CONNECT_TOKEN_NONCE_BYTES] u8;    // use big nonce for when you don't have a sequential number (random bytes; bigger to reduce collisions)
+ChallengeTokenBuf :: [NETCODE_CHALLENGE_TOKEN_BYTES] u8;
+NonceBuf          :: [NETCODE_CHALLENGE_TOKEN_NONCE_BYTES] u8;  // use regular nonce when you have a sequential number
+VerionInfoBuf     :: [NETCODE_VERSION_INFO_BYTES] u8;
+UserDataBuf       :: [NETCODE_USER_DATA_BYTES] u8;
+
+// ----------------------------------------------------------------
 
 netcode_t :: struct {
     initialized: bool;
 };
 
 netcode :: netcode_t;
+
+netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
+    #if NETCODE_ENABLE_LOGGING {
+        log(format_string, ..args, loc, flags,, temp);
+    }
+}
 
 // ----------------------------------------------------------------
 
@@ -737,22 +748,16 @@ crypto_aead_chacha20poly1305_ietf_decrypt :: crypto_aead_xchacha20poly1305_ietf_
 
 // ----------------------------------------------------------------
 
-EncryptionKey :: #type [NETCODE_KEY_BYTES] u8;
-// use big nonce for when you don't have a sequential number (random bytes; bigger to reduce collisions)
-BigNonce :: #type [NETCODE_CONNECT_TOKEN_NONCE_BYTES] u8;
-// use regular nonce when you have a sequential number
-Nonce :: #type [NETCODE_CHALLENGE_TOKEN_NONCE_BYTES] u8;
-
-netcode_generate_key :: (key: EncryptionKey) {
+netcode_generate_key :: (key: EncryptionKeyBuf) {
     randombytes_buf(key);
 }
 
-netcode_generate_nonce :: (nonce: BigNonce) {
+netcode_generate_nonce :: (nonce: BigNonceBuf) {
     randombytes_buf(nonce);
 }
 
 // the nonce here is expected to be random bytes which differ for each message
-netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce, key: EncryptionKey) -> int {
+netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     encrypted_length: u64;
 
     result := crypto_aead_xchacha20poly1305_ietf_encrypt(
@@ -772,7 +777,7 @@ netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
 }
 
 // the nonce here is expected to be random bytes which differ for each message
-netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce, key: EncryptionKey) -> int {
+netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     decrypted_length: u64;
 
     result := crypto_aead_xchacha20poly1305_ietf_decrypt(
@@ -792,7 +797,7 @@ netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
 }
 
 // the nonce here is expected to sequential for each message
-netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: Nonce, key: EncryptionKey) -> int {
+netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: EncryptionKeyBuf) -> int {
     encrypted_length: u64;
 
     result := crypto_aead_chacha20poly1305_ietf_encrypt(
@@ -812,7 +817,7 @@ netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: Nonce, key: Encry
 }
 
 // the nonce here is expected to sequential for each message
-netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: Nonce, key: EncryptionKey) -> int {
+netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: EncryptionKeyBuf) -> int {
     decrypted_length: u64;
 
     result := crypto_aead_chacha20poly1305_ietf_decrypt(
@@ -838,7 +843,183 @@ netcode_connect_token_private_t :: struct {
     timeout_seconds      : int;
     num_server_addresses : int;
     server_addresses     : [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
-    client_to_server_key : EncryptionKey;
-    server_to_client_key : EncryptionKey;
-    user_data            : [NETCODE_USER_DATA_BYTES] u8;
+    client_to_server_key : EncryptionKeyBuf;
+    server_to_client_key : EncryptionKeyBuf;
+    user_data            : UserDataBuf;
 };
+
+netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token_private_t, client_id: u64, timeout_seconds: int, server_addresses: [] netcode_address_t, user_data: *UserDataBuf) {
+    assert(connect_token != null);
+    assert(server_addresses.count > 0);
+    assert(server_addresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
+    assert(user_data != null);
+
+    connect_token.client_id = client_id;
+    connect_token.timeout_seconds = timeout_seconds;
+    connect_token.num_server_addresses = server_addresses.count;
+
+    for server_addresses {
+        connect_token.server_addresses[it_index] = it;
+    }
+
+    netcode_generate_key(connect_token.client_to_server_key);
+    netcode_generate_key(connect_token.server_to_client_key);
+
+    if user_data != null {
+        connect_token.user_data = user_data.*;
+    }
+}
+
+netcode_write_connect_token_private :: (connect_token: *netcode_connect_token_private_t, token_buffer: ConnectTokenBuf) {
+    assert(connect_token != null);
+    assert(connect_token.num_server_addresses > 0);
+    assert(connect_token.num_server_addresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
+
+    start := token_buffer.data;
+    ptr := token_buffer.data;
+
+    netcode_write_uint64(*ptr, connect_token.client_id);
+    netcode_write_uint32(*ptr, connect_token.timeout_seconds);
+    netcode_write_uint32(*ptr, connect_token.num_server_addresses);
+
+    for address: connect_token.server_addresses {
+        if address.type == NETCODE_ADDRESS_IPV4 {
+            netcode_write_uint8(*ptr, NETCODE_ADDRESS_IPV4);
+            for 0..3 {
+                netcode_write_uint8(*ptr, address.data.ipv4[it]);
+            }
+            netcode_write_uint16(*ptr, address.port);
+        } else if address.type == NETCODE_ADDRESS_IPV6 {
+            netcode_write_uint8(*ptr, NETCODE_ADDRESS_IPV6);
+            for 0..7 {
+                netcode_write_uint16(*ptr, address.data.ipv6[it]);
+            }
+            netcode_write_uint16(*ptr, address.port);
+        } else {
+            assert(false, "Invalid address type");
+        }
+    }
+
+    netcode_write_bytes(*ptr, connect_token.client_to_server_key);
+    netcode_write_bytes(*ptr, connect_token.server_to_client_key);
+    netcode_write_bytes(*ptr, connect_token.user_data);
+
+    assert(pointer_diff(ptr, start) <= NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES);
+}
+
+netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: u64, none: BigNonceBuf, key: EncryptionKeyBuf) -> int {
+    additional_data: [version_info.count + 8 + 8] u8;
+    {
+        ptr := additional_data.data;
+        netcode_write_bytes(*ptr, version_info);
+        netcode_write_uint64(*ptr, protocol_id);
+        netcode_write_uint64(*ptr, expire_timestamp);
+    }
+
+    return netcode_encrypt_aead_bignonce(.{ NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES, token_buffer.data }, additional_data, nonce, key);
+}
+
+netcode_decrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: u64, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
+    additional_data: [NETCODE_VERSION_INFO_BYTES + 8 + 8] u8;
+    {
+        ptr := additional_data.data;
+        netcode_write_bytes(*ptr, version_info);
+        netcode_write_uint64(*ptr, protocol_id);
+        netcode_write_uint64(*ptr, expire_timestamp);
+    }
+    return netcode_decrypt_aead_bignonce(token_buffer, additional_data, nonce, key);
+}
+
+netcode_read_connect_token_private :: (token_buffer: ConnectTokenBuf, connect_token: *netcode_connect_token_private_t) -> int {
+    assert(connect_token != null);
+
+    ptr := token_buffer.data;
+
+    connect_token.client_id = netcode_read_uint64(*ptr);
+    connect_token.timeout_seconds = cast(int) netcode_read_uint32(*ptr);
+    connect_token.num_server_addresses = netcode_read_uint32(*ptr);
+
+    if connect_token.num_server_addresses <= 0 {
+        return NETCODE_ERROR;
+    }
+    if connect_token.num_server_addresses > NETCODE_MAX_SERVERS_PER_CONNECT {
+        return NETCODE_ERROR;
+    }
+
+    for address: connect_token.server_addresses {
+        address.type = netcode_read_uint8(*ptr);
+
+        if address.type == NETCODE_ADDRESS_IPV4 {
+            for 0..3 {
+                address.data.ipv4[it] = netcode_read_uint8(*ptr);
+            }
+            address.port = netcode_read_uint16(*ptr);
+        } else if address.type == NETCODE_ADDRESS_IPV6 {
+            for 0..7 {
+                address.data.ipv6[it] = netcode_read_uint16(*ptr);
+            }
+            address.port = netcode_read_uint16(*ptr);
+        } else {
+            return NETCODE_ERROR;
+        }
+    }
+
+    netcode_read_bytes(*ptr, connect_token.client_to_server_key);
+    netcode_read_bytes(*ptr, connect_token.server_to_client_key);
+    netcode_read_bytes(*ptr, connect_token.user_data);
+
+    return NETCODE_OK;
+}
+
+// -----------------------------------------------
+
+netcode_challenge_token_t :: struct {
+    client_id: u64;
+    user_data: UserDataBuf;
+};
+
+netcode_write_challenge_token :: (challenge_token: *netcode_challenge_token_t, token_buffer: ChallengeTokenBuf) {
+    assert(challenge_token != null);
+
+    start := token_buffer.data;
+
+    netcode_write_uint64(*ptr, challenge_token.client_id);
+    netcode_write_bytes(*ptr, challenge_token.user_data);
+
+    assert(pointer_diff(ptr, start) <= NETCODE_CHALLENGE_TOKEN_BYTES - NETCODE_MAC_BYTES);
+}
+
+netcode_encrypt_challenge_token :: (token_buffer: ChallengeTokenBuf, sequence: u64, key: EncryptionKeyBuf) -> int {
+    nonce: [12] u8;
+    {
+        ptr := nonce.data;
+        netcode_write_uint32(*ptr, 0);
+        netcode_write_uint64(*ptr, sequence);
+    }
+
+    return netcode_encrypt_aead(.{ NETCODE_CHALLENGE_TOKEN_BYTES - NETCODE_MAC_BYTES, token_buffer.data }, .{}, nonce, key );
+}
+
+netcode_decrypt_challenge_token :: (token_buffer: ChallengeTokenBuf, sequence: u64, key: EncryptionKeyBuf) -> int {
+    nonce: [12] u8;
+    {
+        ptr := nonce.data;
+        netcode_write_uint32(*ptr, 0);
+        netcode_write_uint64(*ptr, sequence);
+    }
+
+    return netcode_decrypt_aead(token_buffer, .{}, nonce, key);
+}
+
+netcode_read_challenge_token :: (token_buffer: ChallengeTokenBuf, challenge_token: *netcode_challenge_token_t) -> int {
+    assert(challenge_token != null);
+
+    start := buffer.data;
+    ptr := token_buffer.data;
+
+    challenge_token.client_id = netcode_read_uint64(*ptr);
+    netcode_read_bytes(*ptr, challenge_token.user_data);
+
+    assert(pointer_diff(ptr, start) == 8 + NETCODE_USER_DATA_BYTES);
+    return NETCODE_OK;
+}
