@@ -89,6 +89,10 @@ netcode_term :: () {
 
 // ----------------------------------------------------------------
 
+netcode_client_t :: struct {
+
+}
+
 netcode_client_config_t :: struct {
     network_simulator             : *netcode_network_simulator_t;
     callback_context              : *void;
@@ -195,6 +199,10 @@ netcode_generate_connect_token :: (
 }
 
 // ----------------------------------------------------------------
+
+netcode_server_t :: struct {
+
+}
 
 netcode_server_config_t :: struct {
     protocol_id                   : u64;
@@ -308,6 +316,10 @@ netcode_server_get_port :: (server: *netcode_server_t) -> u16  {
 
 }
 
+netcode_network_simulator_t :: struct {
+
+}
+
 #scope_file
 
 #import "Basic";
@@ -319,6 +331,7 @@ NETCODE_SOCKET_IPV4 :: 2;
 NETCODE_CONNECT_TOKEN_NONCE_BYTES     :: 24;
 NETCODE_CONNECT_TOKEN_PRIVATE_BYTES   :: 1024;
 NETCODE_CHALLENGE_TOKEN_BYTES         :: 300;
+NETCODE_CHALLENGE_TOKEN_NONCE_BYTES   :: 12;
 NETCODE_VERSION_INFO_BYTES            :: 13;
 NETCODE_MAX_PACKET_BYTES              :: 1300;
 NETCODE_MAX_PAYLOAD_BYTES             :: 1200;
@@ -397,7 +410,7 @@ NETCODE_SOCKET_ERROR_SOCKOPT_SNDBUF_FAILED    :: 5;
 NETCODE_SOCKET_ERROR_BIND_IPV4_FAILED         :: 6;
 NETCODE_SOCKET_ERROR_BIND_IPV6_FAILED         :: 7;
 NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV4_FAILED :: 8;
-NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV6_FAILED :: 7;
+NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV6_FAILED :: 9;
 
 netcode_socket_destroy :: (socket: *netcode_socket_t) {
     assert(socket != null);
@@ -512,7 +525,320 @@ netcode_socket_create :: (s: *netcode_socket_t, address: *netcode_address_t, sen
     return NETCODE_SOCKET_ERROR_NONE;
 }
 
-// PLACEHOLERS FOR COMPILE
-netcode_client_t :: struct {}
-netcode_server_t :: struct {}
-netcode_network_simulator_t :: struct {}
+netcode_socket_send_packet :: (socket: *netcode_socket_t, to: *netcode_address_t, packet_data: [] u8) -> bool {
+    assert(socket != null);
+    assert(socket.handle != 0);
+    assert(to != null);
+    assert(to.type == NETCODE_ADDRESS_IPV6 || to.type == NETCODE_ADDRESS_IPV4);
+    assert(packet_data.count > 0);
+
+    if to.type == NETCODE_ADDRESS_IPV6 {
+        socket_address: sockaddr_in6;
+        socket_address.sin6_family = AF_INET6;
+        for 0..7 {
+            (cast(*u16) *socket_address.sin6_addr)[it] = htons(to.data.ipv6[i]);
+        }
+        socket_address.sin6_port = htons(to.port);
+        result := sendto(socket.handle, packet_data.data, cast(s32) packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in6));
+        if result == SOCKET_ERROR {
+            netcode_log(.ERROR, "error: failed send packet (ipv6)\n");
+            return false;
+        }
+    } else if to.type == NETCODE_ADDRESS_IPV4 {
+        socket_address: sockaddr_in;
+        socket_address.sin_family = AF_INET;
+        socket_address.sin_addr.s_addr = ((cast(u32) to.data.ipv4[0])      ) |
+                                         ((cast(u32) to.data.ipv4[1]) << 8 ) |
+                                         ((cast(u32) to.data.ipv4[2]) << 16) |
+                                         ((cast(u32) to.data.ipv4[3]) << 24);
+        socket_address.sin_port = htons(to.port);
+        result := sendto(socket.handle, packet_data.data, packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in));
+        if result == SOCKET_ERROR {
+            netcode_log(.ERROR, "error: failed send packet (ipv4)\n");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+netcode_socket_receive_packet :: (socket: *netcode_socket_t, from: *netcode_address_t, packet_data: [] u8) -> [] u8 {
+    assert(socket != null);
+    assert(socket.handle != 0);
+    assert(from != null);
+    assert(packet_data.count > 0);
+
+    #if NETCODE_PLATFORM == NETCODE_PLATFORM_WINDOWS {
+        socklen_t :: int;
+    }
+
+    sockaddr_from: sockaddr_storage;
+    from_length: socklen_t = cast(socklen_t) size_of(sockaddr_from);
+
+    result := recvfrom(socket.handle, packet_data.data, packet_data.count, 0, cast(*sockaddr) *sockaddr_from, *from_length);
+    if result == SOCKET_ERROR {
+        error := get_last_socket_error();
+        if error == SOCKET_WOULDBLOCK {
+            return 0;
+        }
+
+        netcode_log(.ERROR, "error: recvfrom failed with error %\n", error);
+        return 0;
+    }
+
+    if sockaddr_from.ss_family == AF_INET6 {
+        addr_ipv6 := cast(*sockaddr_in6) *sockaddr_from;
+        from.type = NETCODE_ADDRESS_IPV6;
+        for 0..7 {
+            from.data.ipv6[it] = ntohs((cast(*u16) *addr_ipv6.sin6_addr)[it]);
+        }
+        from.port = ntohs(addr_ipv6.sin6_port);
+    } else if sockaddr_from.ss_family == AF_INET {
+        addr_ipv4 := cast(*sockaddr_in) *sockaddr_from;
+        from.type = NETCODE_ADDRESS_IPV4;
+        from.data.ipv4[0] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x000000FF)      );
+        from.data.ipv4[1] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x0000FF00) >> 8 );
+        from.data.ipv4[2] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x00FF0000) >> 16);
+        from.data.ipv4[3] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0xFF000000) >> 24);
+        from.port = ntohs(addr_ipv4.sin_port);
+    } else {
+        assert(false, "Invalid address family");
+        return 0;
+    }
+
+    assert(result >= 0);
+    return .{ bytes_read, packet_data.data };
+}
+
+// ----------------------------------------------------------------
+
+netcode_write_uint8 :: (p: **u8, value: u8) {
+    p.*.* = value;
+    p.* += 1;
+}
+
+netcode_write_uint16 :: (p: **u8, value: u16) {
+    (p.*)[0] = value & 0xFF;
+    (p.*)[1] = value >> 8;
+    p.* += 2;
+}
+
+netcode_write_uint32 :: (p: **u8, value: u32) {
+    (p.*)[0] = value & 0xFF;
+    (p.*)[1] = (value >> 8 ) & 0xFF;
+    (p.*)[2] = (value >> 16) & 0xFF;
+    (p.*)[3] = value >> 24;
+    p.* += 4;
+}
+
+netcode_write_uint64 :: (p: **u8, value: u64) {
+    (p.*)[0] = value & 0xFF;
+    (p.*)[1] = (value >> 8 ) & 0xFF;
+    (p.*)[2] = (value >> 16) & 0xFF;
+    (p.*)[3] = (value >> 24) & 0xFF;
+    (p.*)[4] = (value >> 32) & 0xFF;
+    (p.*)[5] = (value >> 40) & 0xFF;
+    (p.*)[6] = (value >> 48) & 0xFF;
+    (p.*)[7] = value >> 56;
+    p.* += 8;
+}
+
+netcode_write_bytes :: (p: **u8, byte_array: [] u8) {
+    for byte_array {
+        netcode_write_uint8(p, it);
+    }
+}
+
+netcode_read_uint8 :: (p: **u8) -> u8 {
+    value: u8 = p.*.*;
+    p.* += 1;
+    return value;
+}
+
+netcode_read_uint16 :: (p: **u8) -> u16 {
+    value: u16 = (p.*)[0];
+    value |= (cast(u16) ((p.*)[1])) << 8;
+    p.* += 2;
+    return value;
+}
+
+netcode_read_uint32 :: (p: **u8) -> u32 {
+    value: u32 = (p.*)[0];
+    value |= (cast(u32) ((p.*)[1])) << 8;
+    value |= (cast(u32) ((p.*)[2])) << 16;
+    value |= (cast(u32) ((p.*)[3])) << 24;
+    p.* += 4;
+    return value;
+}
+
+netcode_read_uint64 :: (p: **u8) -> u64 {
+    value: u64 = (p.*)[0];
+    value |= (cast(u64) ((p.*)[1])) << 8;
+    value |= (cast(u64) ((p.*)[2])) << 16;
+    value |= (cast(u64) ((p.*)[3])) << 24;
+    value |= (cast(u64) ((p.*)[4])) << 32;
+    value |= (cast(u64) ((p.*)[5])) << 40;
+    value |= (cast(u64) ((p.*)[6])) << 48;
+    value |= (cast(u64) ((p.*)[7])) << 56;
+    p.* += 8;
+    return value;
+}
+
+netcode_read_bytes :: (p: **u8, byte_array: [] u8) {
+    for * byte_array {
+        it.* = netcode_read_uint8(p);
+    }
+}
+
+// ----------------------------------------------------------------
+// TODO(dlb): Don't pretend to encrypt important data?
+// HACK(dlb): !!! INSECURE / FAKE / BAD / DANGEROUS !!!
+// Sodium placeholders to avoid the dependency while porting
+// ----------------------------------------------------------------
+
+// TODO(dlb): This should be crypto random
+randombytes_buf :: (buf: [] u8) {
+    for 0..buf.count-1 {
+        buf[it] = it % buf.count;
+    }
+}
+
+crypto_aead_xchacha20poly1305_ietf_encrypt :: (
+    c      : *u8,   // [out] encrypted
+    clen_p : *u64,  // [out] encrypted length
+    m      : *u8,   // [in] plaintext
+    mlen   : u64,   // [in] plaintext length
+    ad     : *u8,   // [in] additional data
+    adlen  : u64,   // [in] additional data length
+    nsec   : *u8,   // [in] secret nonce
+    npub   : *u8,   // [in] public nonce
+    k      : *u8    // [in] key
+) -> int {
+    return 0;
+}
+
+crypto_aead_xchacha20poly1305_ietf_decrypt :: (
+    m      : *u8,   // [out] plaintext
+    mlen_p : *u64,  // [out] plaintext length
+    nsec   : *u8,   // [in] secret nonce
+    c      : *u8,   // [in] encrypted
+    clen   : u64,   // [in] encrypted length
+    ad     : *u8,   // [in] additional data
+    adlen  : u64,   // [in] additional data length
+    npub   : *u8,   // [in] public nonce
+    k      : *u8    // [in] key
+) -> int {
+    return 0;
+}
+
+// NOTE: These are different in the real implementation, but their arguments are the same so we can re-use the placeholders
+crypto_aead_chacha20poly1305_ietf_encrypt :: crypto_aead_xchacha20poly1305_ietf_encrypt;
+crypto_aead_chacha20poly1305_ietf_decrypt :: crypto_aead_xchacha20poly1305_ietf_decrypt;
+
+// ----------------------------------------------------------------
+
+EncryptionKey :: #type [NETCODE_KEY_BYTES] u8;
+// use big nonce for when you don't have a sequential number (random bytes; bigger to reduce collisions)
+BigNonce :: #type [NETCODE_CONNECT_TOKEN_NONCE_BYTES] u8;
+// use regular nonce when you have a sequential number
+Nonce :: #type [NETCODE_CHALLENGE_TOKEN_NONCE_BYTES] u8;
+
+netcode_generate_key :: (key: EncryptionKey) {
+    randombytes_buf(key);
+}
+
+netcode_generate_nonce :: (nonce: BigNonce) {
+    randombytes_buf(nonce);
+}
+
+// the nonce here is expected to be random bytes which differ for each message
+netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce, key: EncryptionKey) -> int {
+    encrypted_length: u64;
+
+    result := crypto_aead_xchacha20poly1305_ietf_encrypt(
+        message.data, *encrypted_length,
+        message.data, message.count,
+        header.data, header.count,
+        null,
+        nonce, key
+    );
+
+    if result != 0 {
+        return NETCODE_ERROR;
+    }
+
+    assert(encrypted_length == message.count + NETCODE_MAC_BYTES);
+    return NETCODE_OK;
+}
+
+// the nonce here is expected to be random bytes which differ for each message
+netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce, key: EncryptionKey) -> int {
+    decrypted_length: u64;
+
+    result := crypto_aead_xchacha20poly1305_ietf_decrypt(
+        message.data, *decrypted_length,
+        null,
+        message.data, message.count,
+        header.data, header.count,
+        nonce, key
+    );
+
+    if result != 0 {
+        return NETCODE_ERROR;
+    }
+
+    assert(decrypted_length == message.count - NETCODE_MAC_BYTES);
+    return NETCODE_OK;
+}
+
+// the nonce here is expected to sequential for each message
+netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: Nonce, key: EncryptionKey) -> int {
+    encrypted_length: u64;
+
+    result := crypto_aead_chacha20poly1305_ietf_encrypt(
+        message.data, *encrypted_length,
+        message.data, message.count,
+        header.data, header.count,
+        null,
+        nonce, key
+    );
+
+    if result != 0 {
+        return NETCODE_ERROR;
+    }
+
+    assert(encrypted_length == message.count + NETCODE_MAC_BYTES);
+    return NETCODE_OK;
+}
+
+// the nonce here is expected to sequential for each message
+netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: Nonce, key: EncryptionKey) -> int {
+    decrypted_length: u64;
+
+    result := crypto_aead_chacha20poly1305_ietf_decrypt(
+        message.data, *decrypted_length,
+        null,
+        message.data, message.count,
+        header.data, header.count,
+        nonce, key
+    );
+
+    if result != 0 {
+        return NETCODE_ERROR;
+    }
+
+    assert(decrypted_length == message.count - NETCODE_MAC_BYTES);
+    return NETCODE_OK;
+}
+
+// ----------------------------------------------------------------
+
+netcode_connect_token_private_t :: struct {
+    client_id            : u64;
+    timeout_seconds      : int;
+    num_server_addresses : int;
+    server_addresses     : [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
+    client_to_server_key : EncryptionKey;
+    server_to_client_key : EncryptionKey;
+    user_data            : [NETCODE_USER_DATA_BYTES] u8;
+};
