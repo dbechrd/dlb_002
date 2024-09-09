@@ -413,16 +413,17 @@ netcode_socket_holder_t :: struct {
     ipv6: netcode_socket_t;
 };
 
-NETCODE_SOCKET_ERROR_NONE                     :: 0;
-NETCODE_SOCKET_ERROR_CREATE_FAILED            :: 1;
-NETCODE_SOCKET_ERROR_SET_NON_BLOCKING_FAILED  :: 2;
-NETCODE_SOCKET_ERROR_SOCKOPT_IPV6_ONLY_FAILED :: 3;
-NETCODE_SOCKET_ERROR_SOCKOPT_RCVBUF_FAILED    :: 4;
-NETCODE_SOCKET_ERROR_SOCKOPT_SNDBUF_FAILED    :: 5;
-NETCODE_SOCKET_ERROR_BIND_IPV4_FAILED         :: 6;
-NETCODE_SOCKET_ERROR_BIND_IPV6_FAILED         :: 7;
-NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV4_FAILED :: 8;
-NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV6_FAILED :: 9;
+NETCODE_SOCKET_ERROR_NONE                              :: 0;
+NETCODE_SOCKET_ERROR_CREATE_FAILED                     :: 1;
+NETCODE_SOCKET_ERROR_SET_NON_BLOCKING_FAILED           :: 2;
+NETCODE_SOCKET_ERROR_SOCKOPT_IPV6_ONLY_FAILED          :: 3;
+NETCODE_SOCKET_ERROR_SOCKOPT_RCVBUF_FAILED             :: 4;
+NETCODE_SOCKET_ERROR_SOCKOPT_SNDBUF_FAILED             :: 5;
+NETCODE_SOCKET_ERROR_BIND_IPV4_FAILED                  :: 6;
+NETCODE_SOCKET_ERROR_BIND_IPV6_FAILED                  :: 7;
+NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV4_FAILED          :: 8;
+NETCODE_SOCKET_ERROR_GET_SOCKNAME_IPV6_FAILED          :: 9;
+NETCODE_SOCKET_ERROR_DISABLE_UDP_PORT_CONNRESET_FAILED :: 10;
 
 netcode_socket_destroy :: (socket: *netcode_socket_t) {
     assert(socket != null);
@@ -452,15 +453,15 @@ netcode_socket_create :: (s: *netcode_socket_t, address: *netcode_address_t, sen
     // for this socket, otherwise recvfrom errors out when client sockets disconnect hard
     // in response to ICMP messages.
     #if OS == .WINDOWS {
-        SIO_UDP_CONNRESET :: 0x9800000C; //_WSAIOW(IOC_VENDOR, 12)
-        bNewBehavior: s32 = 0;  // Win32 BOOL false
-        dwBytesReturned: u32 = 0;  // Win32 DWORD
+        SIO_UDP_CONNRESET :: 0x9800000C;  //_WSAIOW(IOC_VENDOR, 12)
+        bNewBehavior :: cast(s32) 0;      // Win32 BOOL false
+        dwBytesReturned: u32 = 0;         // Win32 DWORD
         result := WSAIoctl(s.handle, SIO_UDP_CONNRESET, *bNewBehavior, size_of(type_of(bNewBehavior)), null, 0, *dwBytesReturned, null, null);
         if result != 0 {
             error_code := get_last_socket_error();
             error_string := System.get_error_string(error_code);
-            netcode_log(.WARNING, "warning: Couldn’t set keep-alive values for socket %: % %", s, error_code, error_string);
-            return false;
+            netcode_log(.ERROR, "error: failed to disable UDP CONNRESET (port unreachable) message reporting on socket. %: \n", error_code, error_string);
+            return NETCODE_SOCKET_ERROR_DISABLE_UDP_PORT_CONNRESET_FAILED;
         }
     }
 
@@ -1258,9 +1259,8 @@ netcode_replay_protection_reset :: (replay_protection: *netcode_replay_protectio
 netcode_replay_protection_already_received :: (replay_protection: *netcode_replay_protection_t, sequence: u64) -> bool {
     assert(replay_protection != null);
 
-    // TODO(dlb): Is it okay for this not to have wraparound protection? Maybe it's a u64 that contains
-    // a smaller sequence number...? Hmm... if we sent a packet every millisecond it would take roughly
-    // 292 million years for this to wrap, assuming we always start a zero. So... it's probably fine?
+    // NOTE(dlb): If we sent a packet every millisecond it would take roughly 584 million years for
+    // this to wrap, assuming we always start a zero. As such, we elide wraparound protection.
     if sequence + NETCODE_REPLAY_PROTECTION_BUFFER_SIZE <= replay_protection.most_recent_sequence {
         return true;
     }
@@ -1281,8 +1281,8 @@ netcode_replay_protection_already_received :: (replay_protection: *netcode_repla
 netcode_replay_protection_advance_sequence :: (replay_protection: *netcode_replay_protection_t, sequence: u64) {
     assert(replay_protection != null);
 
-    // TODO(dlb): No wraparound protection!? (See note above, probably fine).
-    if sequence > replay_protection->most_recent_sequence {
+    // NOTE(dlb): No wraparound protection, it's big enough (see above).
+    if sequence > replay_protection.most_recent_sequence {
         replay_protection.most_recent_sequence = sequence;
     }
 
@@ -1763,7 +1763,7 @@ netcode_packet_queue_push :: (using queue: *netcode_packet_queue_t, packet: *net
         return false;
     }
 
-    int index = (start_index + num_packets) % NETCODE_PACKET_QUEUE_SIZE;
+    index := (start_index + num_packets) % NETCODE_PACKET_QUEUE_SIZE;
     packet_data[index] = packet;
     sequence[index] = sequence;
     num_packets += 1;
@@ -1783,3 +1783,65 @@ netcode_packet_queue_pop :: (using queue: *netcode_packet_queue_t) -> packet: *n
 }
 
 // ----------------------------------------------------------------
+
+NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES          :: NETCODE_MAX_CLIENTS * 256;
+NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS :: NETCODE_MAX_CLIENTS * 64;
+
+netcode_network_simulator_packet_entry_t :: struct {
+    from          : netcode_address_t;
+    to            : netcode_address_t;
+    delivery_time : Apollo_Time;
+    packet_data   : [] u8;
+};
+
+netcode_network_simulator_t :: struct {
+    latency_milliseconds        : float;
+    jitter_milliseconds         : float;
+    packet_loss_percent         : float;
+    duplicate_packet_percent    : float;
+    time                        : Apollo_Time;
+    current_index               : int;
+    num_pending_receive_packets : int;
+    packet_entries              : [NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES] netcode_network_simulator_packet_entry_t;
+    pending_receive_packets     : [NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS] netcode_network_simulator_packet_entry_t;
+};
+
+netcode_network_simulator_reset :: (using network_simulator: *netcode_network_simulator_t) {
+    assert(network_simulator != null);
+
+    netcode_log(.VERBOSE_ONLY, "network simulator reset\n");
+
+    for * packet_entries {
+        array_free(it.packet_data);
+    }
+    array_reset(packet_entries);
+
+    for 0..num_pending_receive_packets-1 {
+        array_free(pending_receive_packets[it].packet_data);
+    }
+    array_reset(pending_receive_packets);
+
+    network_simulator.* = .{};
+}
+
+netcode_network_simulator_destroy :: (network_simulator: *netcode_network_simulator_t) {
+    assert(network_simulator != null);
+
+    netcode_network_simulator_reset(network_simulator);
+    free(network_simulator);
+}
+
+/*
+Generate a random float between a and b.
+IMPORTANT: This is not a cryptographically secure random. It's used only for test functions and in the network simulator.
+@param a The minimum integer value to generate.
+@param b The maximum integer value to generate.
+@returns A pseudo random float value in [a,b].
+*/
+netcode_random_float :: inline (a: float, b: float) -> float {
+    assert(a < b);
+    result := a + random_get_zero_to_one_new() * (b - a);
+    assert(result >= a);
+    assert(result <= b);
+    return a + r;
+}

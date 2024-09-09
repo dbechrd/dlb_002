@@ -43,101 +43,6 @@
 
 
 
-#define NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES (NETCODE_MAX_CLIENTS * 256)
-#define NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS (NETCODE_MAX_CLIENTS * 64)
-
-struct netcode_network_simulator_packet_entry_t
-{
-    struct netcode_address_t from;
-    struct netcode_address_t to;
-    double delivery_time;
-    uint8_t * packet_data;
-    int packet_bytes;
-};
-
-struct netcode_network_simulator_t
-{
-    void * allocator_context;
-    void * (*allocate_function)(void*,size_t);
-    void (*free_function)(void*,void*);
-    float latency_milliseconds;
-    float jitter_milliseconds;
-    float packet_loss_percent;
-    float duplicate_packet_percent;
-    double time;
-    int current_index;
-    int num_pending_receive_packets;
-    struct netcode_network_simulator_packet_entry_t packet_entries[NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES];
-    struct netcode_network_simulator_packet_entry_t pending_receive_packets[NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS];
-};
-
-struct netcode_network_simulator_t * netcode_network_simulator_create(void * allocator_context,
-                                                                       void * (*allocate_function)(void*,size_t),
-                                                                       void (*free_function)(void*,void*))
-{
-    if (allocate_function == NULL)
-    {
-        allocate_function = netcode_default_allocate_function;
-    }
-
-    if (free_function == NULL)
-    {
-        free_function = netcode_default_free_function;
-    }
-
-    struct netcode_network_simulator_t * network_simulator = (struct netcode_network_simulator_t*)
-        allocate_function(allocator_context, sizeof(struct netcode_network_simulator_t));
-
-    netcode_assert(network_simulator);
-
-    memset(network_simulator, 0, sizeof(struct netcode_network_simulator_t));
-
-    network_simulator->allocator_context = allocator_context;
-    network_simulator->allocate_function = allocate_function;
-    network_simulator->free_function = free_function;
-
-    return network_simulator;
-}
-
-void netcode_network_simulator_reset(struct netcode_network_simulator_t * network_simulator)
-{
-    netcode_assert(network_simulator);
-
-    netcode_printf(NETCODE_LOG_LEVEL_DEBUG, "network simulator reset\n");
-
-    int i;
-    for (i = 0; i < NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES; i++)
-    {
-        network_simulator->free_function(network_simulator->allocator_context, network_simulator->packet_entries[i].packet_data);
-        memset(&network_simulator->packet_entries[i], 0, sizeof(struct netcode_network_simulator_packet_entry_t));
-    }
-
-    for (i = 0; i < network_simulator->num_pending_receive_packets; i++)
-    {
-        network_simulator->free_function(network_simulator->allocator_context, network_simulator->pending_receive_packets[i].packet_data);
-        memset(&network_simulator->pending_receive_packets[i], 0, sizeof(struct netcode_network_simulator_packet_entry_t));
-    }
-
-    network_simulator->current_index = 0;
-    network_simulator->num_pending_receive_packets = 0;
-}
-
-void netcode_network_simulator_destroy(struct netcode_network_simulator_t * network_simulator)
-{
-    netcode_assert(network_simulator);
-    netcode_network_simulator_reset(network_simulator);
-    network_simulator->free_function(network_simulator->allocator_context, network_simulator);
-}
-
-float netcode_random_float(float a, float b)
-{
-    netcode_assert(a < b);
-    float random = ((float) rand()) / (float) RAND_MAX;
-    float diff = b - a;
-    float r = random * diff;
-    return a + r;
-}
-
 void netcode_network_simulator_queue_packet(struct netcode_network_simulator_t * network_simulator,
                                              struct netcode_address_t * from,
                                              struct netcode_address_t * to,
@@ -4347,7 +4252,7 @@ static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 
 
 void test_client_server_connect()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -4940,7 +4845,7 @@ void test_client_server_ipv6_socket_connect()
 
 void test_client_server_keep_alive()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5045,7 +4950,7 @@ void test_client_server_multiple_clients()
 
     int max_clients[NUM_START_STOP_ITERATIONS] = { 2, 32, 5 };
 
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5277,7 +5182,7 @@ void test_client_server_multiple_clients()
 
 void test_client_server_multiple_servers()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5415,7 +5320,7 @@ void test_client_server_multiple_servers()
 
 void test_client_error_connect_token_expired()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5457,7 +5362,7 @@ void test_client_error_connect_token_expired()
 
 void test_client_error_invalid_connect_token()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5491,7 +5396,7 @@ void test_client_error_invalid_connect_token()
 
 void test_client_error_connection_timed_out()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5584,7 +5489,7 @@ void test_client_error_connection_timed_out()
 
 void test_client_error_connection_response_timeout()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5658,7 +5563,7 @@ void test_client_error_connection_response_timeout()
 
 void test_client_error_connection_request_timeout()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5732,7 +5637,7 @@ void test_client_error_connection_request_timeout()
 
 void test_client_error_connection_denied()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -5853,7 +5758,7 @@ void test_client_error_connection_denied()
 
 void test_client_side_disconnect()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     // start a server and connect one client
 
@@ -5947,7 +5852,7 @@ void test_client_side_disconnect()
 
 void test_server_side_disconnect()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     // start a server and connect one client
 
@@ -6042,7 +5947,7 @@ void test_server_side_disconnect()
 
 void test_client_reconnect()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -6215,7 +6120,7 @@ void server_send_loopback_packet_callback(void * _context, int client_index, NET
 
 void test_disable_timeout()
 {
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
@@ -6357,7 +6262,7 @@ void test_loopback()
     struct test_loopback_context_t context;
     memset(&context, 0, sizeof(context));
 
-    struct netcode_network_simulator_t * network_simulator = netcode_network_simulator_create(NULL, NULL, NULL);
+    network_simulator := New(netcode_network_simulator_t);
 
     network_simulator->latency_milliseconds = 250;
     network_simulator->jitter_milliseconds = 250;
