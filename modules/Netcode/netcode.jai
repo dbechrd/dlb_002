@@ -849,17 +849,17 @@ netcode_connect_token_private_t :: struct {
     user_data            : UserDataBuf;
 };
 
-netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token_private_t, client_id: u64, timeout_seconds: int, server_addresses: [] netcode_address_t, user_data: *UserDataBuf) {
+netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token_private_t, client_id: u64, timeout_seconds: int, num_server_addresses: int, server_addresses: [] netcode_address_t, user_data: *UserDataBuf) {
     assert(connect_token != null);
-    assert(server_addresses.count > 0);
-    assert(server_addresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
+    assert(num_server_addresses > 0);
+    assert(num_server_addresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
     assert(user_data != null);
 
     connect_token.client_id = client_id;
     connect_token.timeout_seconds = timeout_seconds;
-    connect_token.num_server_addresses = server_addresses.count;
+    connect_token.num_server_addresses = num_server_addresses;
 
-    for server_addresses {
+    for 0..num_server_addresses-1 {
         connect_token.server_addresses[it_index] = it;
     }
 
@@ -883,17 +883,18 @@ netcode_write_connect_token_private :: (connect_token: *netcode_connect_token_pr
     netcode_write_uint32(*cursor, connect_token.timeout_seconds);
     netcode_write_uint32(*cursor, connect_token.num_server_addresses);
 
-    for address: connect_token.server_addresses {
+    for it_address: 0..connect_token.num_server_addresses-1 {
+        address := *connect_token.server_addresses[it_address];
         if address.type == NETCODE_ADDRESS_IPV4 {
             netcode_write_uint8(*cursor, NETCODE_ADDRESS_IPV4);
-            for 0..3 {
-                netcode_write_uint8(*cursor, address.data.ipv4[it]);
+            for it_byte: 0..3 {
+                netcode_write_uint8(*cursor, address.data.ipv4[it_byte]);
             }
             netcode_write_uint16(*cursor, address.port);
         } else if address.type == NETCODE_ADDRESS_IPV6 {
             netcode_write_uint8(*cursor, NETCODE_ADDRESS_IPV6);
-            for 0..7 {
-                netcode_write_uint16(*cursor, address.data.ipv6[it]);
+            for it_byte: 0..7 {
+                netcode_write_uint16(*cursor, address.data.ipv6[it_byte]);
             }
             netcode_write_uint16(*cursor, address.port);
         } else {
@@ -947,17 +948,18 @@ netcode_read_connect_token_private :: (token_buffer: ConnectTokenBuf, connect_to
         return NETCODE_ERROR;
     }
 
-    for address: connect_token.server_addresses {
-        address.type = netcode_read_uint8(*cursor);
+    for it_address: 0..connect_token.num_server_addresses-1 {
+        address := *connect_token.server_addresses[it_address];
 
+        address.type = netcode_read_uint8(*cursor);
         if address.type == NETCODE_ADDRESS_IPV4 {
-            for 0..3 {
-                address.data.ipv4[it] = netcode_read_uint8(*cursor);
+            for it_byte: 0..3 {
+                address.data.ipv4[it_byte] = netcode_read_uint8(*cursor);
             }
             address.port = netcode_read_uint16(*cursor);
         } else if address.type == NETCODE_ADDRESS_IPV6 {
-            for 0..7 {
-                address.data.ipv6[it] = netcode_read_uint16(*cursor);
+            for it_byte: 0..7 {
+                address.data.ipv6[it_byte] = netcode_read_uint16(*cursor);
             }
             address.port = netcode_read_uint16(*cursor);
         } else {
@@ -1598,3 +1600,186 @@ netcode_read_packet :: (
         }
     }
 }
+
+// ----------------------------------------------------------------
+
+netcode_connect_token_t :: struct  {
+    version_info         : VerionInfoBuf;
+    protocol_id          : u64;
+    create_timestamp     : u64;
+    expire_timestamp     : u64;
+    nonce                : BigNonceBuf;
+    private_data         : ConnectTokenBuf;
+    timeout_seconds      : int;
+    num_server_addresses : int;
+    server_addresses     : [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
+    client_to_server_key : EncryptionKeyBuf;
+    server_to_client_key : EncryptionKeyBuf;
+};
+
+// buffer expected to be zero'd
+netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer: [] u8) {
+    assert(connect_token != null);
+    assert(buffer_length >= NETCODE_CONNECT_TOKEN_BYTES);
+
+    start := buffer.data;
+    cursor := start;
+
+    netcode_write_bytes(cursor, connect_token.version_info);
+    netcode_write_uint64(cursor, connect_token.protocol_id);
+    netcode_write_uint64(cursor, connect_token.create_timestamp);
+    netcode_write_uint64(cursor, connect_token.expire_timestamp);
+    netcode_write_bytes(cursor, connect_token.nonce);
+    netcode_write_bytes(cursor, connect_token.private_data);
+    netcode_write_uint32(cursor, connect_token.timeout_seconds);
+    netcode_write_uint32(cursor, connect_token.num_server_addresses);
+
+    for it_address: 0..connect_token.num_server_addresses-1 {
+        address := *connect_token.server_addresses[it_address];
+
+        if address.type == NETCODE_ADDRESS_IPV4 {
+            netcode_write_uint8(cursor, NETCODE_ADDRESS_IPV4);
+            for it_byte: 0..3 {
+                netcode_write_uint8(cursor, address.data.ipv4[it_byte]);
+            }
+            netcode_write_uint16(cursor, address.port);
+        } else if address.type == NETCODE_ADDRESS_IPV6 {
+            netcode_write_uint8(cursor, NETCODE_ADDRESS_IPV6);
+            for it_byte: 0..7 {
+                netcode_write_uint16(cursor, address.data.ipv6[it_byte]);
+            }
+            netcode_write_uint16(cursor, address.port);
+        } else {
+            assert(false, "Invalid address type");
+        }
+    }
+
+    netcode_write_bytes(cursor, connect_token.client_to_server_key);
+    netcode_write_bytes(cursor, connect_token.server_to_client_key);
+
+    assert(pointer_diff(cursor, start) <= NETCODE_CONNECT_TOKEN_BYTES);
+}
+
+netcode_read_connect_token :: (buffer: [] u8, connect_token: *netcode_connect_token_t) -> int {
+    assert(buffer.count > 0);
+    assert(connect_token != null);
+
+    cursor := buffer.data;
+
+    if buffer.count != NETCODE_CONNECT_TOKEN_BYTES {
+        netcode_log(.ERROR, "error: read connect data has bad buffer length (%)\n", buffer.count);
+        return NETCODE_ERROR;
+    }
+
+    netcode_read_bytes(cursor, connect_token.version_info);
+    if connect_token.version_info[0]  != #char "N" ||
+       connect_token.version_info[1]  != #char "E" ||
+       connect_token.version_info[2]  != #char "T" ||
+       connect_token.version_info[3]  != #char "C" ||
+       connect_token.version_info[4]  != #char "O" ||
+       connect_token.version_info[5]  != #char "D" ||
+       connect_token.version_info[6]  != #char "E" ||
+       connect_token.version_info[7]  != #char " " ||
+       connect_token.version_info[8]  != #char "1" ||
+       connect_token.version_info[9]  != #char "." ||
+       connect_token.version_info[10] != #char "0" ||
+       connect_token.version_info[11] != #char "2" ||
+       connect_token.version_info[12] != #char "\0"
+    {
+        connect_token.version_info[12] = #char "\0";
+        netcode_log(.ERROR, "error: read connect data has bad version info (got %, expected %)\n", connect_token.version_info, NETCODE_VERSION_INFO);
+        return NETCODE_ERROR;
+    }
+
+    connect_token.protocol_id = netcode_read_uint64(cursor);
+    connect_token.create_timestamp = netcode_read_uint64(cursor);
+    connect_token.expire_timestamp = netcode_read_uint64(cursor);
+
+    if connect_token.create_timestamp > connect_token.expire_timestamp {
+        return NETCODE_ERROR;
+    }
+
+    netcode_read_bytes(cursor, connect_token.nonce);
+    netcode_read_bytes(cursor, connect_token.private_data);
+
+    connect_token.timeout_seconds = netcode_read_uint32(cursor);
+    connect_token.num_server_addresses = netcode_read_uint32(cursor);
+
+    if connect_token.num_server_addresses <= 0 || connect_token.num_server_addresses > NETCODE_MAX_SERVERS_PER_CONNECT {
+        netcode_log(.ERROR, "error: read connect data has bad number of server addresses (%)\n", connect_token.num_server_addresses);
+        return NETCODE_ERROR;
+    }
+
+    for it_address: 0..connect_token.num_server_addresses-1 {
+        address := *connect_token.server_addresses[it_address];
+
+        address.type = netcode_read_uint8(cursor);
+        if address.type == NETCODE_ADDRESS_IPV4 {
+            for it_byte: 0..3 {
+                address.data.ipv4[it_byte] = netcode_read_uint8(cursor);
+            }
+            address.port = netcode_read_uint16(cursor);
+        } else if address.type == NETCODE_ADDRESS_IPV6 {
+            for it_byte: 0..7 {
+                address.data.ipv6[it_byte] = netcode_read_uint16(cursor);
+            }
+            address.port = netcode_read_uint16(cursor);
+        } else {
+            netcode_log(.ERROR, "error: read connect data has bad address type (%)\n", address.type);
+            return NETCODE_ERROR;
+        }
+    }
+
+    netcode_read_bytes(cursor, connect_token.client_to_server_key);
+    netcode_read_bytes(cursor, connect_token.server_to_client_key);
+
+    return NETCODE_OK;
+}
+
+// ----------------------------------------------------------------
+
+netcode_packet_queue_t :: struct {
+    num_packets     : int;
+    start_index     : int;
+    packet_data     : [NETCODE_PACKET_QUEUE_SIZE] *netcode_connection_packet_t;
+    packet_sequence : [NETCODE_PACKET_QUEUE_SIZE] u64;
+};
+
+netcode_packet_queue_clear :: (using queue: *netcode_packet_queue_t) {
+    assert(queue != null);
+
+    for 0..num_packets-1 {
+        free(packet_data[it]);
+    }
+    queue.* = .{};
+}
+
+netcode_packet_queue_push :: (using queue: *netcode_packet_queue_t, packet: *netcode_connection_packet_t, sequence: u64) -> bool {
+    assert(queue != null);
+    assert(packet != null);
+
+    if num_packets == NETCODE_PACKET_QUEUE_SIZE {
+        free(packet);
+        return false;
+    }
+
+    int index = (start_index + num_packets) % NETCODE_PACKET_QUEUE_SIZE;
+    packet_data[index] = packet;
+    sequence[index] = sequence;
+    num_packets += 1;
+    return true;
+}
+
+netcode_packet_queue_pop :: (using queue: *netcode_packet_queue_t) -> packet: *netcode_connection_packet_t, sequence: u64 {
+    if num_packets == 0 {
+        return null, 0;
+    }
+
+    packet := packet_data[start_index];
+    sequence := packet_sequence[start_index];
+    start_index = (start_index + 1) % NETCODE_PACKET_QUEUE_SIZE;
+    num_packets -= 1;
+    return packet, sequence;
+}
+
+// ----------------------------------------------------------------
