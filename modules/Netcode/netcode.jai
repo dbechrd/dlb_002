@@ -61,6 +61,8 @@ NETCODE_ADDRESS_NONE :: 0;
 NETCODE_ADDRESS_IPV4 :: 1;
 NETCODE_ADDRESS_IPV6 :: 2;
 
+EncryptionKeyBuf :: [NETCODE_KEY_BYTES] u8;
+
 netcode_init :: () -> int {
     assert(!netcode.initialized);
 
@@ -204,7 +206,7 @@ netcode_server_t :: struct {
 
 netcode_server_config_t :: struct {
     protocol_id                   : u64;
-    private_key                   : [NETCODE_KEY_BYTES] u8;
+    private_key                   : EncryptionKeyBuf;
     network_simulator             : *netcode_network_simulator_t;
     callback_context              : *void;
     connect_disconnect_callback   : #type (*void, int, int);
@@ -352,7 +354,6 @@ NETCODE_ADDRESS_MAP_BUCKETS :: NETCODE_MAX_CLIENTS;
 
 // ----------------------------------------------------------------
 
-EncryptionKeyBuf  :: [NETCODE_KEY_BYTES] u8;
 ConnectTokenBuf   :: [NETCODE_CONNECT_TOKEN_PRIVATE_BYTES] u8;
 BigNonceBuf       :: [NETCODE_CONNECT_TOKEN_NONCE_BYTES] u8;    // use big nonce for when you don't have a sequential number (random bytes; bigger to reduce collisions)
 ChallengeTokenBuf :: [NETCODE_CHALLENGE_TOKEN_BYTES] u8;
@@ -607,10 +608,10 @@ netcode_socket_receive_packet :: (socket: *netcode_socket_t, from: *netcode_addr
     } else if sockaddr_from.ss_family == AF_INET {
         addr_ipv4 := cast(*sockaddr_in) *sockaddr_from;
         from.type = NETCODE_ADDRESS_IPV4;
-        from.data.ipv4[0] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x000000FF)      );
-        from.data.ipv4[1] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x0000FF00) >> 8 );
-        from.data.ipv4[2] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0x00FF0000) >> 16);
-        from.data.ipv4[3] = cast(uint8_t) ((addr_ipv4.sin_addr.s_addr & 0xFF000000) >> 24);
+        from.data.ipv4[0] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x000000FF)      );
+        from.data.ipv4[1] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x0000FF00) >> 8 );
+        from.data.ipv4[2] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x00FF0000) >> 16);
+        from.data.ipv4[3] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0xFF000000) >> 24);
         from.port = ntohs(addr_ipv4.sin_port);
     } else {
         assert(false, "Invalid address family");
@@ -876,35 +877,35 @@ netcode_write_connect_token_private :: (connect_token: *netcode_connect_token_pr
     assert(connect_token.num_server_addresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
     start := token_buffer.data;
-    ptr := token_buffer.data;
+    cursor := token_buffer.data;
 
-    netcode_write_uint64(*ptr, connect_token.client_id);
-    netcode_write_uint32(*ptr, connect_token.timeout_seconds);
-    netcode_write_uint32(*ptr, connect_token.num_server_addresses);
+    netcode_write_uint64(*cursor, connect_token.client_id);
+    netcode_write_uint32(*cursor, connect_token.timeout_seconds);
+    netcode_write_uint32(*cursor, connect_token.num_server_addresses);
 
     for address: connect_token.server_addresses {
         if address.type == NETCODE_ADDRESS_IPV4 {
-            netcode_write_uint8(*ptr, NETCODE_ADDRESS_IPV4);
+            netcode_write_uint8(*cursor, NETCODE_ADDRESS_IPV4);
             for 0..3 {
-                netcode_write_uint8(*ptr, address.data.ipv4[it]);
+                netcode_write_uint8(*cursor, address.data.ipv4[it]);
             }
-            netcode_write_uint16(*ptr, address.port);
+            netcode_write_uint16(*cursor, address.port);
         } else if address.type == NETCODE_ADDRESS_IPV6 {
-            netcode_write_uint8(*ptr, NETCODE_ADDRESS_IPV6);
+            netcode_write_uint8(*cursor, NETCODE_ADDRESS_IPV6);
             for 0..7 {
-                netcode_write_uint16(*ptr, address.data.ipv6[it]);
+                netcode_write_uint16(*cursor, address.data.ipv6[it]);
             }
-            netcode_write_uint16(*ptr, address.port);
+            netcode_write_uint16(*cursor, address.port);
         } else {
             assert(false, "Invalid address type");
         }
     }
 
-    netcode_write_bytes(*ptr, connect_token.client_to_server_key);
-    netcode_write_bytes(*ptr, connect_token.server_to_client_key);
-    netcode_write_bytes(*ptr, connect_token.user_data);
+    netcode_write_bytes(*cursor, connect_token.client_to_server_key);
+    netcode_write_bytes(*cursor, connect_token.server_to_client_key);
+    netcode_write_bytes(*cursor, connect_token.user_data);
 
-    assert(pointer_diff(ptr, start) <= NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES);
+    assert(pointer_diff(cursor, start) <= NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES);
 }
 
 netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: u64, none: BigNonceBuf, key: EncryptionKeyBuf) -> int {
@@ -933,11 +934,11 @@ netcode_decrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version
 netcode_read_connect_token_private :: (token_buffer: ConnectTokenBuf, connect_token: *netcode_connect_token_private_t) -> int {
     assert(connect_token != null);
 
-    ptr := token_buffer.data;
+    cursor := token_buffer.data;
 
-    connect_token.client_id = netcode_read_uint64(*ptr);
-    connect_token.timeout_seconds = cast(int) netcode_read_uint32(*ptr);
-    connect_token.num_server_addresses = netcode_read_uint32(*ptr);
+    connect_token.client_id = netcode_read_uint64(*cursor);
+    connect_token.timeout_seconds = cast(int) netcode_read_uint32(*cursor);
+    connect_token.num_server_addresses = netcode_read_uint32(*cursor);
 
     if connect_token.num_server_addresses <= 0 {
         return NETCODE_ERROR;
@@ -947,26 +948,26 @@ netcode_read_connect_token_private :: (token_buffer: ConnectTokenBuf, connect_to
     }
 
     for address: connect_token.server_addresses {
-        address.type = netcode_read_uint8(*ptr);
+        address.type = netcode_read_uint8(*cursor);
 
         if address.type == NETCODE_ADDRESS_IPV4 {
             for 0..3 {
-                address.data.ipv4[it] = netcode_read_uint8(*ptr);
+                address.data.ipv4[it] = netcode_read_uint8(*cursor);
             }
-            address.port = netcode_read_uint16(*ptr);
+            address.port = netcode_read_uint16(*cursor);
         } else if address.type == NETCODE_ADDRESS_IPV6 {
             for 0..7 {
-                address.data.ipv6[it] = netcode_read_uint16(*ptr);
+                address.data.ipv6[it] = netcode_read_uint16(*cursor);
             }
-            address.port = netcode_read_uint16(*ptr);
+            address.port = netcode_read_uint16(*cursor);
         } else {
             return NETCODE_ERROR;
         }
     }
 
-    netcode_read_bytes(*ptr, connect_token.client_to_server_key);
-    netcode_read_bytes(*ptr, connect_token.server_to_client_key);
-    netcode_read_bytes(*ptr, connect_token.user_data);
+    netcode_read_bytes(*cursor, connect_token.client_to_server_key);
+    netcode_read_bytes(*cursor, connect_token.server_to_client_key);
+    netcode_read_bytes(*cursor, connect_token.user_data);
 
     return NETCODE_OK;
 }
@@ -983,10 +984,10 @@ netcode_write_challenge_token :: (challenge_token: *netcode_challenge_token_t, t
 
     start := token_buffer.data;
 
-    netcode_write_uint64(*ptr, challenge_token.client_id);
-    netcode_write_bytes(*ptr, challenge_token.user_data);
+    netcode_write_uint64(*cursor, challenge_token.client_id);
+    netcode_write_bytes(*cursor, challenge_token.user_data);
 
-    assert(pointer_diff(ptr, start) <= NETCODE_CHALLENGE_TOKEN_BYTES - NETCODE_MAC_BYTES);
+    assert(pointer_diff(cursor, start) <= NETCODE_CHALLENGE_TOKEN_BYTES - NETCODE_MAC_BYTES);
 }
 
 netcode_encrypt_challenge_token :: (token_buffer: ChallengeTokenBuf, sequence: u64, key: EncryptionKeyBuf) -> int {
@@ -1015,11 +1016,585 @@ netcode_read_challenge_token :: (token_buffer: ChallengeTokenBuf, challenge_toke
     assert(challenge_token != null);
 
     start := buffer.data;
-    ptr := token_buffer.data;
+    cursor := token_buffer.data;
 
-    challenge_token.client_id = netcode_read_uint64(*ptr);
-    netcode_read_bytes(*ptr, challenge_token.user_data);
+    challenge_token.client_id = netcode_read_uint64(*cursor);
+    netcode_read_bytes(*cursor, challenge_token.user_data);
 
-    assert(pointer_diff(ptr, start) == 8 + NETCODE_USER_DATA_BYTES);
+    assert(pointer_diff(cursor, start) == 8 + NETCODE_USER_DATA_BYTES);
     return NETCODE_OK;
+}
+
+// ----------------------------------------------------------------
+
+// TODO(dlb): Make this an enum
+NETCODE_CONNECTION_REQUEST_PACKET    :: 0;
+NETCODE_CONNECTION_DENIED_PACKET     :: 1;
+NETCODE_CONNECTION_CHALLENGE_PACKET  :: 2;
+NETCODE_CONNECTION_RESPONSE_PACKET   :: 3;
+NETCODE_CONNECTION_KEEP_ALIVE_PACKET :: 4;
+NETCODE_CONNECTION_PAYLOAD_PACKET    :: 5;
+NETCODE_CONNECTION_DISCONNECT_PACKET :: 6;
+NETCODE_CONNECTION_NUM_PACKETS       :: 7;
+
+netcode_connection_packet_t :: struct {
+    type: u8;
+};
+
+netcode_connection_request_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_REQUEST_PACKET;
+
+    version_info                   : VerionInfoBuf;
+    protocol_id                    : u64;
+    connect_token_expire_timestamp : u64;
+    connect_token_nonce            : BigNonceBuf;
+    connect_token_data             : ConnectTokenBuf;
+};
+
+netcode_connection_denied_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_DENIED_PACKET;
+};
+
+netcode_connection_challenge_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_CHALLENGE_PACKET;
+
+    challenge_token_sequence : u64;
+    challenge_token_data     : ChallengeTokenBuf;
+};
+
+netcode_connection_response_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_RESPONSE_PACKET;
+
+    challenge_token_sequence : u64;
+    challenge_token_data     : ChallengeTokenBuf;
+};
+
+netcode_connection_keep_alive_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_KEEP_ALIVE_PACKET;
+
+    client_index : int;
+    max_clients  : int;
+};
+
+netcode_connection_payload_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_PAYLOAD_PACKET;
+
+    payload_data : [] u8;
+};
+
+netcode_connection_disconnect_packet_t :: struct {
+    using #as base: netcode_connection_packet_t;
+    base.type = NETCODE_CONNECTION_DISCONNECT_PACKET;
+};
+
+netcode_create_payload_packet :: (payload_bytes: int) -> *netcode_connection_payload_packet_t {
+    assert(payload_bytes >= 0);
+    assert(payload_bytes <= NETCODE_MAX_PAYLOAD_BYTES);
+
+    buffer := NewArray(size_of(netcode_connection_payload_packet_t) + payload_bytes, u8);
+    if buffer == null {
+        return null;
+    }
+
+    packet := cast(*netcode_connection_payload_packet_t) buffer.data;
+    Initialize(packet);
+    packet.payload_data = .{ payload_bytes, buffer.data + size_of(netcode_connection_payload_packet_t) };
+
+    return packet;
+}
+
+netcode_context_t :: struct {
+    write_packet_key: EncryptionKeyBuf;
+    read_packet_key: EncryptionKeyBuf;
+};
+
+netcode_sequence_number_bytes_required :: (sequence: u64) -> int {
+    mask: u64 = 0xFF00000000000000;
+    for 0..6 {
+        if sequence & mask {
+            return 8 - it; // n bytes
+        }
+        mask >>= 8;
+    }
+    return 1;  // 1 byte
+}
+
+netcode_write_packet :: (packet: *netcode_connection_packet_t, buffer: [] u8, sequence: u64, write_packet_key: EncryptionKeyBuf, protocol_id: u64) -> int {
+    assert(packet != null);
+    assert(buffer.count > 0);
+    assert(write_packet_key.count > 0);
+
+    if packet.type == NETCODE_CONNECTION_REQUEST_PACKET {
+        // connection request packet: first byte is zero
+
+        assert(buffer.count >= 1 + 13 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES);
+
+        p := cast(*netcode_connection_request_packet_t) packet;
+
+        start := buffer.data;
+        cursor := start;
+
+        netcode_write_uint8(*cursor, NETCODE_CONNECTION_REQUEST_PACKET);
+        netcode_write_bytes(*cursor, p.version_info);
+        netcode_write_uint64(*cursor, p.protocol_id);
+        netcode_write_uint64(*cursor, p.connect_token_expire_timestamp);
+        netcode_write_bytes(*cursor, p.connect_token_nonce);
+        netcode_write_bytes(*cursor, p.connect_token_data);
+
+        assert(pointer_diff(cursor, start) == 1 + 13 + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES);
+
+        return cast(int) pointer_diff(cursor, start);
+    } else {
+        // *** encrypted packets ***
+
+        // write the prefix byte (this is a combination of the packet type and number of sequence bytes)
+
+        start := buffer.data;
+        cursor := start;
+
+        sequence_bytes := cast(u8) netcode_sequence_number_bytes_required(sequence);
+
+        assert(sequence_bytes >= 1);
+        assert(sequence_bytes <= 8);
+
+        assert(packet.type <= 0xF);  // huh? that's not even the max packet type bruh
+
+        prefix_byte := packet.type | (sequence_bytes << 4);
+
+        netcode_write_uint8(*cursor, prefix_byte);
+
+        // write the variable length sequence number [1,8] bytes.
+
+        sequence_temp := sequence;
+
+        for 0..sequence_bytes-1 {
+            netcode_write_uint8(*cursor, cast(u8) (sequence_temp & 0xFF));
+            sequence_temp >>= 8;
+        }
+
+        // write packet data according to type. this data will be encrypted.
+
+        encrypted_start := cursor;
+
+        if packet.type == {
+            case NETCODE_CONNECTION_DENIED_PACKET;
+                // ...
+            case NETCODE_CONNECTION_CHALLENGE_PACKET;
+                p := cast(*netcode_connection_challenge_packet_t) packet;
+                netcode_write_uint64(*cursor, p.challenge_token_sequence );
+                netcode_write_bytes(*cursor, p.challenge_token_data);
+            case NETCODE_CONNECTION_RESPONSE_PACKET;
+                p := cast(*netcode_connection_response_packet_t) packet;
+                netcode_write_uint64(*cursor, p.challenge_token_sequence);
+                netcode_write_bytes(*cursor, p.challenge_token_data);
+            case NETCODE_CONNECTION_KEEP_ALIVE_PACKET;
+                p := cast(*netcode_connection_keep_alive_packet_t) packet;
+                netcode_write_uint32(*cursor, p.client_index);
+                netcode_write_uint32(*cursor, p.max_clients);
+            case NETCODE_CONNECTION_PAYLOAD_PACKET;
+                p := cast(*netcode_connection_payload_packet_t) packet;
+
+                assert(p.payload_bytes <= NETCODE_MAX_PAYLOAD_BYTES);
+
+                netcode_write_bytes(*cursor, p.payload_data, p.payload_bytes);
+            case NETCODE_CONNECTION_DISCONNECT_PACKET;
+                // ...
+            case;
+                assert(false, "invalid connection packet type");
+        }
+
+        netcode_assert(pointer_diff(cursor, start) <= buffer.count - NETCODE_MAC_BYTES);
+
+        encrypted_finish := cursor;
+
+        // encrypt the per-packet packet written with the prefix byte, protocol id and version as the associated data. this must match to decrypt.
+
+        additional_data: [NETCODE_VERSION_INFO_BYTES + 8 + 1] u8;
+        {
+            ptr := additional_data.data;
+            netcode_write_bytes(*ptr, NETCODE_VERSION_INFO, NETCODE_VERSION_INFO_BYTES);
+            netcode_write_uint64(*ptr, protocol_id);
+            netcode_write_uint8(*ptr, prefix_byte);
+        }
+
+        nonce: [12] u8;
+        {
+            ptr := nonce.data;
+            netcode_write_uint32(*ptr, 0);
+            netcode_write_uint64(*ptr, sequence);
+        }
+
+        if netcode_encrypt_aead(.{ pointer_diff(encrypted_finish, encrypted_start), encrypted_start }, additional_data, nonce, write_packet_key) != NETCODE_OK {
+            return NETCODE_ERROR;
+        }
+
+        cursor += NETCODE_MAC_BYTES;
+        netcode_assert(pointer_diff(cursor - start) <= buffer.count);
+
+        return pointer_diff(cursor - start);
+    }
+}
+
+netcode_replay_protection_t :: struct {
+    most_recent_sequence : u64;
+    received_packet      : [NETCODE_REPLAY_PROTECTION_BUFFER_SIZE] u64;
+};
+
+netcode_replay_protection_reset :: (replay_protection: *netcode_replay_protection_t) {
+    assert(replay_protection != null);
+
+    replay_protection.most_recent_sequence = 0;
+    array_fill_byte(replay_protection.received_packet, 0xFF);
+}
+
+netcode_replay_protection_already_received :: (replay_protection: *netcode_replay_protection_t, sequence: u64) -> bool {
+    assert(replay_protection != null);
+
+    // TODO(dlb): Is it okay for this not to have wraparound protection? Maybe it's a u64 that contains
+    // a smaller sequence number...? Hmm... if we sent a packet every millisecond it would take roughly
+    // 292 million years for this to wrap, assuming we always start a zero. So... it's probably fine?
+    if sequence + NETCODE_REPLAY_PROTECTION_BUFFER_SIZE <= replay_protection.most_recent_sequence {
+        return true;
+    }
+
+    index := cast(int) (sequence % NETCODE_REPLAY_PROTECTION_BUFFER_SIZE);
+
+    if replay_protection.received_packet[index] == 0x_FFFF_FFFF_FFFF_FFFF {
+        return false;
+    }
+
+    if replay_protection.received_packet[index] >= sequence {
+        return true;
+    }
+
+    return false;
+}
+
+netcode_replay_protection_advance_sequence :: (replay_protection: *netcode_replay_protection_t, sequence: u64) {
+    assert(replay_protection != null);
+
+    // TODO(dlb): No wraparound protection!? (See note above, probably fine).
+    if sequence > replay_protection->most_recent_sequence {
+        replay_protection.most_recent_sequence = sequence;
+    }
+
+    index := cast(int) (sequence % NETCODE_REPLAY_PROTECTION_BUFFER_SIZE);
+
+    replay_protection.received_packet[index] = sequence;
+}
+
+netcode_read_packet :: (
+    buffer            : [] u8,
+    read_packet_key   : EncryptionKeyBuf,
+    protocol_id       : u64,
+    current_timestamp : u64,
+    private_key       : *EncryptionKeyBuf,
+    allowed_packets   : [NETCODE_CONNECTION_NUM_PACKETS] bool,  // NOTE(dlb): Could be a Bit_Array, but it's on the stack, so I probably don't care?
+    replay_protection : *netcode_replay_protection_t
+) -> packet: *netcode_connection_packet_t, sequence: u64 {
+    netcode_assert(sequence != null);
+
+    if buffer.count < 1 {
+        netcode_log(.VERBOSE_ONLY, "ignored packet. buffer length is less than 1\n");
+        return null, 0;
+    }
+
+    start := buffer.data;
+    cursor := start;
+
+    prefix_byte := netcode_read_uint8(*cursor);
+
+    if prefix_byte == NETCODE_CONNECTION_REQUEST_PACKET {
+        // connection request packet: first byte is zero
+
+        if !allowed_packets[NETCODE_CONNECTION_REQUEST_PACKET] {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. packet type is not allowed\n");
+            return null, 0;
+        }
+
+        if buffer.count != 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. bad packet length (expected %, got %)\n", 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, buffer.count);
+            return null, 0;
+        }
+
+        if private_key == null {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. no private key\n");
+            return null, 0;
+        }
+
+        version_info: VerionInfoBuf;
+        netcode_read_bytes(*cursor, version_info);
+        if version_info[0]  != #char "N" ||
+           version_info[1]  != #char "E" ||
+           version_info[2]  != #char "T" ||
+           version_info[3]  != #char "C" ||
+           version_info[4]  != #char "O" ||
+           version_info[5]  != #char "D" ||
+           version_info[6]  != #char "E" ||
+           version_info[7]  != #char " " ||
+           version_info[8]  != #char "1" ||
+           version_info[9]  != #char "." ||
+           version_info[10] != #char "0" ||
+           version_info[11] != #char "2" ||
+           version_info[12] != #char "\0"
+        {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. bad version info\n");
+            return null, 0;
+        }
+
+        packet_protocol_id := netcode_read_uint64(*cursor);
+        if packet_protocol_id != protocol_id {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. wrong protocol id. expected %, got %\n", protocol_id, packet_protocol_id);
+            return null, 0;
+        }
+
+        packet_connect_token_expire_timestamp := netcode_read_uint64(*cursor);
+        if packet_connect_token_expire_timestamp <= current_timestamp {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. connect token expired\n");
+            return null, 0;
+        }
+
+        packet_connect_token_nonce: BigNonceBuf;
+        netcode_read_bytes(*cursor, packet_connect_token_nonce);
+
+        assert(pointer_diff(cursor, start) == 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES);
+
+        decrypt_token_result := netcode_decrypt_connect_token_private(
+            .{ NETCODE_CONNECT_TOKEN_PRIVATE_BYTES, cursor },
+            version_info,
+            protocol_id,
+            packet_connect_token_expire_timestamp,
+            packet_connect_token_nonce,
+            private_key
+        );
+        if decrypt_token_result != NETCODE_OK {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. connect token failed to decrypt\n");
+            return null, 0;
+        }
+
+        packet := New(netcode_connection_request_packet_t);
+        if packet == null {
+            netcode_log(.VERBOSE_ONLY, "ignored connection request packet. failed to allocate packet\n");
+            return null, 0;
+        }
+
+        packet.packet_type = NETCODE_CONNECTION_REQUEST_PACKET;
+        packet.version_info = version_info;
+        packet.protocol_id = packet_protocol_id;
+        packet.connect_token_expire_timestamp = packet_connect_token_expire_timestamp;
+        packet.connect_token_nonce = packet_connect_token_nonce;
+
+        netcode_read_bytes(*cursor, packet.connect_token_data);
+
+        assert(pointer_diff(cursor, start) == 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES);
+
+        return packet, 0;  // first packet is sequence number 0 of course, not an error case!
+    }
+    else
+    {
+        // *** encrypted packets ***
+
+        if read_packet_key.count == 0 {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. no read packet key for this address\n");
+            return null, 0;
+        }
+
+        if buffer.count < 1 + 1 + NETCODE_MAC_BYTES {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. packet is too small to be valid (% bytes)\n", buffer.count);
+            return null, 0;
+        }
+
+        // extract the packet type and number of sequence bytes from the prefix byte
+
+        packet_type := prefix_byte & 0xF;
+
+        if packet_type >= NETCODE_CONNECTION_NUM_PACKETS {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. packet type % is invalid\n", packet_type);
+            return null, 0;
+        }
+
+        if !allowed_packets[packet_type] {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. packet type % is not allowed\n", packet_type);
+            return null, 0;
+        }
+
+        sequence_bytes := prefix_byte >> 4;
+
+        if sequence_bytes < 1 || sequence_bytes > 8 {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. sequence bytes % is out of range [1,8]\n", sequence_bytes);
+            return null, 0;
+        }
+
+        if buffer.count < 1 + sequence_bytes + NETCODE_MAC_BYTES {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. buffer is too small for sequence bytes + encryption mac\n");
+            return null, 0;
+        }
+
+        // read variable length sequence number [1,8]
+
+        sequence: u64;
+        for 0..sequence_bytes-1 {
+            value := netcode_read_uint8(*cursor);
+            sequence |= (cast(u64) value) << (8 * it);
+        }
+
+        // ignore the packet if it has already been received
+
+        if replay_protection != null && packet_type >= NETCODE_CONNECTION_KEEP_ALIVE_PACKET {
+            if netcode_replay_protection_already_received(replay_protection, sequence) {
+                netcode_log(.VERBOSE_ONLY, "ignored packet. sequence % already received (replay protection)\n", sequence);
+                return null, 0;
+            }
+        }
+
+        // decrypt the per-packet type data
+
+        additional_data: [NETCODE_VERSION_INFO_BYTES + 8 + 1] u8;
+        {
+            ptr := additional_data.data;
+            netcode_write_bytes(*ptr, NETCODE_VERSION_INFO, NETCODE_VERSION_INFO_BYTES);
+            netcode_write_uint64(*ptr, protocol_id);
+            netcode_write_uint8(*ptr, prefix_byte);
+        }
+
+        nonce: [12] u8;
+        {
+            ptr := nonce.data;
+            netcode_write_uint32(*ptr, 0);
+            netcode_write_uint64(*ptr, sequence);
+        }
+
+        encrypted_bytes := (buffer.count - pointer_diff(cursor, start));
+
+        if encrypted_bytes < NETCODE_MAC_BYTES {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. encrypted payload is too small\n");
+            return null, 0;
+        }
+
+        if netcode_decrypt_aead(.{ encrypted_bytes, cursor }, additional_data, nonce, read_packet_key) != NETCODE_OK {
+            netcode_log(.VERBOSE_ONLY, "ignored encrypted packet. failed to decrypt\n");
+            return null, 0;
+        }
+
+        decrypted_bytes := encrypted_bytes - NETCODE_MAC_BYTES;
+
+        // update the latest replay protection sequence #
+
+        if replay_protection != null && packet_type >= NETCODE_CONNECTION_KEEP_ALIVE_PACKET {
+            netcode_replay_protection_advance_sequence(replay_protection, sequence);
+        }
+
+        // process the per-packet type data that was just decrypted
+
+        if packet_type == {
+            case NETCODE_CONNECTION_DENIED_PACKET;
+                if decrypted_bytes != 0 {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection denied packet. decrypted packet data is wrong size\n");
+                    return null, 0;
+                }
+
+                packet := New(netcode_connection_denied_packet_t);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection denied packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.type == NETCODE_CONNECTION_DENIED_PACKET);
+
+                return packet, sequence;
+            case NETCODE_CONNECTION_CHALLENGE_PACKET;
+                if decrypted_bytes != 8 + NETCODE_CHALLENGE_TOKEN_BYTES {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection challenge packet. decrypted packet data is wrong size\n");
+                    return null, 0;
+                }
+
+                packet := New(netcode_connection_challenge_packet_t);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection challenge packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.type == NETCODE_CONNECTION_CHALLENGE_PACKET);
+
+                packet.challenge_token_sequence = netcode_read_uint64(*cursor);
+                netcode_read_bytes(*cursor, packet.challenge_token_data);
+
+                return packet, sequence;
+            case NETCODE_CONNECTION_RESPONSE_PACKET;
+                if decrypted_bytes != 8 + NETCODE_CHALLENGE_TOKEN_BYTES {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection response packet. decrypted packet data is wrong size\n");
+                    return null, 0;
+                }
+
+                packet := New(netcode_connection_response_packet_t);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection response packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.type == NETCODE_CONNECTION_RESPONSE_PACKET);
+
+                packet.challenge_token_sequence = netcode_read_uint64(*cursor);
+                netcode_read_bytes(*cursor, packet.challenge_token_data);
+
+                return packet, sequence;
+            case NETCODE_CONNECTION_KEEP_ALIVE_PACKET;
+                if decrypted_bytes != 8 {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection keep alive packet. decrypted packet data is wrong size\n");
+                    return null, 0;
+                }
+
+                packet := New(netcode_connection_keep_alive_packet_t);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection keep alive packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.packet_type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+
+                packet.client_index = netcode_read_uint32(*cursor);
+                packet.max_clients = netcode_read_uint32(*cursor);
+
+                return packet, sequence;
+            case NETCODE_CONNECTION_PAYLOAD_PACKET;
+                if decrypted_bytes < 1 {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection payload packet. payload is too small\n");
+                    return null, 0;
+                }
+
+                if decrypted_bytes > NETCODE_MAX_PAYLOAD_BYTES {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection payload packet. payload is too large\n");
+                    return null, 0;
+                }
+
+                packet := netcode_create_payload_packet(decrypted_bytes);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection payload packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+
+                memcpy(packet.payload_data.data, cursor, decrypted_bytes);
+
+                return packet, sequence;
+            case NETCODE_CONNECTION_DISCONNECT_PACKET;
+                if decrypted_bytes != 0 {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection disconnect packet. decrypted packet data is wrong size\n");
+                    return null, 0;
+                }
+
+                packet := New(netcode_connection_disconnect_packet_t);
+                if packet == null {
+                    netcode_log(.VERBOSE_ONLY, "ignored connection disconnect packet. could not allocate packet struct\n");
+                    return null, 0;
+                }
+                assert(packet.type == NETCODE_CONNECTION_DISCONNECT_PACKET);
+
+                return packet, sequence;
+            case;
+                return null, 0;
+        }
+    }
 }
