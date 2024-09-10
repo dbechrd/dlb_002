@@ -1845,3 +1845,117 @@ netcode_random_float :: inline (a: float, b: float) -> float {
     assert(result <= b);
     return a + r;
 }
+
+
+
+netcode_network_simulator_queue_packet :: (using network_simulator: *netcode_network_simulator_t, from: *netcode_address_t, to: *netcode_address_t, packet_data: [] u8, delay: Apollo_Time) {
+    entry := *packet_entries[current_index];
+    entry.from = from.*;
+    entry.to = to.*;
+    entry.packet_data = array_copy(packet_data);
+    entry.delivery_time = time + delay;
+
+    current_index = (current_index + 1) % NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES;
+}
+
+netcode_network_simulator_send_packet :: (using network_simulator: *netcode_network_simulator_t, from: *netcode_address_t, to: *netcode_address_t, packet_data: [] u8) {
+    assert(network_simulator != null);
+    assert(from != null);
+    assert(from.type != 0);
+    assert(to != null);
+    assert(to.type != 0);
+    assert(packet_data.count > 0);
+    assert(packet_data.count <= NETCODE_MAX_PACKET_BYTES);
+
+    if netcode_random_float(0.0, 100.0) <= packet_loss_percent {
+        return;
+    }
+
+    entry := *packet_entries[current_index];
+    if entry.packet_data.count > 0 {
+        array_reset(*entry.packet_data);
+    }
+
+    delay := latency_milliseconds / 1000.0;
+
+    if jitter_milliseconds > 0.0 {
+        delay += netcode_random_float(-jitter_milliseconds, jitter_milliseconds) / 1000.0;
+    }
+
+    netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay);
+
+    if netcode_random_float(0.0, 100.0) <= duplicate_packet_percent {
+        netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay + netcode_random_float(0, 1.0));
+    }
+}
+
+netcode_network_simulator_receive_packets :: (using network_simulator: *netcode_network_simulator_t, to: *netcode_address_t, max_packets: int, packet_data: [][] u8, from: [] netcode_address_t) -> int {
+    assert(network_simulator != null);
+    assert(to != null);
+    assert(max_packets >= 0);
+    assert(packet_data.count >= max_packets);
+    assert(from.count >= max_packets);
+
+    num_packets := 0;
+
+    for 0..num_pending_receive_packets-1 {
+        if num_packets == max_packets {
+            break;
+        }
+
+        if pending_receive_packets[it].packet_data.count == 0 {
+            continue;
+        }
+
+        if !netcode_address_equal(*pending_receive_packets[it].to, to) {
+            continue;
+        }
+
+        packet_data[num_packets] = pending_receive_packets[it].packet_data;
+        from[num_packets] = pending_receive_packets[it].from;
+
+        pending_receive_packets[it].packet_data = null;
+
+        num_packets += 1;
+    }
+
+    assert(num_packets <= max_packets);
+
+    return num_packets;
+}
+
+netcode_network_simulator_update :: (using network_simulator: *netcode_network_simulator_t, _time: Apollo_Time) {
+    assert(network_simulator != null);
+
+    time = _time;
+
+    // discard any pending receive packets that are still in the buffer
+
+    for 0..num_pending_receive_packets-1 {
+        packet := *pending_receive_packets[it];
+        if packet.packet_data.count > 0 {
+            array_reset(packet.packet_data);
+        }
+    }
+
+    num_pending_receive_packets = 0;
+
+    // walk across packet entries and move any that are ready to be received into the pending receive buffer
+
+    for 0..NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES-1 {
+        if num_pending_receive_packets == NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS {
+            break;
+        }
+
+        packet := *packet_entries[it];
+        if packet.packet_data.count == 0 {
+            continue;
+        }
+
+        if packet.delivery_time <= time {
+            pending_receive_packets[num_pending_receive_packets] = packet;
+            num_pending_receive_packets += 1;
+            packet.packet_data = null;
+        }
+    }
+}
