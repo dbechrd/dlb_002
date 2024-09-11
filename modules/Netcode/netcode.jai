@@ -93,10 +93,10 @@ netcode_client_config_t :: struct {
     network_simulator             : *netcode_network_simulator_t;
     callback_context              : *void;
     state_change_callback         : #type (*void, int, int);
-    send_loopback_packet_callback : #type (*void, int, *u8, int, u64);
+    send_loopback_packet_callback : #type (*void, int, [] u8, u64);
     override_send_and_receive     : bool;
-    send_packet_override          : #type (*void, *netcode_address_t, *u8, int);
-    receive_packet_override       : #type (*void, *netcode_address_t, *u8, int) -> int;
+    send_packet_override          : #type (*void, *netcode_address_t, [] u8);
+    receive_packet_override       : #type (*void, *netcode_address_t, [] u8) -> int;
 };
 
 netcode_default_client_config :: (config: *netcode_client_config_t) {
@@ -2262,4 +2262,86 @@ netcode_client_process_packet :: (client: *netcode_client_t, from: *netcode_addr
         return;
 
     netcode_client_process_packet_internal(client, from, packet, packet_sequence);
+}
+
+netcode_client_receive_packets :: (using client: *netcode_client_t) {
+    assert(client != null);
+    assert(!loopback);
+
+    allowed_packets: [NETCODE_CONNECTION_NUM_PACKETS] bool;
+    allowed_packets[NETCODE_CONNECTION_DENIED_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_CHALLENGE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_KEEP_ALIVE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_PAYLOAD_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_DISCONNECT_PACKET] = true;
+
+    current_timestamp := current_time_monotonic();
+
+    if !config.network_simulator {
+        // process packets received from socket
+
+        while true {
+            from: netcode_address_t;
+            packet_data: [NETCODE_MAX_PACKET_BYTES] u8;
+            packet_bytes := 0;
+
+            if config.override_send_and_receive {
+                packet_bytes = config.receive_packet_override(config.callback_context, *from, packet_data);
+            } else if server_address.type == NETCODE_ADDRESS_IPV4 {
+                packet_bytes = netcode_socket_receive_packet(*socket_holder.ipv4, *from, packet_data);
+            } else if server_address.type == NETCODE_ADDRESS_IPV6 {
+                packet_bytes = netcode_socket_receive_packet(*socket_holder.ipv6, *from, packet_data);
+            }
+
+            if packet_bytes == 0 {
+                break;
+            }
+
+            packet, sequence := netcode_read_packet(
+                packet_data,
+                ctx.read_packet_key,
+                connect_token.protocol_id,
+                current_timestamp,
+                null,
+                allowed_packets,
+                *replay_protection,
+            );
+
+            if packet == null {
+                continue;
+            }
+
+            netcode_client_process_packet_internal(client, *from, packet, sequence);
+        }
+    } else {
+        // process packets received from network simulator
+
+        num_packets_received := netcode_network_simulator_receive_packets(
+            config.network_simulator,
+            *address,
+            NETCODE_CLIENT_MAX_RECEIVE_PACKETS,
+            receive_packet_data,
+            receive_from
+        );
+
+        for 0..num_packets_received-1 {
+            packet, sequence := netcode_read_packet(
+                receive_packet_data[it],
+                ctx.read_packet_key,
+                connect_token.protocol_id,
+                current_timestamp,
+                null,
+                allowed_packets,
+                *replay_protection,
+            );
+
+            free(receive_packet_data[it]);
+
+            if packet == null {
+                continue;
+            }
+
+            netcode_client_process_packet_internal(client, *receive_from[it], packet, sequence);
+        }
+    }
 }
