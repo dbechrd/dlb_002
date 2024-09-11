@@ -89,16 +89,12 @@ netcode_term :: () {
 
 // ----------------------------------------------------------------
 
-netcode_client_t :: struct {
-
-}
-
 netcode_client_config_t :: struct {
     network_simulator             : *netcode_network_simulator_t;
     callback_context              : *void;
     state_change_callback         : #type (*void, int, int);
     send_loopback_packet_callback : #type (*void, int, *u8, int, u64);
-    override_send_and_receive     : int;
+    override_send_and_receive     : bool;
     send_packet_override          : #type (*void, *netcode_address_t, *u8, int);
     receive_packet_override       : #type (*void, *netcode_address_t, *u8, int) -> int;
 };
@@ -592,11 +588,11 @@ netcode_socket_receive_packet :: (socket: *netcode_socket_t, from: *netcode_addr
     if result == SOCKET_ERROR {
         error := get_last_socket_error();
         if error == SOCKET_WOULDBLOCK {
-            return 0;
+            return .{};
         }
 
         netcode_log(.ERROR, "error: recvfrom failed with error %\n", error);
-        return 0;
+        return .{};
     }
 
     if sockaddr_from.ss_family == AF_INET6 {
@@ -616,7 +612,7 @@ netcode_socket_receive_packet :: (socket: *netcode_socket_t, from: *netcode_addr
         from.port = ntohs(addr_ipv4.sin_port);
     } else {
         assert(false, "Invalid address family");
-        return 0;
+        return .{};
     }
 
     assert(result >= 0);
@@ -762,7 +758,7 @@ netcode_generate_nonce :: (nonce: BigNonceBuf) {
 netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     encrypted_length: u64;
 
-    result := crypto_aead_xchacha20poly1305_ietf_encrypt(
+    err := crypto_aead_xchacha20poly1305_ietf_encrypt(
         message.data, *encrypted_length,
         message.data, message.count,
         header.data, header.count,
@@ -770,7 +766,7 @@ netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
         nonce, key
     );
 
-    if result != 0 {
+    if err != 0 {
         return NETCODE_ERROR;
     }
 
@@ -782,7 +778,7 @@ netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
 netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     decrypted_length: u64;
 
-    result := crypto_aead_xchacha20poly1305_ietf_decrypt(
+    err := crypto_aead_xchacha20poly1305_ietf_decrypt(
         message.data, *decrypted_length,
         null,
         message.data, message.count,
@@ -790,7 +786,7 @@ netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
         nonce, key
     );
 
-    if result != 0 {
+    if err != 0 {
         return NETCODE_ERROR;
     }
 
@@ -802,7 +798,7 @@ netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
 netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: EncryptionKeyBuf) -> int {
     encrypted_length: u64;
 
-    result := crypto_aead_chacha20poly1305_ietf_encrypt(
+    err := crypto_aead_chacha20poly1305_ietf_encrypt(
         message.data, *encrypted_length,
         message.data, message.count,
         header.data, header.count,
@@ -810,7 +806,7 @@ netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: En
         nonce, key
     );
 
-    if result != 0 {
+    if err != 0 {
         return NETCODE_ERROR;
     }
 
@@ -822,7 +818,7 @@ netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: En
 netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: EncryptionKeyBuf) -> int {
     decrypted_length: u64;
 
-    result := crypto_aead_chacha20poly1305_ietf_decrypt(
+    err := crypto_aead_chacha20poly1305_ietf_decrypt(
         message.data, *decrypted_length,
         null,
         message.data, message.count,
@@ -830,7 +826,7 @@ netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: En
         nonce, key
     );
 
-    if result != 0 {
+    if err != 0 {
         return NETCODE_ERROR;
     }
 
@@ -910,25 +906,25 @@ netcode_write_connect_token_private :: (connect_token: *netcode_connect_token_pr
     assert(pointer_diff(cursor, start) <= NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES);
 }
 
-netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: u64, none: BigNonceBuf, key: EncryptionKeyBuf) -> int {
+netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: Apollo_Time, none: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     additional_data: [version_info.count + 8 + 8] u8;
     {
         ptr := additional_data.data;
         netcode_write_bytes(*ptr, version_info);
         netcode_write_uint64(*ptr, protocol_id);
-        netcode_write_uint64(*ptr, expire_timestamp);
+        netcode_write_uint64(*ptr, to_milliseconds(expire_timestamp));
     }
 
     return netcode_encrypt_aead_bignonce(.{ NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES, token_buffer.data }, additional_data, nonce, key);
 }
 
-netcode_decrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: u64, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
+netcode_decrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: Apollo_Time, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     additional_data: [NETCODE_VERSION_INFO_BYTES + 8 + 8] u8;
     {
         ptr := additional_data.data;
         netcode_write_bytes(*ptr, version_info);
         netcode_write_uint64(*ptr, protocol_id);
-        netcode_write_uint64(*ptr, expire_timestamp);
+        netcode_write_uint64(*ptr, to_milliseconds(expire_timestamp));
     }
     return netcode_decrypt_aead_bignonce(token_buffer, additional_data, nonce, key);
 }
@@ -1050,7 +1046,7 @@ netcode_connection_request_packet_t :: struct {
 
     version_info                   : VerionInfoBuf;
     protocol_id                    : u64;
-    connect_token_expire_timestamp : u64;
+    connect_token_expire_timestamp : Apollo_Time;
     connect_token_nonce            : BigNonceBuf;
     connect_token_data             : ConnectTokenBuf;
 };
@@ -1146,7 +1142,7 @@ netcode_write_packet :: (packet: *netcode_connection_packet_t, buffer: [] u8, se
         netcode_write_uint8(*cursor, NETCODE_CONNECTION_REQUEST_PACKET);
         netcode_write_bytes(*cursor, p.version_info);
         netcode_write_uint64(*cursor, p.protocol_id);
-        netcode_write_uint64(*cursor, p.connect_token_expire_timestamp);
+        netcode_write_uint64(*cursor, to_milliseconds(p.connect_token_expire_timestamp));
         netcode_write_bytes(*cursor, p.connect_token_nonce);
         netcode_write_bytes(*cursor, p.connect_token_data);
 
@@ -1295,7 +1291,7 @@ netcode_read_packet :: (
     buffer            : [] u8,
     read_packet_key   : EncryptionKeyBuf,
     protocol_id       : u64,
-    current_timestamp : u64,
+    current_timestamp : Apollo_Time,
     private_key       : *EncryptionKeyBuf,
     allowed_packets   : [NETCODE_CONNECTION_NUM_PACKETS] bool,  // NOTE(dlb): Could be a Bit_Array, but it's on the stack, so I probably don't care?
     replay_protection : *netcode_replay_protection_t
@@ -1356,7 +1352,7 @@ netcode_read_packet :: (
             return null, 0;
         }
 
-        packet_connect_token_expire_timestamp := netcode_read_uint64(*cursor);
+        packet_connect_token_expire_timestamp := milliseconds_to_apollo(netcode_read_uint64(*cursor));
         if packet_connect_token_expire_timestamp <= current_timestamp {
             netcode_log(.VERBOSE_ONLY, "ignored connection request packet. connect token expired\n");
             return null, 0;
@@ -1606,8 +1602,8 @@ netcode_read_packet :: (
 netcode_connect_token_t :: struct  {
     version_info         : VerionInfoBuf;
     protocol_id          : u64;
-    create_timestamp     : u64;
-    expire_timestamp     : u64;
+    create_timestamp     : Apollo_Time;
+    expire_timestamp     : Apollo_Time;
     nonce                : BigNonceBuf;
     private_data         : ConnectTokenBuf;
     timeout_seconds      : int;
@@ -1627,8 +1623,8 @@ netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer:
 
     netcode_write_bytes(cursor, connect_token.version_info);
     netcode_write_uint64(cursor, connect_token.protocol_id);
-    netcode_write_uint64(cursor, connect_token.create_timestamp);
-    netcode_write_uint64(cursor, connect_token.expire_timestamp);
+    netcode_write_uint64(cursor, to_milliseconds(connect_token.create_timestamp));
+    netcode_write_uint64(cursor, to_milliseconds(connect_token.expire_timestamp));
     netcode_write_bytes(cursor, connect_token.nonce);
     netcode_write_bytes(cursor, connect_token.private_data);
     netcode_write_uint32(cursor, connect_token.timeout_seconds);
@@ -1660,16 +1656,11 @@ netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer:
     assert(pointer_diff(cursor, start) <= NETCODE_CONNECT_TOKEN_BYTES);
 }
 
-netcode_read_connect_token :: (buffer: [] u8, connect_token: *netcode_connect_token_t) -> int {
+netcode_read_connect_token :: (buffer: ConnectTokenBuf, connect_token: *netcode_connect_token_t) -> int {
     assert(buffer.count > 0);
     assert(connect_token != null);
 
     cursor := buffer.data;
-
-    if buffer.count != NETCODE_CONNECT_TOKEN_BYTES {
-        netcode_log(.ERROR, "error: read connect data has bad buffer length (%)\n", buffer.count);
-        return NETCODE_ERROR;
-    }
 
     netcode_read_bytes(cursor, connect_token.version_info);
     if connect_token.version_info[0]  != #char "N" ||
@@ -1692,8 +1683,8 @@ netcode_read_connect_token :: (buffer: [] u8, connect_token: *netcode_connect_to
     }
 
     connect_token.protocol_id = netcode_read_uint64(cursor);
-    connect_token.create_timestamp = netcode_read_uint64(cursor);
-    connect_token.expire_timestamp = netcode_read_uint64(cursor);
+    connect_token.create_timestamp = milliseconds_to_apollo(netcode_read_uint64(cursor));
+    connect_token.expire_timestamp = milliseconds_to_apollo(netcode_read_uint64(cursor));
 
     if connect_token.create_timestamp > connect_token.expire_timestamp {
         return NETCODE_ERROR;
@@ -1958,4 +1949,317 @@ netcode_network_simulator_update :: (using network_simulator: *netcode_network_s
             packet.packet_data = null;
         }
     }
+}
+
+// TODO(dlb): We don't necessarily need this in Jai, but I'm too lazy to refactor it to an enum right now.
+netcode_client_state_name :: (client_state: int) -> string {
+    if client_state == {
+        case NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED;                return "connect token expired";
+        case NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN;                return "invalid connect token";
+        case NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT;                 return "connection timed out";
+        case NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT;         return "connection request timed out";
+        case NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT;        return "connection response timed out";
+        case NETCODE_CLIENT_STATE_CONNECTION_DENIED;                    return "connection denied";
+        case NETCODE_CLIENT_STATE_DISCONNECTED;                         return "disconnected";
+        case NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST;           return "sending connection request";
+        case NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE;          return "sending connection response";
+        case NETCODE_CLIENT_STATE_CONNECTED;                            return "connected";
+        case;
+            netcode_assert(false, "unknown client state");
+            return "<unknown client state>";
+    }
+}
+
+netcode_client_t :: struct {
+    config                   : netcode_client_config_t;
+    state                    : int;
+    time                     : Apollo_Time;
+    connect_start_time       : Apollo_Time;
+    last_packet_send_time    : Apollo_Time;
+    last_packet_receive_time : Apollo_Time;
+    should_disconnect        : bool;
+    should_disconnect_state  : int;
+    sequence                 : u64;
+    client_index             : int;
+    max_clients              : int;
+    server_address_index     : int;
+    address                  : netcode_address_t;
+    server_address           : netcode_address_t;
+    connect_token            : netcode_connect_token_t;
+    socket_holder            : netcode_socket_holder_t;
+    ctx                      : netcode_context_t;
+    replay_protection        : netcode_replay_protection_t;
+    packet_receive_queue     : netcode_packet_queue_t;
+    challenge_token_sequence : u64;
+    challenge_token_data     : ChallengeTokenBuf;
+    receive_packet_data      : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS][] u8;
+    receive_from             : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS] netcode_address_t;
+    loopback                 : bool;
+};
+
+netcode_client_socket_create :: (socket: *netcode_socket_t, address: *netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: *netcode_client_config_t) -> bool {
+    assert(socket != null);
+    assert(address != null);
+    assert(config != null);
+
+    if config.network_simulator == null {
+        if !config.override_send_and_receive {
+            if netcode_socket_create(socket, address, send_buffer_size, receive_buffer_size) != NETCODE_SOCKET_ERROR_NONE {
+                return false;
+            }
+        }
+    } else {
+        if address.port == 0 {
+            netcode_log(.ERROR, "error: must bind to a specific port when using network simulator\n");
+            return false;
+        }
+    }
+
+    return true;
+}
+
+netcode_client_create_overload :: (address1_string: string, address2_string: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
+    assert(config != null);
+    assert(netcode.initialized);
+
+    address1: netcode_address_t;
+    address2: netcode_address_t;
+
+    if netcode_parse_address(address1_string, *address1) != NETCODE_OK {
+        netcode_log(.ERROR, "error: failed to parse client address\n");
+        return null;
+    }
+
+    if address2_string.count > 0 && netcode_parse_address(address2_string, *address2) != NETCODE_OK {
+        netcode_log(.ERROR, "error: failed to parse client address2\n");
+        return NULL;
+    }
+
+
+    socket_ipv4: netcode_socket_t;
+    socket_ipv6: netcode_socket_t;
+
+    if address1.type == NETCODE_ADDRESS_IPV4 || address2.type == NETCODE_ADDRESS_IPV4 {
+        if !netcode_client_socket_create(*socket_ipv4, ifx address1.type == NETCODE_ADDRESS_IPV4 then *address1 else *address2, NETCODE_CLIENT_SOCKET_SNDBUF_SIZE, NETCODE_CLIENT_SOCKET_RCVBUF_SIZE, config) {
+            return null;
+        }
+    }
+
+    if address1.type == NETCODE_ADDRESS_IPV6 || address2.type == NETCODE_ADDRESS_IPV6 {
+        if !netcode_client_socket_create(*socket_ipv6, ifx address1.type == NETCODE_ADDRESS_IPV6 then *address1 else *address2, NETCODE_CLIENT_SOCKET_SNDBUF_SIZE, NETCODE_CLIENT_SOCKET_RCVBUF_SIZE, config) {
+            return null;
+        }
+    }
+
+    client := New(netcode_client_t);
+    if client == null {
+        netcode_socket_destroy(*socket_ipv4);
+        netcode_socket_destroy(*socket_ipv6);
+        return null;
+    }
+
+    socket_address := ifx address1.type == NETCODE_ADDRESS_IPV4 then socket_ipv4.address else socket_ipv6.address;
+    if !config.network_simulator {
+        netcode_log(.VERBOSE_ONLY, "client started on port %\n", socket_address.port);
+    } else {
+        netcode_log(.VERBOSE_ONLY, "client started on port % (network simulator)\n", socket_address.port);
+    }
+
+    client.config = *config;
+    client.socket_holder.ipv4 = socket_ipv4;
+    client.socket_holder.ipv6 = socket_ipv6;
+    client.address = ifx config.network_simulator then address1 else socket_address;
+    client.state = NETCODE_CLIENT_STATE_DISCONNECTED;
+    client.time = time;
+    client.last_packet_send_time = -1000.0;
+    client.last_packet_receive_time = -1000.0;
+    client.should_disconnect_state = NETCODE_CLIENT_STATE_DISCONNECTED;
+
+    netcode_replay_protection_reset(*client.replay_protection);
+
+    return client;
+}
+
+netcode_client_create :: (address: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
+    return netcode_client_create_overload(address, null, config, time);
+}
+
+netcode_client_destroy :: (using client: *netcode_client_t) {
+    assert(client != null);
+    if (!loopback) {
+        netcode_client_disconnect(client);
+    } else {
+        netcode_client_disconnect_loopback(client);
+    }
+    netcode_socket_destroy(*socket_holder.ipv4);
+    netcode_socket_destroy(*socket_holder.ipv6);
+    netcode_packet_queue_clear(*packet_receive_queue);
+    free(client);
+}
+
+netcode_client_set_state :: (using client: *netcode_client_t, client_state: int) {
+    netcode_log(.VERY_VERBOSE_ONLY, "client changed state from '%' to '%'\n", netcode_client_state_name(state), netcode_client_state_name(client_state));
+
+    if config.state_change_callback != null {
+        config.state_change_callback(config.callback_context, state, client_state);
+    }
+
+    state = client_state;
+}
+
+netcode_client_reset_before_next_connect :: (using client: *netcode_client_t) {
+    connect_start_time = time;
+    last_packet_send_time = time - seconds_to_apollo(1.0);
+    last_packet_receive_time = time;
+    should_disconnect = false;
+    should_disconnect_state = NETCODE_CLIENT_STATE_DISCONNECTED;
+    challenge_token_sequence = 0;
+
+    array_zero(challenge_token_data);
+
+    netcode_replay_protection_reset(*replay_protection);
+}
+
+netcode_client_reset_connection_data :: (using client: *netcode_client_t, client_state: int) {
+    assert(client != null);
+
+    sequence = 0;
+    loopback = 0;
+    client_index = 0;
+    max_clients = 0;
+    connect_start_time = 0.0;
+    server_address_index = 0;
+    server_address = .{};
+    connect_token = .{};
+    ctx = .{};
+
+    netcode_client_set_state(client, client_state);
+
+    netcode_client_reset_before_next_connect(client);
+
+    while true {
+        packet := netcode_packet_queue_pop(*packet_receive_queue);
+        if packet == null {
+            break;
+        }
+        free(packet);
+    }
+
+    netcode_packet_queue_clear(*packet_receive_queue);
+}
+
+netcode_client_connect :: (using client: *netcode_client_t, connect_token_buf: ConnectTokenBuf) {
+    assert(client != null);
+    assert(connect_token_buf.count > 0);
+
+    netcode_client_disconnect(client);
+
+    if netcode_read_connect_token(connect_token_buf, *connect_token) != NETCODE_OK {
+        netcode_client_set_state(client, NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN);
+        return;
+    }
+
+    server_address_index = 0;
+    server_address = connect_token.server_addresses[0];
+
+    server_address_string := netcode_address_to_string(server_address);
+
+    netcode_log(.VERBOSE_ONLY, "client connecting to server % [%/%]\n", server_address_string, server_address_index + 1, connect_token.num_server_addresses);
+
+    ctx.read_packet_key = connect_token.server_to_client_key;
+    ctx.write_packet_key = connect_token.client_to_server_key;
+
+    netcode_client_reset_before_next_connect(client);
+
+    netcode_client_set_state(client, NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST);
+}
+
+netcode_client_process_packet_internal :: (using client: *netcode_client_t, from: *netcode_address_t, packet: *netcode_connection_packet_t, packet_sequence: u64) {
+    assert(client != null);
+    assert(packet != null);
+
+    if packet.type == {
+        case NETCODE_CONNECTION_DENIED_PACKET;
+            if (state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST || state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE) && netcode_address_equal(from, *server_address) {
+                should_disconnect = true;
+                should_disconnect_state = NETCODE_CLIENT_STATE_CONNECTION_DENIED;
+                last_packet_receive_time = time;
+            }
+        case NETCODE_CONNECTION_CHALLENGE_PACKET;
+            if state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST && netcode_address_equal(from, *server_address) {
+                netcode_log(.VERY_VERBOSE_ONLY, "client received connection challenge packet from server\n");
+
+                p := cast(*netcode_connection_challenge_packet_t) packet;
+                challenge_token_sequence = p.challenge_token_sequence;
+                challenge_token_data = p.challenge_token_data;
+                last_packet_receive_time = time;
+
+                netcode_client_set_state(client, NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE);
+            }
+        case NETCODE_CONNECTION_KEEP_ALIVE_PACKET;
+            if netcode_address_equal(from, *server_address) {
+                p := cast(*netcode_connection_keep_alive_packet_t) packet;
+
+                if state == NETCODE_CLIENT_STATE_CONNECTED {
+                    netcode_log(.VERY_VERBOSE_ONLY, "client received connection keep alive packet from server\n");
+
+                    last_packet_receive_time = time;
+                } else if state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE {
+                    netcode_log(.VERY_VERBOSE_ONLY, "client received connection keep alive packet from server\n");
+
+                    last_packet_receive_time = time;
+                    client_index = p.client_index;
+                    max_clients = p.max_clients;
+
+                    netcode_client_set_state(client, NETCODE_CLIENT_STATE_CONNECTED);
+
+                    netcode_log(NETCODE_LOG_LEVEL_INFO, "client connected to server\n");
+                }
+            }
+        case NETCODE_CONNECTION_PAYLOAD_PACKET;
+            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from, *server_address) {
+                netcode_log(.VERY_VERBOSE_ONLY, "client received connection payload packet from server\n");
+
+                netcode_packet_queue_push(*packet_receive_queue, packet, packet_sequence);
+
+                last_packet_receive_time = time;
+
+                return;
+            }
+        case NETCODE_CONNECTION_DISCONNECT_PACKET;
+            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from, *server_address) {
+                netcode_log(.VERY_VERBOSE_ONLY, "client received disconnect packet from server\n");
+
+                should_disconnect = true;
+                should_disconnect_state = NETCODE_CLIENT_STATE_DISCONNECTED;
+                last_packet_receive_time = time;
+            }
+    }
+
+    free(packet);
+}
+
+netcode_client_process_packet :: (client: *netcode_client_t, from: *netcode_address_t, packet_buf: [] u8) {
+    allowed_packets: [NETCODE_CONNECTION_NUM_PACKETS] bool;
+    allowed_packets[NETCODE_CONNECTION_DENIED_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_CHALLENGE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_KEEP_ALIVE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_PAYLOAD_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_DISCONNECT_PACKET] = true;
+
+    current_timestamp = current_time_monotonic();
+    packet, packet_sequence := netcode_read_packet(
+        packet_buf,
+        client.ctx.read_packet_key,
+        client.connect_token.protocol_id,
+        current_timestamp,
+        null,
+        allowed_packets,
+        *client.replay_protection,
+    );
+
+    if (!packet)
+        return;
+
+    netcode_client_process_packet_internal(client, from, packet, packet_sequence);
 }
