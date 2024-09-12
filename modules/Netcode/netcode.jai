@@ -97,11 +97,10 @@ netcode_client_config_t :: struct {
     override_send_and_receive     : bool;
     send_packet_override          : #type (*void, *netcode_address_t, [] u8);
     receive_packet_override       : #type (*void, *netcode_address_t, [] u8) -> int;
-};
+}
 
 netcode_client_create :: (address: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
-    //return netcode_client_create_overload(address, null, config, time);
-    return New(netcode_client_t);
+    return netcode_client_create_overload(address, null, config, time);
 }
 
 netcode_client_destroy :: (using client: *netcode_client_t) {
@@ -364,10 +363,6 @@ netcode_generate_connect_token :: (
 
 // ----------------------------------------------------------------
 
-netcode_server_t :: struct {
-
-}
-
 netcode_server_config_t :: struct {
     protocol_id                   : u64;
     private_key                   : EncryptionKeyBuf;
@@ -378,10 +373,6 @@ netcode_server_config_t :: struct {
     override_send_and_receive     : int;
     send_packet_override          : #type (*void, *netcode_address_t, *u8, int);
     receive_packet_override       : #type (*void, *netcode_address_t, *u8, int) -> int;
-};
-
-netcode_default_server_config :: (config: *netcode_server_config_t) {
-    // TODO(dlb): Move this to the struct if possible
 }
 
 netcode_server_create :: (server_address: string, config: *netcode_server_config_t, time: Apollo_Time) -> *netcode_server_t {
@@ -524,12 +515,13 @@ ChallengeTokenBuf :: [NETCODE_CHALLENGE_TOKEN_BYTES] u8;
 NonceBuf          :: [NETCODE_CHALLENGE_TOKEN_NONCE_BYTES] u8;  // use regular nonce when you have a sequential number
 VerionInfoBuf     :: [NETCODE_VERSION_INFO_BYTES] u8;
 UserDataBuf       :: [NETCODE_USER_DATA_BYTES] u8;
+MacBuf            :: [NETCODE_MAC_BYTES] u8;
 
 // ----------------------------------------------------------------
 
 netcode_t :: struct {
     initialized: bool;
-};
+}
 
 netcode :: netcode_t;
 
@@ -545,22 +537,22 @@ netcode_address_t :: struct {
     data :: union {
         ipv4: [4] u8;
         ipv6: [8] u16;
-    };
+    }
     port: u16;
     type: u8;
-};
+}
 
-netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> int {
+netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> bool {
     // TODO(dlb): Implement this via yojimbo.address
     assert(false, "Not implemented");
 }
 
-netcode_address_to_string :: (address: *netcode_address_t) -> string {
+netcode_address_to_string :: (address: netcode_address_t) -> string {
     // TODO(dlb): Implement this via yojimbo.address
     assert(false, "Not implemented");
 }
 
-netcode_address_equal :: (a: *netcode_address_t, b: *netcode_address_t) -> int {
+netcode_address_equal :: (a: netcode_address_t, b: netcode_address_t) -> bool {
     // TODO(dlb): Implement this via yojimbo.address
     assert(false, "Not implemented");
 }
@@ -575,7 +567,7 @@ netcode_socket_t :: struct {
 netcode_socket_holder_t :: struct {
     ipv4: netcode_socket_t;
     ipv6: netcode_socket_t;
-};
+}
 
 NETCODE_SOCKET_ERROR_NONE                              :: 0;
 NETCODE_SOCKET_ERROR_CREATE_FAILED                     :: 1;
@@ -713,7 +705,7 @@ netcode_socket_send_packet :: (socket: *netcode_socket_t, to: *netcode_address_t
         socket_address: sockaddr_in6;
         socket_address.sin6_family = AF_INET6;
         for 0..7 {
-            (cast(*u16) *socket_address.sin6_addr)[it] = htons(to.data.ipv6[i]);
+            (cast(*u16) *socket_address.sin6_addr)[it] = htons(to.data.ipv6[it]);
         }
         socket_address.sin6_port = htons(to.port);
         result := sendto(socket.handle, packet_data.data, cast(s32) packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in6));
@@ -1012,7 +1004,7 @@ netcode_connect_token_private_t :: struct {
     client_to_server_key : EncryptionKeyBuf;
     server_to_client_key : EncryptionKeyBuf;
     user_data            : UserDataBuf;
-};
+}
 
 netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token_private_t, client_id: u64, timeout_seconds: int, num_server_addresses: int, server_addresses: [] netcode_address_t, user_data: *UserDataBuf) {
     assert(connect_token != null);
@@ -1144,7 +1136,7 @@ netcode_read_connect_token_private :: (token_buffer: ConnectTokenBuf, connect_to
 netcode_challenge_token_t :: struct {
     client_id: u64;
     user_data: UserDataBuf;
-};
+}
 
 netcode_write_challenge_token :: (challenge_token: *netcode_challenge_token_t, token_buffer: ChallengeTokenBuf) {
     assert(challenge_token != null);
@@ -1206,7 +1198,7 @@ NETCODE_CONNECTION_NUM_PACKETS       :: 7;
 
 netcode_connection_packet_t :: struct {
     type: u8;
-};
+}
 
 netcode_connection_request_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
@@ -1217,12 +1209,12 @@ netcode_connection_request_packet_t :: struct {
     connect_token_expire_timestamp : Apollo_Time;
     connect_token_nonce            : BigNonceBuf;
     connect_token_data             : ConnectTokenBuf;
-};
+}
 
 netcode_connection_denied_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
     base.type = NETCODE_CONNECTION_DENIED_PACKET;
-};
+}
 
 netcode_connection_challenge_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
@@ -1230,7 +1222,7 @@ netcode_connection_challenge_packet_t :: struct {
 
     challenge_token_sequence : u64;
     challenge_token_data     : ChallengeTokenBuf;
-};
+}
 
 netcode_connection_response_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
@@ -1238,7 +1230,7 @@ netcode_connection_response_packet_t :: struct {
 
     challenge_token_sequence : u64;
     challenge_token_data     : ChallengeTokenBuf;
-};
+}
 
 netcode_connection_keep_alive_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
@@ -1246,7 +1238,7 @@ netcode_connection_keep_alive_packet_t :: struct {
 
     client_index : int;
     max_clients  : int;
-};
+}
 
 netcode_connection_payload_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
@@ -1254,12 +1246,12 @@ netcode_connection_payload_packet_t :: struct {
 
     // NOTE(dlb): This memory is owned by the payload packet and is allocated contiguously after the packet itself!
     payload_data : [] u8;
-};
+}
 
 netcode_connection_disconnect_packet_t :: struct {
     using #as base: netcode_connection_packet_t;
     base.type = NETCODE_CONNECTION_DISCONNECT_PACKET;
-};
+}
 
 netcode_create_payload_packet :: (payload_bytes: int) -> *netcode_connection_payload_packet_t {
     assert(payload_bytes >= 0);
@@ -1280,7 +1272,7 @@ netcode_create_payload_packet :: (payload_bytes: int) -> *netcode_connection_pay
 netcode_context_t :: struct {
     write_packet_key: EncryptionKeyBuf;
     read_packet_key: EncryptionKeyBuf;
-};
+}
 
 netcode_sequence_number_bytes_required :: (sequence: u64) -> int {
     mask: u64 = 0xFF00000000000000;
@@ -1412,7 +1404,7 @@ netcode_write_packet :: (packet: *netcode_connection_packet_t, buffer: [] u8, se
 netcode_replay_protection_t :: struct {
     most_recent_sequence : u64;
     received_packet      : [NETCODE_REPLAY_PROTECTION_BUFFER_SIZE] u64;
-};
+}
 
 netcode_replay_protection_reset :: (replay_protection: *netcode_replay_protection_t) {
     assert(replay_protection != null);
@@ -1767,7 +1759,7 @@ netcode_connect_token_t :: struct  {
     server_addresses     : [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
     client_to_server_key : EncryptionKeyBuf;
     server_to_client_key : EncryptionKeyBuf;
-};
+}
 
 // buffer expected to be zero'd
 netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer: [] u8) {
@@ -1890,7 +1882,7 @@ netcode_packet_queue_t :: struct {
     start_index     : int;
     packet_data     : [NETCODE_PACKET_QUEUE_SIZE] *netcode_connection_packet_t;
     packet_sequence : [NETCODE_PACKET_QUEUE_SIZE] u64;
-};
+}
 
 netcode_packet_queue_clear :: (using queue: *netcode_packet_queue_t) {
     assert(queue != null);
@@ -1939,7 +1931,7 @@ netcode_network_simulator_packet_entry_t :: struct {
     to            : netcode_address_t;
     delivery_time : Apollo_Time;
     packet_data   : [] u8;
-};
+}
 
 netcode_network_simulator_t :: struct {
     latency_milliseconds        : float;
@@ -1951,7 +1943,7 @@ netcode_network_simulator_t :: struct {
     num_pending_receive_packets : int;
     packet_entries              : [NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES] netcode_network_simulator_packet_entry_t;
     pending_receive_packets     : [NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS] netcode_network_simulator_packet_entry_t;
-};
+}
 
 netcode_network_simulator_reset :: (using network_simulator: *netcode_network_simulator_t) {
     assert(network_simulator != null);
@@ -2054,7 +2046,7 @@ netcode_network_simulator_receive_packets :: (using network_simulator: *netcode_
             continue;
         }
 
-        if !netcode_address_equal(*pending_receive_packets[it].to, to) {
+        if !netcode_address_equal(pending_receive_packets[it].to, to.*) {
             continue;
         }
 
@@ -2151,7 +2143,7 @@ netcode_client_t :: struct {
     receive_packet_data      : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS][] u8;
     receive_from             : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS] netcode_address_t;
     loopback                 : bool;
-};
+}
 
 netcode_client_create_overload :: (address1_string: string, address2_string: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
     assert(config != null);
@@ -2272,13 +2264,13 @@ netcode_client_process_packet_internal :: (using client: *netcode_client_t, from
 
     if packet.type == {
         case NETCODE_CONNECTION_DENIED_PACKET;
-            if (state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST || state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE) && netcode_address_equal(from, *server_address) {
+            if (state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST || state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE) && netcode_address_equal(from.*, server_address) {
                 should_disconnect = true;
                 should_disconnect_state = NETCODE_CLIENT_STATE_CONNECTION_DENIED;
                 last_packet_receive_time = time;
             }
         case NETCODE_CONNECTION_CHALLENGE_PACKET;
-            if state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST && netcode_address_equal(from, *server_address) {
+            if state == NETCODE_CLIENT_STATE_SENDING_CONNECTION_REQUEST && netcode_address_equal(from.*, server_address) {
                 netcode_log(.VERY_VERBOSE_ONLY, "client received connection challenge packet from server\n");
 
                 p := cast(*netcode_connection_challenge_packet_t) packet;
@@ -2289,7 +2281,7 @@ netcode_client_process_packet_internal :: (using client: *netcode_client_t, from
                 netcode_client_set_state(client, NETCODE_CLIENT_STATE_SENDING_CONNECTION_RESPONSE);
             }
         case NETCODE_CONNECTION_KEEP_ALIVE_PACKET;
-            if netcode_address_equal(from, *server_address) {
+            if netcode_address_equal(from.*, server_address) {
                 p := cast(*netcode_connection_keep_alive_packet_t) packet;
 
                 if state == NETCODE_CLIENT_STATE_CONNECTED {
@@ -2309,7 +2301,7 @@ netcode_client_process_packet_internal :: (using client: *netcode_client_t, from
                 }
             }
         case NETCODE_CONNECTION_PAYLOAD_PACKET;
-            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from, *server_address) {
+            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from.*, server_address) {
                 netcode_log(.VERY_VERBOSE_ONLY, "client received connection payload packet from server\n");
 
                 netcode_packet_queue_push(*packet_receive_queue, packet, packet_sequence);
@@ -2319,7 +2311,7 @@ netcode_client_process_packet_internal :: (using client: *netcode_client_t, from
                 return;
             }
         case NETCODE_CONNECTION_DISCONNECT_PACKET;
-            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from, *server_address) {
+            if state == NETCODE_CLIENT_STATE_CONNECTED && netcode_address_equal(from.*, server_address) {
                 netcode_log(.VERY_VERBOSE_ONLY, "client received disconnect packet from server\n");
 
                 should_disconnect = true;
@@ -2543,11 +2535,454 @@ NETCODE_MAX_ENCRYPTION_MAPPINGS :: NETCODE_MAX_CLIENTS * 4;
 
 netcode_encryption_manager_t :: struct {
     num_encryption_mappings : int;
-    timeout                 : [NETCODE_MAX_ENCRYPTION_MAPPINGS] int;
+    timeout                 : [NETCODE_MAX_ENCRYPTION_MAPPINGS] Apollo_Time;
     expire_time             : [NETCODE_MAX_ENCRYPTION_MAPPINGS] Apollo_Time;
     last_access_time        : [NETCODE_MAX_ENCRYPTION_MAPPINGS] Apollo_Time;
     address                 : [NETCODE_MAX_ENCRYPTION_MAPPINGS] netcode_address_t;
     client_index            : [NETCODE_MAX_ENCRYPTION_MAPPINGS] int;
     send_key                : [NETCODE_MAX_ENCRYPTION_MAPPINGS] EncryptionKeyBuf;
     receive_key             : [NETCODE_MAX_ENCRYPTION_MAPPINGS] EncryptionKeyBuf;
+}
+
+netcode_encryption_manager_reset :: (using encryption_manager: *netcode_encryption_manager_t) {
+    netcode_log(.VERY_VERBOSE_ONLY, "reset encryption manager\n");
+
+    assert(encryption_manager);
+
+    num_encryption_mappings = 0;
+
+    for 0..NETCODE_MAX_ENCRYPTION_MAPPINGS-1 {
+        // NOTE(dlb): These are some weird "null" values.. I'm not sure if I interpreted the original code correctly but it should be fine.
+        expire_time[it] = milliseconds_to_apollo(-1);
+        last_access_time[it] = milliseconds_to_apollo(-1000);
+        address[it] = .{};
+        client_index[it] = -1;
+    }
+
+    array_zero(timeout);
+    array_zero(send_key);
+    array_zero(receive_key);
+}
+
+netcode_encryption_manager_entry_expired :: (using encryption_manager: *netcode_encryption_manager_t, index: int, time: Apollo_Time) -> bool {
+    return (timeout[index] > 0 && (last_access_time[index] + timeout[index]) < time)
+        || (expire_time[index] >= 0.0 && expire_time[index] < time);
+}
+
+netcode_encryption_manager_add_encryption_mapping :: (
+    using encryption_manager: *netcode_encryption_manager_t,
+    _address: *netcode_address_t,
+    _send_key: EncryptionKeyBuf,
+    _receive_key: EncryptionKeyBuf,
+    _time: Apollo_Time,
+    _expire_time: Apollo_Time,
+    _timeout: Apollo_Time
+) -> bool {
+    for 0..num_encryption_mappings-1 {
+        if netcode_address_equal(address[it], _address.*) && !netcode_encryption_manager_entry_expired(encryption_manager, it, _time) {
+            timeout[it] = _timeout;
+            expire_time[it] = _expire_time;
+            last_access_time[it] = _time;
+            memcpy(send_key[it].data, _send_key.data, _send_key.count);
+            memcpy(receive_key[it].data, _receive_key.data, _receive_key.count);
+            return true;
+        }
+    }
+
+    for 0..NETCODE_MAX_ENCRYPTION_MAPPINGS-1 {
+        if address[it].type == NETCODE_ADDRESS_NONE || (netcode_encryption_manager_entry_expired(encryption_manager, it, _time) && client_index[it] == -1) {
+            timeout[it] = _timeout;
+            expire_time[it] = _expire_time;
+            last_access_time[it] = _time;
+            address[it] = _address.*;
+            memcpy(send_key[it].data, _send_key.data, _send_key.count);
+            memcpy(receive_key[it].data, _receive_key.data, _receive_key.count);
+            if it >= num_encryption_mappings {
+                num_encryption_mappings = it + 1;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+netcode_encryption_manager_remove_encryption_mapping :: (using encryption_manager: *netcode_encryption_manager_t, _address: *netcode_address_t, time: Apollo_Time) -> bool {
+    assert(encryption_manager != null);
+    assert(address != null);
+
+    for 0..num_encryption_mappings-1 {
+        if netcode_address_equal(address[it], _address.*) {
+            expire_time[it] = milliseconds_to_apollo(-1);
+            last_access_time[it] = milliseconds_to_apollo(-1000);
+            address[it] = .{};
+            array_reset(send_key[it].data);
+            array_reset(receive_key[it].data);
+
+            if it == num_encryption_mappings - 1 {
+                index := it - 1;
+                while index >= 0 {
+                    if !netcode_encryption_manager_entry_expired(encryption_manager, index, time) || client_index[index] != -1 {
+                        break;
+                    }
+                    address[index].type = NETCODE_ADDRESS_NONE;
+                    index -= 1;
+                }
+                num_encryption_mappings = index + 1;
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+}
+
+netcode_encryption_manager_find_encryption_mapping :: (using encryption_manager: *netcode_encryption_manager_t, _address: *netcode_address_t, time: Apollo_Time) -> int {
+    for 0..num_encryption_mappings-1 {
+        if netcode_address_equal(address[it], _address.*) && !netcode_encryption_manager_entry_expired(encryption_manager, it, time) {
+            last_access_time[it] = time;
+            return it;
+        }
+    }
+    return -1;
+}
+
+netcode_encryption_manager_touch :: (using encryption_manager: *netcode_encryption_manager_t, index: int, _address: *netcode_address_t, time: Apollo_Time) -> bool {
+    assert(index >= 0);
+    assert(index < num_encryption_mappings);
+
+    if !netcode_address_equal(address[index], _address.*) {
+        return false;
+    }
+    last_access_time[index] = time;
+    return true;
+}
+
+netcode_encryption_manager_set_expire_time :: (using encryption_manager: *netcode_encryption_manager_t, index: int, _expire_time: Apollo_Time) {
+    assert(index >= 0);
+    assert(index < num_encryption_mappings);
+
+    expire_time[index] = _expire_time;
+}
+
+netcode_encryption_manager_get_send_key :: (using encryption_manager: *netcode_encryption_manager_t, index: int) -> *EncryptionKeyBuf {
+    assert(encryption_manager != null);
+    assert(index >= -1);
+    assert(index < num_encryption_mappings);
+
+    if index == -1 {
+        return null;
+    }
+    return *send_key[index];
+}
+
+netcode_encryption_manager_get_receive_key :: (using encryption_manager: *netcode_encryption_manager_t, index: int) -> *EncryptionKeyBuf {
+    assert(encryption_manager != null);
+    assert(index >= -1);
+    assert(index < num_encryption_mappings);
+
+    if index == -1 {
+        return null;
+    }
+    return *receive_key[index];
+}
+
+netcode_encryption_manager_get_timeout :: (using encryption_manager: *netcode_encryption_manager_t, index: int) -> Apollo_Time {
+    assert(encryption_manager != null);
+    assert(index >= -1);
+    assert(index < num_encryption_mappings);
+
+    if index == -1 {
+        return 0;
+    }
+    return timeout[index];
+}
+
+// ----------------------------------------------------------------
+
+NETCODE_MAX_CONNECT_TOKEN_ENTRIES :: NETCODE_MAX_CLIENTS * 8;
+
+netcode_connect_token_entry_t :: struct {
+    time    : Apollo_Time;
+    mac     : MacBuf;
+    address : netcode_address_t;
+}
+
+netcode_connect_token_entries_reset :: (connect_token_entries: [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t) {
+    for * connect_token_entries {
+        it.time = milliseconds_to_apollo(-1000);
+        array_zero(it.mac);
+        it.address = .{};
+    }
+}
+
+netcode_connect_token_entries_find_or_add :: (connect_token_entries: [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t, address: *netcode_address_t, mac: MacBuf, time: Apollo_Time) -> bool {
+    assert(address != null);
+
+    // find the matching entry for the token mac and the oldest token entry. constant time worst case. This is intentional!
+
+    matching_token_index = -1;
+    oldest_token_index = -1;
+    oldest_token_time: Apollo_Time;
+
+    for * connect_token_entries {
+        if memcmp(it.mac.data, mac.data, mac.count) == 0 {
+            matching_token_index = it_index;
+        }
+
+        if oldest_token_index == -1 || it.time < oldest_token_time {
+            oldest_token_time = it.time;
+            oldest_token_index = it_index;
+        }
+    }
+
+    // if no entry is found with the mac, this is a new connect token. replace the oldest token entry.
+
+    assert(oldest_token_index != -1);
+
+    if matching_token_index == -1 {
+        connect_token_entries[oldest_token_index].time = time;
+        connect_token_entries[oldest_token_index].address = address.*;
+        memcpy(connect_token_entries[oldest_token_index].mac, mac.data, mac.count);
+        return true;
+    }
+
+    // allow connect tokens we have already seen from the same address
+
+    assert(matching_token_index >= 0);
+    assert(matching_token_index < NETCODE_MAX_CONNECT_TOKEN_ENTRIES);
+    if netcode_address_equal(connect_token_entries[matching_token_index].address, address.*) {
+        return true;
+    }
+
+    return false;
+}
+
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+// Everything below this line should have the correct pointer vs. non-pointer semantics
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+//////////////// POINTER VS. REFERENCE BOOKMARK //////////////////////////////
+
+// ----------------------------------------------------------------
+
+// TODO(dlb): This 'address_map' data structure is kinda silly, why is it even a bucket array? The pointers clearly don't need
+// to be stable, otherwise _delete wouldn't swap the last element into the hole. We can probably just use Jai's Hash_Table here.
+
+netcode_address_map_element_t :: struct {
+    client_index : int;
+    address      : netcode_address_t;
+}
+
+netcode_address_map_bucket_t :: struct {
+    size     : int;
+    elements : [NETCODE_MAX_CLIENTS] netcode_address_map_element_t;
+}
+
+netcode_address_map_t :: struct {
+    size    : int;
+    buckets : [NETCODE_ADDRESS_MAP_BUCKETS] netcode_address_map_bucket_t;
+}
+
+netcode_address_map_create :: () -> *netcode_address_map_t {
+    map := New(netcode_address_map_t);
+    assert(map != null);
+
+    netcode_address_map_reset(map);
+    return map;
+}
+
+// TODO(dlb)[cleanup] Seems like nobody even calls this.. useless function, clean it up?
+netcode_address_map_destroy :: (map: *netcode_address_map_t) {
+    assert(map != null);
+
+    free(map);
+}
+
+netcode_fnv_t :: u64;
+
+netcode_fnv_init :: (fnv: *netcode_fnv_t) {
+    fnv.* = 0x_CBF2_9CE4_8422_2325;
+}
+
+netcode_fnv_write :: (fnv: *netcode_fnv_t, data: [] u8) {
+    for data {
+        fnv.* ^= it;
+        fnv.* *= 0x_0000_0100_0000_01B3;
+    }
+}
+
+netcode_fnv_finalize :: (fnv: netcode_fnv_t) -> u64 {
+    return fnv;
+}
+
+netcode_hash_string :: (str: string) -> u64 {
+    fnv: netcode_fnv_t;
+    netcode_fnv_init(*fnv);
+    netcode_fnv_write(*fnv, str);
+    return netcode_fnv_finalize(*fnv);
+}
+
+netcode_hash_data :: (data: [] u8) -> u64 {
+    fnv: netcode_fnv_t;
+    netcode_fnv_init(*fnv);
+    netcode_fnv_write(*fnv, data);
+    return netcode_fnv_finalize(*fnv);
+}
+
+netcode_address_hash :: (address: netcode_address_t) -> int {
+    return netcode_hash_data(.{ size_of(address), cast(*u8) *address }) % NETCODE_ADDRESS_MAP_BUCKETS;
+}
+
+netcode_address_map_element_reset :: (using element: *netcode_address_map_element_t) {
+    client_index = -1;
+    address = .{};
+}
+
+netcode_address_map_bucket_reset :: (using bucket: *netcode_address_map_bucket_t) {
+    size = 0;
+    for * elements {
+        netcode_address_map_element_reset(it);
+    }
+}
+
+netcode_address_map_reset :: (using map: *netcode_address_map_t) {
+    size = 0;
+    for * buckets {
+        netcode_address_map_bucket_reset(it);
+    }
+}
+
+netcode_address_map_set :: (map: *netcode_address_map_t, address: netcode_address_t, client_index: int) -> bool {
+    bucket_index := netcode_address_hash(address);
+    bucket := *map.buckets[bucket_index];
+    if bucket.size == NETCODE_MAX_CLIENTS {
+        return false;
+    }
+
+    element = *bucket.elements[bucket.size];
+    element.client_index = client_index;
+    element.address = address;
+
+    bucket.size += 1;
+    map.size += 1;
+    return true;
+}
+
+netcode_address_map_bucket_find :: (bucket: netcode_address_map_bucket_t, address: netcode_address_t) -> *netcode_address_map_element_t {
+    for 0..bucket.size-1 {
+        element := *bucket.elements[it];
+        if netcode_address_equal(address, element.address) {
+            return element;
+        }
+    }
+
+    return null;
+}
+
+netcode_address_map_get :: (map: netcode_address_map_t, address: netcode_address_t) -> int {
+    bucket_index := netcode_address_hash(address);
+    bucket := map.buckets[bucket_index];
+    element := netcode_address_map_bucket_find(bucket, address);
+
+    if element == null {
+        return -1;
+    }
+
+    return element.client_index;
+}
+
+netcode_address_map_delete :: (map: *netcode_address_map_t, address: netcode_address_t) -> bool {
+    bucket_index := netcode_address_hash(address);
+    bucket := map.buckets[bucket_index];
+
+    element := netcode_address_map_bucket_find(bucket, address);
+    if element == null {
+        return false;
+    }
+
+    last := *bucket.elements[bucket.size-1];
+    if element != last {
+        element.* = last.*;
+    }
+    netcode_address_map_element_reset(last);
+
+    bucket.size -= 1;
+    map.size -= 1;
+    return true;
+}
+
+// ----------------------------------------------------------------
+
+// TODO(dlb): Use enum_flags
+NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS  :: 1;
+NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS :: 1 << 1;
+
+netcode_server_t :: struct {
+    config                          : netcode_server_config_t;
+    socket_holder                   : netcode_socket_holder_t;
+    address                         : netcode_address_t;
+    flags                           : u32;
+    time                            : Apollo_Time;
+    running                         : int;
+    max_clients                     : int;
+    num_connected_clients           : int;
+    global_sequence                 : u64;
+    challenge_sequence              : u64;
+    challenge_key                   : EncryptionKeyBuf;
+    client_connected                : [NETCODE_MAX_CLIENTS] bool;
+    client_timeout                  : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_loopback                 : [NETCODE_MAX_CLIENTS] bool;
+    client_confirmed                : [NETCODE_MAX_CLIENTS] bool;
+    client_encryption_index         : [NETCODE_MAX_CLIENTS] int;
+    client_id                       : [NETCODE_MAX_CLIENTS] u64;
+    client_sequence                 : [NETCODE_MAX_CLIENTS] u64;
+    client_last_packet_send_time    : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_last_packet_receive_time : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_user_data                : [NETCODE_MAX_CLIENTS] UserDataBuf;
+    client_replay_protection        : [NETCODE_MAX_CLIENTS] netcode_replay_protection_t;
+    client_packet_queue             : [NETCODE_MAX_CLIENTS] netcode_packet_queue_t;
+    client_address                  : [NETCODE_MAX_CLIENTS] netcode_address_t;
+    client_address_map              : netcode_address_map_t;
+    connect_token_entries           : [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t;
+    encryption_manager              : netcode_encryption_manager_t;
+    receive_packet_data             : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] [] u8;  // TODO(dlb): Should the slice be MAX_PACKET_BYTES or something?
+    //receive_packet_bytes            : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] int;  // TODO(dlb): Use the packet_data slice
+    receive_from                    : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] netcode_address_t;
 };
