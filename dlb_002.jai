@@ -2,10 +2,14 @@ main :: () {
     context.logger = logger;
     context.log_level = .VERY_VERBOSE;
 
-    yojimbo_init();
     log_cpu_info();
+    yojimbo_init();
     //yojimbo_tests();
     reliable_test();
+
+    //config: netcode_client_config_t;
+    //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
+
     run_game();
 }
 
