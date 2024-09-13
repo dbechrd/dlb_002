@@ -523,7 +523,7 @@ NETCODE_SERVER_SOCKET_SNDBUF_SIZE     :: 4 * 1024 * 1024;
 NETCODE_SERVER_SOCKET_RCVBUF_SIZE     :: 4 * 1024 * 1024;
 
 NETCODE_VERSION_INFO           :: cast(VerionInfoBuf) "NETCODE 1.02\0";
-NETCODE_PACKET_SEND_RATE       :: 10.0;
+NETCODE_PACKET_SEND_RATE       :: 10;
 NETCODE_NUM_DISCONNECT_PACKETS :: 10;
 
 NETCODE_ADDRESS_MAP_BUCKETS :: NETCODE_MAX_CLIENTS;
@@ -2003,8 +2003,6 @@ netcode_random_float :: inline (a: float, b: float) -> float {
     return a + r;
 }
 
-
-
 netcode_network_simulator_queue_packet :: (using network_simulator: *netcode_network_simulator_t, from: netcode_address_t, to: netcode_address_t, packet_data: [] u8, delay: Apollo_Time) {
     entry := *packet_entries[current_index];
     entry.from = from;
@@ -2160,7 +2158,6 @@ netcode_client_t :: struct {
     receive_from             : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS] netcode_address_t;
     loopback                 : bool;
 }
-
 
 netcode_client_socket_create :: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_client_config_t) -> bool {
     assert(socket != null);
@@ -2431,7 +2428,7 @@ netcode_client_receive_packets :: (using client: *netcode_client_t) {
                 *replay_protection,
             );
 
-            free(receive_packet_data[it]);
+            array_reset(*receive_packet_data[it]);
 
             if packet == null {
                 continue;
@@ -3016,7 +3013,7 @@ netcode_server_t :: struct {
     receive_packet_data             : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] [] u8;  // TODO(dlb): Should the slice be MAX_PACKET_BYTES or something?
     //receive_packet_bytes            : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] int;  // TODO(dlb): Use the packet_data slice
     receive_from                    : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] netcode_address_t;
-};
+}
 
 netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_server_config_t) -> bool {
     assert(socket != null);
@@ -3477,8 +3474,6 @@ netcode_server_process_connection_response_packet :: (using server: *netcode_ser
     netcode_server_connect_client(server, client_index, from, challenge_token.client_id, encryption_index, timeout_seconds, challenge_token.user_data);
 }
 
-
-
 netcode_server_process_packet_internal :: (using server: *netcode_server_t, from: netcode_address_t, packet: netcode_connection_packet_t, sequence: u64, encryption_index: int, client_index: int) {
     assert(server != null);
 
@@ -3608,4 +3603,147 @@ netcode_server_read_and_process_packet :: (using server: *netcode_server_t, from
     }
 
     netcode_server_process_packet_internal(server, from, packet, sequence, encryption_index, client_index);
+}
+
+netcode_server_receive_packets :: (using server: *netcode_server_t) {
+    assert(server != null);
+
+    allowed_packets: AllowedPacketsBuf;
+    allowed_packets[NETCODE_CONNECTION_REQUEST_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_RESPONSE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_KEEP_ALIVE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_PAYLOAD_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_DISCONNECT_PACKET] = true;
+
+    current_timestamp = current_time_monotonic();
+
+    if config.network_simulator == null {
+        // process packets received from socket
+
+        while true {
+            from: netcode_address_t;
+            packet_data: [NETCODE_MAX_PACKET_BYTES] u8;
+            packet_bytes := 0;
+
+            if config.override_send_and_receive {
+                packet_bytes = config.receive_packet_override(config.callback_context, *from, packet_data);
+            } else {
+                if socket_holder.ipv4.handle != 0 {
+                    packet_bytes = netcode_socket_receive_packet(socket_holder.ipv4, *from, packet_data);
+                }
+                if packet_bytes == 0 && socket_holder.ipv6.handle != 0 {
+                    packet_bytes = netcode_socket_receive_packet(socket_holder.ipv6, *from, packet_data);
+                }
+            }
+
+            if packet_bytes == 0 {
+                break;
+            }
+
+            netcode_server_read_and_process_packet(server, from, packet_data, packet_bytes, current_timestamp, allowed_packets);
+        }
+    } else {
+        // process packets received from network simulator
+
+        num_packets_received := netcode_network_simulator_receive_packets(
+            config.network_simulator,
+            address,
+            NETCODE_SERVER_MAX_RECEIVE_PACKETS,
+            receive_packet_data,
+            receive_from
+        );
+
+        for 0..num_packets_received-1 {
+            netcode_server_read_and_process_packet(server, receive_from[it], receive_packet_data[it], current_timestamp, allowed_packets);
+            array_reset(*receive_packet_data[it]);
+        }
+    }
+}
+
+netcode_server_send_packets :: (using server: *netcode_server_t) {
+    assert(server != null);
+
+    if !running {
+        return;
+    }
+
+    for 0..max_clients-1 {
+        if client_connected[it] && !client_loopback[it] && (client_last_packet_send_time[it] + (seconds_to_apollo(1) / NETCODE_PACKET_SEND_RATE) <= time) {
+            netcode_log(.VERY_VERBOSE_ONLY, "server sent connection keep alive packet to client %\n", it);
+            packet: netcode_connection_keep_alive_packet_t;
+            assert(packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+            packet.client_index = it;
+            packet.max_clients = max_clients;
+            netcode_server_send_client_packet(server, packet, it);
+        }
+    }
+}
+
+netcode_server_check_for_timeouts :: (using server: *netcode_server_t) {
+    assert(server != null);
+
+    if !running {
+        return;
+    }
+
+    for 0..max_clients-1 {
+        if client_connected[it] && client_timeout[it] > 0 && !client_loopback[it] && (client_last_packet_receive_time[it] + client_timeout[it] <= time) {
+            netcode_log(.VERBOSE_ONLY, "server timed out client %\n", i);
+            netcode_server_disconnect_client_internal(server, it, false);
+        }
+    }
+}
+
+netcode_server_client_connected :: (using server: *netcode_server_t, client_index: int) -> bool {
+    assert(server != null);
+
+    if !running {
+        return false;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return false;
+    }
+
+    return client_connected[client_index];
+}
+
+netcode_server_client_id :: (using server: *netcode_server_t, client_index: int) -> u64 {
+    assert(server != null);
+
+    if !running {
+        return false;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return false;
+    }
+
+    return client_id[client_index];
+}
+
+netcode_server_client_address :: (using server: *netcode_server_t, client_index: int) -> *netcode_address_t {
+    assert(server != null);
+
+    if !running {
+        return null;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return null;
+    }
+
+    return *client_address[client_index];
+}
+
+netcode_server_next_packet_sequence :: (using server: *netcode_server_t, client_index: int) -> u64
+{
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+
+    if !client_connected[client_index] {
+        return 0;
+    }
+
+    return client_sequence[client_index];
 }
