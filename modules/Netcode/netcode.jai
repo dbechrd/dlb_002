@@ -34,6 +34,8 @@ https://github.com/mas-bandwidth/netcode/commit/3ffe69ad33416789bfb651bf687fdc61
     NETCODE_ENABLE_LOGGING := false
 );
 
+#load "tests.jai";
+
 NETCODE_CONNECT_TOKEN_BYTES     :: 2048;
 NETCODE_KEY_BYTES               :: 32;
 NETCODE_MAC_BYTES               :: 16;
@@ -405,95 +407,386 @@ netcode_server_start :: (server: *netcode_server_t, _max_clients: int) {
     netcode_generate_key(server.challenge_key);
 }
 
-netcode_server_stop :: (server: *netcode_server_t) {
+netcode_server_stop :: (using server: *netcode_server_t) {
+    assert(server != null);
 
+    if !running {
+        return;
+    }
+
+    netcode_server_disconnect_all_clients(server);
+
+    running = false;
+    max_clients = 0;
+    num_connected_clients = 0;
+
+    global_sequence = 0;
+    challenge_sequence = 0;
+    array_zero(challenge_key);
+
+    netcode_connect_token_entries_reset(connect_token_entries);
+
+    netcode_encryption_manager_reset(*encryption_manager);
+
+    netcode_log(.VERBOSE_ONLY, "server stopped\n");
 }
 
-netcode_server_running :: (server: *netcode_server_t) -> int {
-
+netcode_server_running :: (using server: *netcode_server_t) -> bool {
+    assert(server != null);
+    return running;
 }
 
-netcode_server_max_clients :: (server: *netcode_server_t) -> int {
-
+netcode_server_max_clients :: (using server: *netcode_server_t) -> int {
+    assert(server != null);
+    return max_clients;
 }
 
-netcode_server_update :: (server: *netcode_server_t, time: Apollo_Time) {
-
+netcode_server_update :: (using server: *netcode_server_t, _time: Apollo_Time) {
+    assert(server != null);
+    time = _time;
+    netcode_server_receive_packets(server);
+    netcode_server_send_packets(server);
+    netcode_server_check_for_timeouts(server);
 }
 
-netcode_server_client_connected :: (server: *netcode_server_t, client_index: int) -> int {
+netcode_server_client_connected :: (using server: *netcode_server_t, client_index: int) -> bool {
+    assert(server != null);
 
+    if !running {
+        return false;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return false;
+    }
+
+    return client_connected[client_index];
 }
 
-netcode_server_client_id :: (server: *netcode_server_t, client_index: int) -> u64 {
+netcode_server_client_id :: (using server: *netcode_server_t, client_index: int) -> u64 {
+    assert(server != null);
 
+    if !running {
+        return false;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return false;
+    }
+
+    return client_id[client_index];
 }
 
-netcode_server_client_address :: (server: *netcode_server_t, client_index: int) -> *netcode_address_t {
+netcode_server_client_address :: (using server: *netcode_server_t, client_index: int) -> *netcode_address_t {
+    assert(server != null);
 
+    if !running {
+        return null;
+    }
+
+    if client_index < 0 || client_index >= max_clients {
+        return null;
+    }
+
+    return *client_address[client_index];
 }
 
-netcode_server_disconnect_client :: (server: *netcode_server_t, client_index: int) {
+netcode_server_disconnect_client :: (using server: *netcode_server_t, client_index: int) {
+    assert(server != null);
 
+    if (!running) {
+        return;
+    }
+
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    assert(client_loopback[client_index] == 0);
+
+    if (!client_connected[client_index]) {
+        return;
+    }
+    if (client_loopback[client_index]) {
+        return;
+    }
+
+    netcode_server_disconnect_client_internal(server, client_index, true);
 }
 
-netcode_server_disconnect_all_clients :: (server: *netcode_server_t) {
+netcode_server_disconnect_all_clients :: (using server: *netcode_server_t) {
+    assert(server != null);
 
+    if !running {
+        return;
+    }
+
+    for 0..max_clients-1 {
+        if client_connected[it] && !client_loopback[it] {
+            netcode_server_disconnect_client_internal(server, it, true);
+        }
+    }
 }
 
-netcode_server_next_packet_sequence :: (server: *netcode_server_t, client_index: int) -> u64 {
+netcode_server_next_packet_sequence :: (using server: *netcode_server_t, client_index: int) -> u64 {
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
 
+    if !client_connected[client_index] {
+        return 0;
+    }
+
+    return client_sequence[client_index];
 }
 
-netcode_server_send_packet :: (server: *netcode_server_t, client_index: int, packet_data: [] u8) {
+netcode_server_send_packet :: (using server: *netcode_server_t, client_index: int, packet_data: [] u8) {
+    assert(server != null);
+    assert(packet_data.count >= 0);
+    assert(packet_data.count <= NETCODE_MAX_PACKET_SIZE);
 
+    if !running {
+        return;
+    }
+
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+
+    if !client_connected[client_index] {
+        return;
+    }
+
+    if !client_loopback[client_index] {
+        packet := netcode_create_payload_packet(packet_bytes,, temp);
+        assert(packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+        packet.payload_bytes = packet_bytes;
+        array_copy(packet.payload_data, packet_data);
+
+        if !client_confirmed[client_index] {
+            keep_alive_packet: netcode_connection_keep_alive_packet_t;
+            assert(keep_alive_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+            keep_alive_packet.client_index = client_index;
+            keep_alive_packet.max_clients = max_clients;
+            netcode_server_send_client_packet(server, keep_alive_packet, client_index);
+        }
+
+        netcode_server_send_client_packet(server, packet, client_index);
+    } else {
+        assert(config.send_loopback_packet_callback);
+
+        config.send_loopback_packet_callback(config.callback_context, client_index, packet_data, client_sequence[client_index]);
+
+        client_sequence[client_index] += 1;
+        client_last_packet_send_time[client_index] = time;
+    }
 }
 
-netcode_server_receive_packet :: (server: *netcode_server_t, client_index: int, packet_bytes: *int, packet_sequence: *u64) -> *u8 {
+netcode_server_receive_packet :: (using server: *netcode_server_t, client_index: int) -> packet: [] u8, sequence: u64 {
+    assert(server != null);
 
+    if !running {
+        return null;
+    }
+
+    if !client_connected[client_index] {
+        return null;
+    }
+
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+
+    packet, sequence := netcode_packet_queue_pop(*client_packet_queue[client_index]);
+    if packet == null {
+        return null;
+    }
+
+    assert(packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+    p := cast(netcode_connection_payload_packet_t) packet;
+    assert(p.payload_data.count >= 0);
+    assert(p.payload_data.count <= NETCODE_MAX_PAYLOAD_BYTES);
+    return p.payload_data, sequence;
 }
 
-netcode_server_free_packet :: (server: *netcode_server_t, packet: *void) {
-
+// TODO(dlb)[cleanup]: We don't really need this weird overload. Call netcode_free_payload_packet directly.
+netcode_server_free_packet :: (server: *netcode_server_t, packet: [] u8) {
+    netcode_free_payload_packet(packet);
 }
 
-netcode_server_num_connected_clients :: (server: *netcode_server_t) -> int {
-
+netcode_server_num_connected_clients :: (using server: *netcode_server_t) -> int {
+    assert(server != null);
+    return num_connected_clients;
 }
 
-netcode_server_client_user_data :: (server: *netcode_server_t, client_index: int) -> *void {
-
+netcode_server_client_user_data :: (using server: *netcode_server_t, client_index: int) -> UserDataBuf {
+    assert(server != null);
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    return client_user_data[client_index];
 }
 
-netcode_server_process_packet :: (server: *netcode_server_t, from: *netcode_address_t, packet_data: [] u8) {
+netcode_server_process_packet :: (using server: *netcode_server_t, from: netcode_address_t, packet_data: [] u8) {
+    allowed_packets: AllowedPacketsBuf;
+    allowed_packets[NETCODE_CONNECTION_REQUEST_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_RESPONSE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_KEEP_ALIVE_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_PAYLOAD_PACKET] = true;
+    allowed_packets[NETCODE_CONNECTION_DISCONNECT_PACKET] = true;
 
+    current_timestamp := current_time_monotonic();
+
+    encryption_index := -1;
+    client_index := netcode_server_find_client_index_by_address(server, from);
+    if client_index != -1 {
+        assert(client_index >= 0);
+        assert(client_index < max_clients);
+        encryption_index = client_encryption_index[client_index];
+    } else {
+        encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, from, time);
+    }
+
+    read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+    if read_packet_key == null && packet_data.count > 0 {
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string(from));
+        return;
+    }
+
+    packet, sequence := netcode_read_packet(
+        packet_data,
+        read_packet_key,
+        config.protocol_id,
+        current_timestamp,
+        config.private_key,
+        allowed_packets,
+        ifx client_index != -1 then *client_replay_protection[client_index] else null
+    );
+
+    if packet == null {
+        return;
+    }
+
+    netcode_server_process_packet_internal(server, from, packet, sequence, encryption_index, client_index);
 }
 
-netcode_server_connect_loopback_client :: (server: *netcode_server_t, client_index: int, client_id: u64, user_data: *u8) {
+netcode_server_connect_loopback_client :: (using server: *netcode_server_t, client_index: int, _client_id: u64, user_data: UserDataBuf) {
+    assert(server != null);
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    assert(running);
+    assert(!client_connected[client_index]);
+    assert(num_connected_clients < max_clients);
 
+    client_loopback[client_index] = true;
+    client_connected[client_index] = true;
+    client_confirmed[client_index] = true;
+    client_encryption_index[client_index] = -1;
+    client_id[client_index] = _client_id;
+    client_sequence[client_index] = 0;
+    client_address[client_index] = .{};
+    netcode_address_map_set(*client_address_map, client_address[client_index], client_index);
+    client_last_packet_send_time[client_index] = time;
+    client_last_packet_receive_time[client_index] = time;
+
+    if user_data.count > 0 {
+        array_copy(client_user_data[client_index], user_data);
+    } else {
+        array_zero(client_user_data[client_index]);
+    }
+
+    netcode_log(.VERBOSE_ONLY, "server connected loopback client % in slot %\n", _client_id, client_index);
+    num_connected_clients += 1;
+
+    if config.connect_disconnect_callback {
+        config.connect_disconnect_callback(config.callback_context, client_index, true);
+    }
 }
 
-netcode_server_disconnect_loopback_client :: (server: *netcode_server_t, client_index: int) {
+netcode_server_disconnect_loopback_client :: (using server: *netcode_server_t, client_index: int) {
+    assert(server != null);
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    assert(running);
+    assert(client_connected[client_index]);
+    assert(client_loopback[client_index]);
+    assert(num_connected_clients > 0);
 
+    netcode_log(.VERBOSE_ONLY, "server disconnected loopback client %\n", client_index);
+
+    if config.connect_disconnect_callback {
+        config.connect_disconnect_callback(config.callback_context, client_index, false);
+    }
+
+    while true {
+        packet := netcode_packet_queue_pop(*client_packet_queue[client_index]);
+        if packet == null {
+            break;
+        }
+        free(packet);
+    }
+
+    netcode_packet_queue_clear(*client_packet_queue[client_index]);
+
+    client_connected[client_index] = false;
+    client_loopback[client_index] = false;
+    client_confirmed[client_index] = false;
+    client_id[client_index] = 0;
+    client_sequence[client_index] = 0;
+    client_last_packet_send_time[client_index] = .{};
+    client_last_packet_receive_time[client_index] = .{};
+    netcode_address_map_delete(*client_address_map, client_address[client_index]);
+    client_address[client_index] = .{};
+    client_encryption_index[client_index] = -1;
+    array_zero(client_user_data[client_index]);
+
+    num_connected_clients -= 1;
 }
 
-netcode_server_client_loopback :: (server: *netcode_server_t, client_index: int) -> int {
-
+netcode_server_client_loopback :: (using server: *netcode_server_t, client_index: int) -> bool {
+    assert(server != null);
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    assert(running);
+    return client_loopback[client_index];
 }
 
-netcode_server_process_loopback_packet :: (server: *netcode_server_t, client_index: int, packet_data: [] u8, packet_sequence: u64) {
+netcode_server_process_loopback_packet :: (using server: *netcode_server_t, client_index: int, packet_data: [] u8, packet_sequence: u64) {
+    assert(server != null);
+    assert(client_index >= 0);
+    assert(client_index < max_clients);
+    assert(running);
+    assert(packet_data.count >= 0);
+    assert(packet_data.count <= NETCODE_MAX_PACKET_SIZE);
+    assert(client_connected[client_index]);
+    assert(client_loopback[client_index]);
 
+    packet := netcode_create_payload_packet(packet_bytes);
+    if packet == null {
+        return;
+    }
+
+    array_copy(packet.payload_data, packet_data);
+
+    netcode_log(.VERY_VERBOSE_ONLY, "server processing loopback packet from client %\n", client_index);
+
+    client_last_packet_receive_time[client_index] = time;
+
+    netcode_packet_queue_push(*client_packet_queue[client_index], packet, packet_sequence);
 }
 
-netcode_server_get_port :: (server: *netcode_server_t) -> u16  {
-
+netcode_server_get_port :: (using server: *netcode_server_t) -> u16 {
+    assert(server != null);
+    return ifx address.type == NETCODE_ADDRESS_IPV4 then socket_holder.ipv4.address.port else socket_holder.ipv6.address.port;
 }
 
 netcode_network_simulator_t :: struct {
-
+    latency_milliseconds        : float;
+    jitter_milliseconds         : float;
+    packet_loss_percent         : float;
+    duplicate_packet_percent    : float;
+    time                        : Apollo_Time;
+    current_index               : int;
+    num_pending_receive_packets : int;
+    packet_entries              : [NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES] netcode_network_simulator_packet_entry_t;
+    pending_receive_packets     : [NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS] netcode_network_simulator_packet_entry_t;
 }
 
-#scope_file
+#scope_module
 
 #import "Basic";
 #import "Socket";
@@ -1929,7 +2222,7 @@ netcode_packet_queue_push :: (using queue: *netcode_packet_queue_t, packet: *net
 
     index := (start_index + num_packets) % NETCODE_PACKET_QUEUE_SIZE;
     packet_data[index] = packet;
-    sequence[index] = sequence;
+    packet_sequence[index] = sequence;
     num_packets += 1;
     return true;
 }
@@ -1956,18 +2249,6 @@ netcode_network_simulator_packet_entry_t :: struct {
     to            : netcode_address_t;
     delivery_time : Apollo_Time;
     packet_data   : [] u8;
-}
-
-netcode_network_simulator_t :: struct {
-    latency_milliseconds        : float;
-    jitter_milliseconds         : float;
-    packet_loss_percent         : float;
-    duplicate_packet_percent    : float;
-    time                        : Apollo_Time;
-    current_index               : int;
-    num_pending_receive_packets : int;
-    packet_entries              : [NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES] netcode_network_simulator_packet_entry_t;
-    pending_receive_packets     : [NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS] netcode_network_simulator_packet_entry_t;
 }
 
 netcode_network_simulator_reset :: (using network_simulator: *netcode_network_simulator_t) {
@@ -3226,65 +3507,6 @@ netcode_server_disconnect_client_internal :: (using server: *netcode_server_t, c
     num_connected_clients -= 1;
 }
 
-netcode_server_disconnect_client :: (using server: *netcode_server_t, client_index: int) {
-    assert(server != null);
-
-    if (!running) {
-        return;
-    }
-
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    assert(client_loopback[client_index] == 0);
-
-    if (!client_connected[client_index]) {
-        return;
-    }
-    if (client_loopback[client_index]) {
-        return;
-    }
-
-    netcode_server_disconnect_client_internal(server, client_index, true);
-}
-
-netcode_server_disconnect_all_clients :: (using server: *netcode_server_t) {
-    assert(server != null);
-
-    if !running {
-        return;
-    }
-
-    for 0..max_clients-1 {
-        if client_connected[it] && !client_loopback[it] {
-            netcode_server_disconnect_client_internal(server, it, true);
-        }
-    }
-}
-
-netcode_server_stop :: (using server: *netcode_server_t) {
-    assert(server != null);
-
-    if !running {
-        return;
-    }
-
-    netcode_server_disconnect_all_clients(server);
-
-    running = false;
-    max_clients = 0;
-    num_connected_clients = 0;
-
-    global_sequence = 0;
-    challenge_sequence = 0;
-    array_zero(challenge_key);
-
-    netcode_connect_token_entries_reset(connect_token_entries);
-
-    netcode_encryption_manager_reset(*encryption_manager);
-
-    netcode_log(.VERBOSE_ONLY, "server stopped\n");
-}
-
 netcode_server_find_client_index_by_id :: (using server: *netcode_server_t, _client_id: u64) -> int {
     assert(server != null);
 
@@ -3526,49 +3748,6 @@ netcode_server_process_packet_internal :: (using server: *netcode_server_t, from
     free(packet);
 }
 
-netcode_server_process_packet :: (using server: *netcode_server_t, from: netcode_address_t, packet_data: [] u8) {
-    allowed_packets: AllowedPacketsBuf;
-    allowed_packets[NETCODE_CONNECTION_REQUEST_PACKET] = true;
-    allowed_packets[NETCODE_CONNECTION_RESPONSE_PACKET] = true;
-    allowed_packets[NETCODE_CONNECTION_KEEP_ALIVE_PACKET] = true;
-    allowed_packets[NETCODE_CONNECTION_PAYLOAD_PACKET] = true;
-    allowed_packets[NETCODE_CONNECTION_DISCONNECT_PACKET] = true;
-
-    current_timestamp := current_time_monotonic();
-
-    encryption_index := -1;
-    client_index := netcode_server_find_client_index_by_address(server, from);
-    if client_index != -1 {
-        assert(client_index >= 0);
-        assert(client_index < max_clients);
-        encryption_index = client_encryption_index[client_index];
-    } else {
-        encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, from, time);
-    }
-
-    read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
-    if read_packet_key == null && packet_data.count > 0 {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string(from));
-        return;
-    }
-
-    packet, sequence := netcode_read_packet(
-        packet_data,
-        read_packet_key,
-        config.protocol_id,
-        current_timestamp,
-        config.private_key,
-        allowed_packets,
-        ifx client_index != -1 then *client_replay_protection[client_index] else null
-    );
-
-    if packet == null {
-        return;
-    }
-
-    netcode_server_process_packet_internal(server, from, packet, sequence, encryption_index, client_index);
-}
-
 netcode_server_read_and_process_packet :: (using server: *netcode_server_t, from: netcode_address_t, packet_data: [] u8, current_timestamp: Apollo_Time, allowed_packets: AllowedPacketsBuf) {
     if !running {
         return;
@@ -3697,272 +3876,6 @@ netcode_server_check_for_timeouts :: (using server: *netcode_server_t) {
             netcode_server_disconnect_client_internal(server, it, false);
         }
     }
-}
-
-netcode_server_client_connected :: (using server: *netcode_server_t, client_index: int) -> bool {
-    assert(server != null);
-
-    if !running {
-        return false;
-    }
-
-    if client_index < 0 || client_index >= max_clients {
-        return false;
-    }
-
-    return client_connected[client_index];
-}
-
-netcode_server_client_id :: (using server: *netcode_server_t, client_index: int) -> u64 {
-    assert(server != null);
-
-    if !running {
-        return false;
-    }
-
-    if client_index < 0 || client_index >= max_clients {
-        return false;
-    }
-
-    return client_id[client_index];
-}
-
-netcode_server_client_address :: (using server: *netcode_server_t, client_index: int) -> *netcode_address_t {
-    assert(server != null);
-
-    if !running {
-        return null;
-    }
-
-    if client_index < 0 || client_index >= max_clients {
-        return null;
-    }
-
-    return *client_address[client_index];
-}
-
-netcode_server_next_packet_sequence :: (using server: *netcode_server_t, client_index: int) -> u64 {
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-
-    if !client_connected[client_index] {
-        return 0;
-    }
-
-    return client_sequence[client_index];
-}
-
-
-netcode_server_send_packet :: (using server: *netcode_server_t, client_index: int, packet_data: [] u8) {
-    assert(server != null);
-    assert(packet_data.count >= 0);
-    assert(packet_data.count <= NETCODE_MAX_PACKET_SIZE);
-
-    if !running {
-        return;
-    }
-
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-
-    if !client_connected[client_index] {
-        return;
-    }
-
-    if !client_loopback[client_index] {
-        packet := netcode_create_payload_packet(packet_bytes,, temp);
-        assert(packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
-        packet.payload_bytes = packet_bytes;
-        array_copy(packet.payload_data, packet_data);
-
-        if !client_confirmed[client_index] {
-            keep_alive_packet: netcode_connection_keep_alive_packet_t;
-            assert(keep_alive_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
-            keep_alive_packet.client_index = client_index;
-            keep_alive_packet.max_clients = max_clients;
-            netcode_server_send_client_packet(server, keep_alive_packet, client_index);
-        }
-
-        netcode_server_send_client_packet(server, packet, client_index);
-    } else {
-        assert(config.send_loopback_packet_callback);
-
-        config.send_loopback_packet_callback(config.callback_context, client_index, packet_data, client_sequence[client_index]);
-
-        client_sequence[client_index] += 1;
-        client_last_packet_send_time[client_index] = time;
-    }
-}
-
-netcode_server_receive_packet :: (using server: *netcode_server_t, client_index: int) -> packet: [] u8, sequence: u64 {
-    assert(server != null);
-
-    if !running {
-        return null;
-    }
-
-    if !client_connected[client_index] {
-        return null;
-    }
-
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-
-    packet, sequence := netcode_packet_queue_pop(*client_packet_queue[client_index]);
-    if packet == null {
-        return null;
-    }
-
-    assert(packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
-    p := cast(netcode_connection_payload_packet_t) packet;
-    assert(p.payload_data.count >= 0);
-    assert(p.payload_data.count <= NETCODE_MAX_PAYLOAD_BYTES);
-    return p.payload_data, sequence;
-}
-
-// TODO(dlb)[cleanup]: We don't really need this weird overload. Call netcode_free_payload_packet directly.
-netcode_server_free_packet :: (server: *netcode_server_t, packet: [] u8) {
-    netcode_free_payload_packet(packet);
-}
-
-netcode_server_num_connected_clients :: (using server: *netcode_server_t) -> int {
-    assert(server != null);
-    return num_connected_clients;
-}
-
-netcode_server_client_user_data :: (using server: *netcode_server_t, client_index: int) -> UserDataBuf {
-    assert(server != null);
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    return client_user_data[client_index];
-}
-
-netcode_server_running :: (using server: *netcode_server_t) -> bool {
-    assert(server != null);
-    return running;
-}
-
-netcode_server_max_clients :: (using server: *netcode_server_t) -> int {
-    assert(server != null);
-    return max_clients;
-}
-
-netcode_server_update :: (using server: *netcode_server_t, _time: Apollo_Time) {
-    assert(server != null);
-    time = _time;
-    netcode_server_receive_packets(server);
-    netcode_server_send_packets(server);
-    netcode_server_check_for_timeouts(server);
-}
-
-netcode_server_connect_loopback_client :: (using server: *netcode_server_t, client_index: int, _client_id: u64, user_data: UserDataBuf) {
-    assert(server != null);
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    assert(running);
-    assert(!client_connected[client_index]);
-    assert(num_connected_clients < max_clients);
-
-    client_loopback[client_index] = true;
-    client_connected[client_index] = true;
-    client_confirmed[client_index] = true;
-    client_encryption_index[client_index] = -1;
-    client_id[client_index] = _client_id;
-    client_sequence[client_index] = 0;
-    client_address[client_index] = .{};
-    netcode_address_map_set(*client_address_map, client_address[client_index], client_index);
-    client_last_packet_send_time[client_index] = time;
-    client_last_packet_receive_time[client_index] = time;
-
-    if user_data.count > 0 {
-        array_copy(client_user_data[client_index], user_data);
-    } else {
-        array_zero(client_user_data[client_index]);
-    }
-
-    netcode_log(.VERBOSE_ONLY, "server connected loopback client % in slot %\n", _client_id, client_index);
-    num_connected_clients += 1;
-
-    if config.connect_disconnect_callback {
-        config.connect_disconnect_callback(config.callback_context, client_index, true);
-    }
-}
-
-netcode_server_disconnect_loopback_client :: (using server: *netcode_server_t, client_index: int) {
-    assert(server != null);
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    assert(running);
-    assert(client_connected[client_index]);
-    assert(client_loopback[client_index]);
-    assert(num_connected_clients > 0);
-
-    netcode_log(.VERBOSE_ONLY, "server disconnected loopback client %\n", client_index);
-
-    if config.connect_disconnect_callback {
-        config.connect_disconnect_callback(config.callback_context, client_index, false);
-    }
-
-    while true {
-        packet := netcode_packet_queue_pop(*client_packet_queue[client_index]);
-        if packet == null {
-            break;
-        }
-        free(packet);
-    }
-
-    netcode_packet_queue_clear(*client_packet_queue[client_index]);
-
-    client_connected[client_index] = false;
-    client_loopback[client_index] = false;
-    client_confirmed[client_index] = false;
-    client_id[client_index] = 0;
-    client_sequence[client_index] = 0;
-    client_last_packet_send_time[client_index] = .{};
-    client_last_packet_receive_time[client_index] = .{};
-    netcode_address_map_delete(*client_address_map, client_address[client_index]);
-    client_address[client_index] = .{};
-    client_encryption_index[client_index] = -1;
-    array_zero(client_user_data[client_index]);
-
-    num_connected_clients -= 1;
-}
-
-netcode_server_client_loopback :: (using server: *netcode_server_t, client_index: int) -> bool {
-    assert(server != null);
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    assert(running);
-    return client_loopback[client_index];
-}
-
-netcode_server_process_loopback_packet :: (using server: *netcode_server_t, client_index: int, packet_data: [] u8, packet_sequence: u64) {
-    assert(server != null);
-    assert(client_index >= 0);
-    assert(client_index < max_clients);
-    assert(running);
-    assert(packet_data.count >= 0);
-    assert(packet_data.count <= NETCODE_MAX_PACKET_SIZE);
-    assert(client_connected[client_index]);
-    assert(client_loopback[client_index]);
-
-    packet := netcode_create_payload_packet(packet_bytes);
-    if packet == null {
-        return;
-    }
-
-    array_copy(packet.payload_data, packet_data);
-
-    netcode_log(.VERY_VERBOSE_ONLY, "server processing loopback packet from client %\n", client_index);
-
-    client_last_packet_receive_time[client_index] = time;
-
-    netcode_packet_queue_push(*client_packet_queue[client_index], packet, packet_sequence);
-}
-
-netcode_server_get_port :: (using server: *netcode_server_t) -> u16 {
-    assert(server != null);
-    return ifx address.type == NETCODE_ADDRESS_IPV4 then socket_holder.ipv4.address.port else socket_holder.ipv6.address.port;
 }
 
 // ----------------------------------------------------------------
