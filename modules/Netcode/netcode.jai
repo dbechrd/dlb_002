@@ -91,6 +91,17 @@ netcode_term :: () {
 
 // ----------------------------------------------------------------
 
+netcode_address_t :: struct {
+    data :: union {
+        ipv4: [4] u8;
+        ipv6: [8] u16;
+    }
+    port: u16;
+    type: u8;
+}
+
+// ----------------------------------------------------------------
+
 netcode_client_config_t :: struct {
     network_simulator             : *netcode_network_simulator_t;
     callback_context              : *void;
@@ -99,6 +110,33 @@ netcode_client_config_t :: struct {
     override_send_and_receive     : bool;
     send_packet_override          : #type (callback_context: *void, to: netcode_address_t, packet_data: [] u8);
     receive_packet_override       : #type (callback_context: *void, from: *netcode_address_t, packet_data: [] u8) -> packet_bytes: int;
+}
+
+netcode_client_t :: struct {
+    config                   : netcode_client_config_t;
+    state                    : int;
+    time                     : Apollo_Time;
+    connect_start_time       : Apollo_Time;
+    last_packet_send_time    : Apollo_Time;
+    last_packet_receive_time : Apollo_Time;
+    should_disconnect        : bool;
+    should_disconnect_state  : int;
+    sequence                 : u64;
+    client_index             : int;
+    max_clients              : int;
+    server_address_index     : int;
+    address                  : netcode_address_t;
+    server_address           : netcode_address_t;
+    connect_token            : netcode_connect_token_t;
+    socket_holder            : netcode_socket_holder_t;
+    ctx                      : netcode_context_t;
+    replay_protection        : netcode_replay_protection_t;
+    packet_receive_queue     : netcode_packet_queue_t;
+    challenge_token_sequence : u64;
+    challenge_token_data     : ChallengeTokenBuf;
+    receive_packet_data      : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS][] u8;
+    receive_from             : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS] netcode_address_t;
+    loopback                 : bool;
 }
 
 netcode_client_create :: (address: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
@@ -346,18 +384,81 @@ netcode_client_server_address :: (using client: *netcode_client_t) -> netcode_ad
 }
 
 netcode_generate_connect_token :: (
-    num_server_addresses      : int,
     public_server_addresses   : [] string,
     internal_server_addresses : [] string,
     expire_seconds            : Apollo_Time,
     timeout_seconds           : Apollo_Time,
     client_id                 : u64,
     protocol_id               : u64,
-    private_key               : *u8,
-    user_data                 : *u8,
-    connect_token             : *u8
+    private_key               : EncryptionKeyBuf,
+    user_data                 : UserDataBuf,
+    output_buffer             : ConnectTokenBuf
 ) -> int {
+    assert(public_server_addresses.count > 0);
+    assert(public_server_addresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
+    assert(internal_server_addresses.count == public_server_addresses.count);
 
+    // parse public server addresses
+
+    parsed_public_server_addresses: [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
+    for public_server_addresses {
+        if netcode_parse_address(it, *parsed_public_server_addresses[it_index]) != NETCODE_OK {
+            return NETCODE_ERROR;
+        }
+    }
+
+    // parse internal server addresses
+
+    parsed_internal_server_addresses: [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
+    for internal_server_addresses {
+        if netcode_parse_address(it, *parsed_internal_server_addresses[it_index]) != NETCODE_OK {
+            return NETCODE_ERROR;
+        }
+    }
+
+    // generate a connect token
+
+    nonce: BigNonceBuf;
+    netcode_generate_nonce(nonce);
+
+    connect_token_private: netcode_connect_token_private_t;
+    netcode_generate_connect_token_private(*connect_token_private, client_id, timeout_seconds, parsed_internal_server_addresses, user_data);
+
+    // write it to a buffer
+
+    connect_token_data: ConnectTokenBuf;
+    netcode_write_connect_token_private(connect_token_private, connect_token_data);
+
+    // encrypt the buffer
+
+    create_timestamp = current_time_monotonic();
+    expire_timestamp = ifx expire_seconds >= .{} then create_timestamp + expire_seconds else APOLLO_MAX;
+    if netcode_encrypt_connect_token_private(connect_token_data, NETCODE_VERSION_INFO, protocol_id, expire_timestamp, nonce, private_key) != NETCODE_OK {
+        return NETCODE_ERROR;
+    }
+
+    // wrap a connect token around the private connect token data
+
+    connect_token: netcode_connect_token_t;
+    array_copy(connect_token.version_info, NETCODE_VERSION_INFO);
+    connect_token.protocol_id = protocol_id;
+    connect_token.create_timestamp = create_timestamp;
+    connect_token.expire_timestamp = expire_timestamp;
+    array_copy(connect_token.nonce, nonce);
+    array_copy(connect_token.private_data, connect_token_data);
+    connect_token.num_server_addresses = public_server_addresses.count;
+    for parsed_public_server_addresses {
+        connect_token.server_addresses[it_index] = it;
+    }
+    array_copy(connect_token.client_to_server_key, connect_token_private.client_to_server_key);
+    array_copy(connect_token.server_to_client_key, connect_token_private.server_to_client_key);
+    connect_token.timeout_seconds = timeout_seconds;
+
+    // write the connect token to the output buffer
+
+    netcode_write_connect_token(*connect_token, output_buffer);
+
+    return NETCODE_OK;
 }
 
 // ----------------------------------------------------------------
@@ -372,6 +473,39 @@ netcode_server_config_t :: struct {
     override_send_and_receive     : int;
     send_packet_override          : #type (callback_context: *void, to: netcode_address_t, packet_data: [] u8);
     receive_packet_override       : #type (callback_context: *void, from: *netcode_address_t, packet_data: [] u8) -> packet_bytes: int;
+}
+
+netcode_server_t :: struct {
+    config                          : netcode_server_config_t;
+    socket_holder                   : netcode_socket_holder_t;
+    address                         : netcode_address_t;
+    flags                           : u32;
+    time                            : Apollo_Time;
+    running                         : int;
+    max_clients                     : int;
+    num_connected_clients           : int;
+    global_sequence                 : u64;
+    challenge_sequence              : u64;
+    challenge_key                   : EncryptionKeyBuf;
+    client_connected                : [NETCODE_MAX_CLIENTS] bool;
+    client_timeout                  : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_loopback                 : [NETCODE_MAX_CLIENTS] bool;
+    client_confirmed                : [NETCODE_MAX_CLIENTS] bool;
+    client_encryption_index         : [NETCODE_MAX_CLIENTS] int;
+    client_id                       : [NETCODE_MAX_CLIENTS] u64;
+    client_sequence                 : [NETCODE_MAX_CLIENTS] u64;
+    client_last_packet_send_time    : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_last_packet_receive_time : [NETCODE_MAX_CLIENTS] Apollo_Time;
+    client_user_data                : [NETCODE_MAX_CLIENTS] UserDataBuf;
+    client_replay_protection        : [NETCODE_MAX_CLIENTS] netcode_replay_protection_t;
+    client_packet_queue             : [NETCODE_MAX_CLIENTS] netcode_packet_queue_t;
+    client_address                  : [NETCODE_MAX_CLIENTS] netcode_address_t;
+    client_address_map              : netcode_address_map_t;
+    connect_token_entries           : [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t;
+    encryption_manager              : netcode_encryption_manager_t;
+    receive_packet_data             : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] [] u8;  // TODO(dlb): Should the slice be MAX_PACKET_BYTES or something?
+    //receive_packet_bytes            : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] int;  // TODO(dlb): Use the packet_data slice
+    receive_from                    : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] netcode_address_t;
 }
 
 netcode_server_create :: (server_address_string: string, config: netcode_server_config_t, time: Apollo_Time) -> *netcode_server_t {
@@ -774,6 +908,8 @@ netcode_server_get_port :: (using server: *netcode_server_t) -> u16 {
     return ifx address.type == NETCODE_ADDRESS_IPV4 then socket_holder.ipv4.address.port else socket_holder.ipv6.address.port;
 }
 
+// ----------------------------------------------------------------
+
 netcode_network_simulator_t :: struct {
     latency_milliseconds        : float;
     jitter_milliseconds         : float;
@@ -846,15 +982,6 @@ netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #c
 }
 
 // ----------------------------------------------------------------
-
-netcode_address_t :: struct {
-    data :: union {
-        ipv4: [4] u8;
-        ipv6: [8] u16;
-    }
-    port: u16;
-    type: u8;
-}
 
 netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> bool {
     // TODO(dlb): Implement this via yojimbo.address
@@ -2420,33 +2547,6 @@ netcode_client_state_name :: (client_state: int) -> string {
     }
 }
 
-netcode_client_t :: struct {
-    config                   : netcode_client_config_t;
-    state                    : int;
-    time                     : Apollo_Time;
-    connect_start_time       : Apollo_Time;
-    last_packet_send_time    : Apollo_Time;
-    last_packet_receive_time : Apollo_Time;
-    should_disconnect        : bool;
-    should_disconnect_state  : int;
-    sequence                 : u64;
-    client_index             : int;
-    max_clients              : int;
-    server_address_index     : int;
-    address                  : netcode_address_t;
-    server_address           : netcode_address_t;
-    connect_token            : netcode_connect_token_t;
-    socket_holder            : netcode_socket_holder_t;
-    ctx                      : netcode_context_t;
-    replay_protection        : netcode_replay_protection_t;
-    packet_receive_queue     : netcode_packet_queue_t;
-    challenge_token_sequence : u64;
-    challenge_token_data     : ChallengeTokenBuf;
-    receive_packet_data      : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS][] u8;
-    receive_from             : [NETCODE_CLIENT_MAX_RECEIVE_PACKETS] netcode_address_t;
-    loopback                 : bool;
-}
-
 netcode_client_socket_create :: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_client_config_t) -> bool {
     assert(socket != null);
 
@@ -3270,39 +3370,6 @@ netcode_address_map_delete :: (map: *netcode_address_map_t, address: netcode_add
 NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS  :: 1;
 NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS :: 1 << 1;
 
-netcode_server_t :: struct {
-    config                          : netcode_server_config_t;
-    socket_holder                   : netcode_socket_holder_t;
-    address                         : netcode_address_t;
-    flags                           : u32;
-    time                            : Apollo_Time;
-    running                         : int;
-    max_clients                     : int;
-    num_connected_clients           : int;
-    global_sequence                 : u64;
-    challenge_sequence              : u64;
-    challenge_key                   : EncryptionKeyBuf;
-    client_connected                : [NETCODE_MAX_CLIENTS] bool;
-    client_timeout                  : [NETCODE_MAX_CLIENTS] Apollo_Time;
-    client_loopback                 : [NETCODE_MAX_CLIENTS] bool;
-    client_confirmed                : [NETCODE_MAX_CLIENTS] bool;
-    client_encryption_index         : [NETCODE_MAX_CLIENTS] int;
-    client_id                       : [NETCODE_MAX_CLIENTS] u64;
-    client_sequence                 : [NETCODE_MAX_CLIENTS] u64;
-    client_last_packet_send_time    : [NETCODE_MAX_CLIENTS] Apollo_Time;
-    client_last_packet_receive_time : [NETCODE_MAX_CLIENTS] Apollo_Time;
-    client_user_data                : [NETCODE_MAX_CLIENTS] UserDataBuf;
-    client_replay_protection        : [NETCODE_MAX_CLIENTS] netcode_replay_protection_t;
-    client_packet_queue             : [NETCODE_MAX_CLIENTS] netcode_packet_queue_t;
-    client_address                  : [NETCODE_MAX_CLIENTS] netcode_address_t;
-    client_address_map              : netcode_address_map_t;
-    connect_token_entries           : [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t;
-    encryption_manager              : netcode_encryption_manager_t;
-    receive_packet_data             : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] [] u8;  // TODO(dlb): Should the slice be MAX_PACKET_BYTES or something?
-    //receive_packet_bytes            : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] int;  // TODO(dlb): Use the packet_data slice
-    receive_from                    : [NETCODE_SERVER_MAX_RECEIVE_PACKETS] netcode_address_t;
-}
-
 netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_server_config_t) -> bool {
     assert(socket != null);
 
@@ -3876,84 +3943,4 @@ netcode_server_check_for_timeouts :: (using server: *netcode_server_t) {
             netcode_server_disconnect_client_internal(server, it, false);
         }
     }
-}
-
-// ----------------------------------------------------------------
-
-netcode_generate_connect_token :: (
-    public_server_addresses   : [] string,
-    internal_server_addresses : [] string,
-    expire_seconds            : Apollo_Time,
-    timeout_seconds           : Apollo_Time,
-    client_id                 : u64,
-    protocol_id               : u64,
-    private_key               : EncryptionKeyBuf,
-    user_data                 : UserDataBuf,
-    output_buffer             : ConnectTokenBuf
-) -> int {
-    assert(public_server_addresses.count > 0);
-    assert(public_server_addresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
-    assert(internal_server_addresses.count == public_server_addresses.count);
-
-    // parse public server addresses
-
-    parsed_public_server_addresses: [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
-    for public_server_addresses {
-        if netcode_parse_address(it, *parsed_public_server_addresses[it_index]) != NETCODE_OK {
-            return NETCODE_ERROR;
-        }
-    }
-
-    // parse internal server addresses
-
-    parsed_internal_server_addresses: [NETCODE_MAX_SERVERS_PER_CONNECT] netcode_address_t;
-    for internal_server_addresses {
-        if netcode_parse_address(it, *parsed_internal_server_addresses[it_index]) != NETCODE_OK {
-            return NETCODE_ERROR;
-        }
-    }
-
-    // generate a connect token
-
-    nonce: BigNonceBuf;
-    netcode_generate_nonce(nonce);
-
-    connect_token_private: netcode_connect_token_private_t;
-    netcode_generate_connect_token_private(*connect_token_private, client_id, timeout_seconds, parsed_internal_server_addresses, user_data);
-
-    // write it to a buffer
-
-    connect_token_data: ConnectTokenBuf;
-    netcode_write_connect_token_private(connect_token_private, connect_token_data);
-
-    // encrypt the buffer
-
-    create_timestamp = current_time_monotonic();
-    expire_timestamp = ifx expire_seconds >= .{} then create_timestamp + expire_seconds else APOLLO_MAX;
-    if netcode_encrypt_connect_token_private(connect_token_data, NETCODE_VERSION_INFO, protocol_id, expire_timestamp, nonce, private_key) != NETCODE_OK {
-        return NETCODE_ERROR;
-    }
-
-    // wrap a connect token around the private connect token data
-
-    connect_token: netcode_connect_token_t;
-    array_copy(connect_token.version_info, NETCODE_VERSION_INFO);
-    connect_token.protocol_id = protocol_id;
-    connect_token.create_timestamp = create_timestamp;
-    connect_token.expire_timestamp = expire_timestamp;
-    array_copy(connect_token.nonce, nonce);
-    array_copy(connect_token.private_data, connect_token_data);
-    connect_token.num_server_addresses = public_server_addresses.count;
-    for parsed_public_server_addresses {
-        connect_token.server_addresses[it_index] = it;
-    }
-    array_copy(connect_token.client_to_server_key, connect_token_private.client_to_server_key);
-    array_copy(connect_token.server_to_client_key, connect_token_private.server_to_client_key);
-    connect_token.timeout_seconds = timeout_seconds;
-
-    // write the connect token to the output buffer
-
-    netcode_write_connect_token(*connect_token, output_buffer);
-
-    return NETCODE_OK;
 }

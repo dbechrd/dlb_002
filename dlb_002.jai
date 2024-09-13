@@ -7,8 +7,8 @@ main :: () {
     log_cpu_info();
     reliable_test();
     netcode_test();
-    yojimbo_init();
-    //yojimbo_tests();
+    // yojimbo_init();
+    yojimbo_tests();
 
     //config: netcode_client_config_t;
     //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());

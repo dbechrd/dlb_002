@@ -1,17 +1,5 @@
 
 
-static void test_sequence()
-{
-    check(netcode_sequence_number_bytes_required(0) == 1);
-    check(netcode_sequence_number_bytes_required(0x11) == 1);
-    check(netcode_sequence_number_bytes_required(0x1122) == 2);
-    check(netcode_sequence_number_bytes_required(0x112233) == 3);
-    check(netcode_sequence_number_bytes_required(0x11223344) == 4);
-    check(netcode_sequence_number_bytes_required(0x1122334455) == 5);
-    check(netcode_sequence_number_bytes_required(0x112233445566) == 6);
-    check(netcode_sequence_number_bytes_required(0x11223344556677) == 7);
-    check(netcode_sequence_number_bytes_required(0x1122334455667788) == 8);
-}
 
 static void test_address()
 {

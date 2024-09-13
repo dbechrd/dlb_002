@@ -84,6 +84,18 @@ test_queue :: () {
     }
 }
 
+test_sequence :: () {
+    check(netcode_sequence_number_bytes_required(0) == 1);
+    check(netcode_sequence_number_bytes_required(0x11) == 1);
+    check(netcode_sequence_number_bytes_required(0x1122) == 2);
+    check(netcode_sequence_number_bytes_required(0x112233) == 3);
+    check(netcode_sequence_number_bytes_required(0x11223344) == 4);
+    check(netcode_sequence_number_bytes_required(0x1122334455) == 5);
+    check(netcode_sequence_number_bytes_required(0x112233445566) == 6);
+    check(netcode_sequence_number_bytes_required(0x11223344556677) == 7);
+    check(netcode_sequence_number_bytes_required(0x1122334455667788) == 8);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -107,8 +119,8 @@ netcode_test :: () {
     log("--------------------------------------------------------------------------------\n");
     log("[Netcode] Running tests...\n");
     RUN_TEST(test_queue);
+    RUN_TEST(test_sequence);
     // RUN_TEST(test_address);
-    // RUN_TEST(test_sequence);
     // RUN_TEST(test_connect_token);
     // RUN_TEST(test_challenge_token);
     // RUN_TEST(test_connection_request_packet);

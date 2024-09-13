@@ -74,6 +74,7 @@ yojimbo_shutdown :: () {
 #if YOJIMBO_ENABLE_TESTS {
     yojimbo_tests :: () {
         address_tests();
+        // TODO(dlb): The rest of the tests..
     }
 }
 
@@ -87,7 +88,7 @@ yojimbo_shutdown :: () {
 #load "base_server.jai";
 #load "channel.jai";
 #load "channel_packet_data.jai";
-// #load "client.jai";                          // done, except netcode
+#load "client.jai";
 #load "config.jai";
 #load "connection.jai";
 #load "constants.jai";
@@ -97,7 +98,7 @@ yojimbo_shutdown :: () {
 #load "queue.jai";
 #load "reliable_ordered_channel.jai";
 #load "sequence_buffer.jai";
-// #load "server.jai";                          // done, except netcode
+#load "server.jai";
 #load "unreliable_unordered_channel.jai";
 #load "utils.jai";
 

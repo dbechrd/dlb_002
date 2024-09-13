@@ -208,6 +208,8 @@ client_process_loopback_packet :: (using client: *Client, packetData: [] u8, pac
 
 #scope_file
 
+#import "Netcode";
+
 client_create_net_client :: (using client: *Client, address: Address) {
     client_destroy_net_client();
 

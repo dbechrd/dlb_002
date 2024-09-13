@@ -128,7 +128,7 @@ This function drives the sending of packets that transmit messages to clients.
 */
 server_send_packets :: (using server: *Server) {
     if netServer != null {
-        0..maxClients-1 {
+        for 0..maxClients-1 {
             if server_is_client_connected(it) {
                 packetData := packetBuffer;
                 packetBytes: int;
@@ -295,6 +295,8 @@ server_get_network_info :: (using server: *Server, clientIndex: int, info: *Netw
 
 #scope_file
 
+#import "Netcode";
+
 server_transmit_packet_function :: (ctx: *void, clientIndex: int, packetSequence: u16, packetData: [] u8) {
     using server := cast(*Server) ctx;
 
@@ -305,7 +307,7 @@ server_transmit_packet_function :: (ctx: *void, clientIndex: int, packetSequence
     }
 }
 
-server_process_packet_function :: (ctx: *void, clientIndex: int, packetSequence: u16, packetData: [] u8) -> {
+server_process_packet_function :: (ctx: *void, clientIndex: int, packetSequence: u16, packetData: [] u8) {
     using server := cast(*Server) ctx;
 
     return cast(int) connection_process_packet(clientConnection[clientIndex], packetSequence, packetData);
