@@ -36,7 +36,7 @@ Server :: struct {
 server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
     server_init(base, _config, _time);
     assert(KeyBytes == NETCODE_KEY_BYTES);
-    privateKey = _privateKey;  //memcpy( m_privateKey, privateKey, NETCODE_KEY_BYTES ); do we need this?
+    array_copy(privateKey, _privateKey);
     address = _address;
     boundAddress = _address;
     transmitPacketFunction = server_transmit_packet_function;
@@ -65,7 +65,7 @@ server_start :: (using server: *Server, _maxClients: int) {
 
     netcodeConfig: netcode_server_config_t;
     netcodeConfig.protocol_id = config.protocolId;
-    netcodeConfig.private_key = privateKey;  // memcpy(netcodeConfig.private_key, privateKey, NETCODE_KEY_BYTES); do we need this?
+    array_copy(netcodeConfig.private_key, privateKey);
     netcodeConfig.callback_context = cast(*void) server;
     netcodeConfig.connect_disconnect_callback = server_connect_disconnect_callback;
     netcodeConfig.send_loopback_packet_callback = server_send_loopback_packet_callback;
@@ -167,7 +167,6 @@ server_receive_packets :: (using server: *Server) {
 Advance server time.
 Call this at the end of each frame to advance the server time forward.
 */
-
 server_advance_time :: (using server: *Server, _time: Apollo_Time) {
     if netServer != null {
         netcode_server_update(netServer, _time);

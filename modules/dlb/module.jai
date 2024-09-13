@@ -11,6 +11,10 @@ array_equal :: (a: [] $T, b: [] T) -> bool {
     return !memcmp(a.data, b.data, a.count);
 }
 
+array_copy :: (a: [$N] $T, b: [N] T) {
+    memcpy(a.data, b.data, N);
+}
+
 pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
     return cast(s64)((cast(*u8) a) - (cast(*u8) b));
 }
