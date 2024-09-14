@@ -31,7 +31,8 @@ https://github.com/mas-bandwidth/netcode/commit/3ffe69ad33416789bfb651bf687fdc61
 */
 
 #module_parameters(
-    NETCODE_ENABLE_LOGGING := false
+    NETCODE_ENABLE_LOGGING := false,
+    NETCODE_DISABLE_SECURITY := false
 );
 
 #load "tests.jai";
@@ -92,12 +93,12 @@ netcode_term :: () {
 // ----------------------------------------------------------------
 
 netcode_address_t :: struct {
-    data :: union {
+    type: u8;
+    port: u16;
+    data: union {
         ipv4: [4] u8;
         ipv6: [8] u16;
     }
-    port: u16;
-    type: u8;
 }
 
 // ----------------------------------------------------------------
@@ -994,8 +995,19 @@ netcode_address_to_string :: (address: netcode_address_t) -> string {
 }
 
 netcode_address_equal :: (a: netcode_address_t, b: netcode_address_t) -> bool {
-    // TODO(dlb): Implement this via yojimbo.address
-    assert(false, "Not implemented");
+    // TODO(dlb): De-dupe this code with Yojimbo/address.jai
+    if a.type != b.type return false;
+    if a.port != b.port return false;
+    if a.type == {
+        case NETCODE_ADDRESS_NONE;
+            return true;
+        case NETCODE_ADDRESS_IPV4;
+            return array_equal(a.data.ipv4, b.data.ipv4);
+        case NETCODE_ADDRESS_IPV6;
+            return array_equal(a.data.ipv6, b.data.ipv6);
+    }
+    assert(false, "Invalid address type");
+    return false;
 }
 
 // ----------------------------------------------------------------
@@ -1227,28 +1239,28 @@ netcode_write_uint8 :: (p: **u8, value: u8) {
 }
 
 netcode_write_uint16 :: (p: **u8, value: u16) {
-    (p.*)[0] = value & 0xFF;
-    (p.*)[1] = value >> 8;
+    (p.*)[0] = cast(u8) (value & 0xFF);
+    (p.*)[1] = cast(u8) (value >> 8);
     p.* += 2;
 }
 
 netcode_write_uint32 :: (p: **u8, value: u32) {
-    (p.*)[0] = value & 0xFF;
-    (p.*)[1] = (value >> 8 ) & 0xFF;
-    (p.*)[2] = (value >> 16) & 0xFF;
-    (p.*)[3] = value >> 24;
+    (p.*)[0] = cast(u8) (value & 0xFF);
+    (p.*)[1] = cast(u8) ((value >> 8 ) & 0xFF);
+    (p.*)[2] = cast(u8) ((value >> 16) & 0xFF);
+    (p.*)[3] = cast(u8) (value >> 24);
     p.* += 4;
 }
 
 netcode_write_uint64 :: (p: **u8, value: u64) {
-    (p.*)[0] = value & 0xFF;
-    (p.*)[1] = (value >> 8 ) & 0xFF;
-    (p.*)[2] = (value >> 16) & 0xFF;
-    (p.*)[3] = (value >> 24) & 0xFF;
-    (p.*)[4] = (value >> 32) & 0xFF;
-    (p.*)[5] = (value >> 40) & 0xFF;
-    (p.*)[6] = (value >> 48) & 0xFF;
-    (p.*)[7] = value >> 56;
+    (p.*)[0] = cast(u8) (value & 0xFF);
+    (p.*)[1] = cast(u8) ((value >> 8 ) & 0xFF);
+    (p.*)[2] = cast(u8) ((value >> 16) & 0xFF);
+    (p.*)[3] = cast(u8) ((value >> 24) & 0xFF);
+    (p.*)[4] = cast(u8) ((value >> 32) & 0xFF);
+    (p.*)[5] = cast(u8) ((value >> 40) & 0xFF);
+    (p.*)[6] = cast(u8) ((value >> 48) & 0xFF);
+    (p.*)[7] = cast(u8) (value >> 56);
     p.* += 8;
 }
 
@@ -1307,8 +1319,11 @@ netcode_read_bytes :: (p: **u8, byte_array: [] u8) {
 
 // TODO(dlb): This should be crypto random
 randombytes_buf :: (buf: [] u8) {
+    #if !NETCODE_DISABLE_SECURITY {
+        print("CRITICAL: FAKE RANDOM ENABLED. YOUR BYTES ARE NOT RANDOM!\n");
+    }
     for 0..buf.count-1 {
-        buf[it] = it % buf.count;
+        buf[it] = cast(u8) it & 0xFF;
     }
 }
 
@@ -1323,6 +1338,10 @@ crypto_aead_xchacha20poly1305_ietf_encrypt :: (
     npub   : *u8,   // [in] public nonce
     k      : *u8    // [in] key
 ) -> int {
+    #if !NETCODE_DISABLE_SECURITY {
+        print("CRITICAL: FAKE ENCRYPTION ENABLED. YOUR DATA IS NOT SAFE!\n");
+    }
+    clen_p.* = mlen + NETCODE_MAC_BYTES;
     return 0;
 }
 
@@ -1337,6 +1356,10 @@ crypto_aead_xchacha20poly1305_ietf_decrypt :: (
     npub   : *u8,   // [in] public nonce
     k      : *u8    // [in] key
 ) -> int {
+    #if !NETCODE_DISABLE_SECURITY {
+        print("CRITICAL: FAKE ENCRYPTION ENABLED. YOUR DATA IS NOT SAFE!\n");
+    }
+    mlen_p.* = clen - NETCODE_MAC_BYTES;
     return 0;
 }
 
@@ -1354,23 +1377,29 @@ netcode_generate_nonce :: (nonce: BigNonceBuf) {
     randombytes_buf(nonce);
 }
 
+netcode_random_bytes :: (data: [] u8) {
+    assert(data.count > 0);
+
+    randombytes_buf(data);
+}
+
 // the nonce here is expected to be random bytes which differ for each message
 netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     encrypted_length: u64;
 
     err := crypto_aead_xchacha20poly1305_ietf_encrypt(
         message.data, *encrypted_length,
-        message.data, message.count,
-        header.data, header.count,
+        message.data, cast(u64) message.count,
+        header.data, cast(u64) header.count,
         null,
-        nonce, key
+        nonce.data, key.data
     );
 
     if err != 0 {
         return NETCODE_ERROR;
     }
 
-    assert(encrypted_length == message.count + NETCODE_MAC_BYTES);
+    assert(cast(int) encrypted_length == message.count + NETCODE_MAC_BYTES);
     return NETCODE_OK;
 }
 
@@ -1381,16 +1410,16 @@ netcode_decrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
     err := crypto_aead_xchacha20poly1305_ietf_decrypt(
         message.data, *decrypted_length,
         null,
-        message.data, message.count,
-        header.data, header.count,
-        nonce, key
+        message.data, cast(u64) message.count,
+        header.data, cast(u64) header.count,
+        nonce.data, key.data
     );
 
     if err != 0 {
         return NETCODE_ERROR;
     }
 
-    assert(decrypted_length == message.count - NETCODE_MAC_BYTES);
+    assert(cast(int) decrypted_length == message.count - NETCODE_MAC_BYTES);
     return NETCODE_OK;
 }
 
@@ -1400,17 +1429,17 @@ netcode_encrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: En
 
     err := crypto_aead_chacha20poly1305_ietf_encrypt(
         message.data, *encrypted_length,
-        message.data, message.count,
-        header.data, header.count,
+        message.data, cast(u64) message.count,
+        header.data, cast(u64) header.count,
         null,
-        nonce, key
+        nonce.data, key.data
     );
 
     if err != 0 {
         return NETCODE_ERROR;
     }
 
-    assert(encrypted_length == message.count + NETCODE_MAC_BYTES);
+    assert(cast(int) encrypted_length == message.count + NETCODE_MAC_BYTES);
     return NETCODE_OK;
 }
 
@@ -1421,16 +1450,16 @@ netcode_decrypt_aead :: (message: [] u8, header: [] u8, nonce: NonceBuf, key: En
     err := crypto_aead_chacha20poly1305_ietf_decrypt(
         message.data, *decrypted_length,
         null,
-        message.data, message.count,
-        header.data, header.count,
-        nonce, key
+        message.data, cast(u64) message.count,
+        header.data, cast(u64) header.count,
+        nonce.data, key.data
     );
 
     if err != 0 {
         return NETCODE_ERROR;
     }
 
-    assert(decrypted_length == message.count - NETCODE_MAC_BYTES);
+    assert(cast(int) decrypted_length == message.count - NETCODE_MAC_BYTES);
     return NETCODE_OK;
 }
 
@@ -1450,7 +1479,6 @@ netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token
     assert(connect_token != null);
     assert(server_addresses.count > 0);
     assert(server_addresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
-    assert(user_data != null);
 
     connect_token.client_id = client_id;
     connect_token.timeout_seconds = timeout_seconds;
@@ -1463,13 +1491,12 @@ netcode_generate_connect_token_private :: (connect_token: *netcode_connect_token
     netcode_generate_key(connect_token.client_to_server_key);
     netcode_generate_key(connect_token.server_to_client_key);
 
-    if user_data != null {
+    if user_data.count > 0 {
         array_copy(connect_token.user_data, user_data);
     }
 }
 
 netcode_write_connect_token_private :: (connect_token: netcode_connect_token_private_t, token_buffer: ConnectTokenBuf) {
-    assert(connect_token != null);
     assert(connect_token.num_server_addresses > 0);
     assert(connect_token.num_server_addresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
@@ -1477,8 +1504,8 @@ netcode_write_connect_token_private :: (connect_token: netcode_connect_token_pri
     cursor := token_buffer.data;
 
     netcode_write_uint64(*cursor, connect_token.client_id);
-    netcode_write_uint32(*cursor, to_seconds(connect_token.timeout_seconds));
-    netcode_write_uint32(*cursor, connect_token.num_server_addresses);
+    netcode_write_uint32(*cursor, cast(u32) to_seconds(connect_token.timeout_seconds));
+    netcode_write_uint32(*cursor, cast(u32) connect_token.num_server_addresses);
 
     for it_address: 0..connect_token.num_server_addresses-1 {
         address := *connect_token.server_addresses[it_address];
@@ -1506,13 +1533,13 @@ netcode_write_connect_token_private :: (connect_token: netcode_connect_token_pri
     assert(pointer_diff(cursor, start) <= NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES);
 }
 
-netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: Apollo_Time, none: BigNonceBuf, key: EncryptionKeyBuf) -> int {
+netcode_encrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version_info: VerionInfoBuf, protocol_id: u64, expire_timestamp: Apollo_Time, nonce: BigNonceBuf, key: EncryptionKeyBuf) -> int {
     additional_data: [version_info.count + 8 + 8] u8;
     {
         ptr := additional_data.data;
         netcode_write_bytes(*ptr, version_info);
         netcode_write_uint64(*ptr, protocol_id);
-        netcode_write_uint64(*ptr, to_milliseconds(expire_timestamp));
+        netcode_write_uint64(*ptr, cast(u64) to_milliseconds(expire_timestamp));
     }
 
     return netcode_encrypt_aead_bignonce(.{ NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES, token_buffer.data }, additional_data, nonce, key);
@@ -1524,7 +1551,7 @@ netcode_decrypt_connect_token_private :: (token_buffer: ConnectTokenBuf, version
         ptr := additional_data.data;
         netcode_write_bytes(*ptr, version_info);
         netcode_write_uint64(*ptr, protocol_id);
-        netcode_write_uint64(*ptr, to_milliseconds(expire_timestamp));
+        netcode_write_uint64(*ptr, cast(u64) to_milliseconds(expire_timestamp));
     }
     return netcode_decrypt_aead_bignonce(token_buffer, additional_data, nonce, key);
 }
@@ -1580,6 +1607,7 @@ netcode_challenge_token_t :: struct {
 
 netcode_write_challenge_token :: (challenge_token: netcode_challenge_token_t, token_buffer: ChallengeTokenBuf) {
     start := token_buffer.data;
+    cursor := start;
 
     netcode_write_uint64(*cursor, challenge_token.client_id);
     netcode_write_bytes(*cursor, challenge_token.user_data);
@@ -1612,8 +1640,8 @@ netcode_decrypt_challenge_token :: (token_buffer: ChallengeTokenBuf, sequence: u
 netcode_read_challenge_token :: (token_buffer: ChallengeTokenBuf, challenge_token: *netcode_challenge_token_t) -> int {
     assert(challenge_token != null);
 
-    start := buffer.data;
-    cursor := token_buffer.data;
+    start := token_buffer.data;
+    cursor := start;
 
     challenge_token.client_id = netcode_read_uint64(*cursor);
     netcode_read_bytes(*cursor, challenge_token.user_data);
@@ -1748,7 +1776,7 @@ netcode_write_packet :: (packet: netcode_connection_packet_t, buffer: [] u8, seq
         netcode_write_uint8(*cursor, NETCODE_CONNECTION_REQUEST_PACKET);
         netcode_write_bytes(*cursor, p.version_info);
         netcode_write_uint64(*cursor, p.protocol_id);
-        netcode_write_uint64(*cursor, to_milliseconds(p.connect_token_expire_timestamp));
+        netcode_write_uint64(*cursor, cast(u64) to_milliseconds(p.connect_token_expire_timestamp));
         netcode_write_bytes(*cursor, p.connect_token_nonce);
         netcode_write_bytes(*cursor, p.connect_token_data);
 
@@ -1945,7 +1973,7 @@ netcode_read_packet :: (
             return null, 0;
         }
 
-        packet_connect_token_expire_timestamp := milliseconds_to_apollo(netcode_read_uint64(*cursor));
+        packet_connect_token_expire_timestamp := milliseconds_to_apollo(cast(s64) netcode_read_uint64(*cursor));
         if packet_connect_token_expire_timestamp <= current_timestamp {
             netcode_log(.VERBOSE_ONLY, "ignored connection request packet. connect token expired\n");
             return null, 0;
@@ -2216,11 +2244,11 @@ netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer:
 
     netcode_write_bytes(cursor, connect_token.version_info);
     netcode_write_uint64(cursor, connect_token.protocol_id);
-    netcode_write_uint64(cursor, to_milliseconds(connect_token.create_timestamp));
-    netcode_write_uint64(cursor, to_milliseconds(connect_token.expire_timestamp));
+    netcode_write_uint64(cursor, cast(u64) to_milliseconds(connect_token.create_timestamp));
+    netcode_write_uint64(cursor, cast(u64) to_milliseconds(connect_token.expire_timestamp));
     netcode_write_bytes(cursor, connect_token.nonce);
     netcode_write_bytes(cursor, connect_token.private_data);
-    netcode_write_uint32(cursor, to_seconds(connect_token.timeout_seconds));
+    netcode_write_uint32(cursor, cast(u32) to_seconds(connect_token.timeout_seconds));
     netcode_write_uint32(cursor, connect_token.num_server_addresses);
 
     for it_address: 0..connect_token.num_server_addresses-1 {
@@ -2276,8 +2304,8 @@ netcode_read_connect_token :: (buffer: ConnectTokenBuf, connect_token: *netcode_
     }
 
     connect_token.protocol_id = netcode_read_uint64(cursor);
-    connect_token.create_timestamp = milliseconds_to_apollo(netcode_read_uint64(cursor));
-    connect_token.expire_timestamp = milliseconds_to_apollo(netcode_read_uint64(cursor));
+    connect_token.create_timestamp = milliseconds_to_apollo(cast(s64) netcode_read_uint64(cursor));
+    connect_token.expire_timestamp = milliseconds_to_apollo(cast(s64) netcode_read_uint64(cursor));
 
     if connect_token.create_timestamp > connect_token.expire_timestamp {
         return NETCODE_ERROR;
@@ -2974,8 +3002,8 @@ netcode_encryption_manager_reset :: (using encryption_manager: *netcode_encrypti
 
     for 0..NETCODE_MAX_ENCRYPTION_MAPPINGS-1 {
         // NOTE(dlb): These are some weird "null" values.. I'm not sure if I interpreted the original code correctly but it should be fine.
-        expire_time[it] = milliseconds_to_apollo(-1);
-        last_access_time[it] = milliseconds_to_apollo(-1000);
+        expire_time[it] = seconds_to_apollo(-1);
+        last_access_time[it] = seconds_to_apollo(-1000);
         address[it] = .{};
         client_index[it] = -1;
     }
@@ -3034,8 +3062,8 @@ netcode_encryption_manager_remove_encryption_mapping :: (using encryption_manage
 
     for 0..num_encryption_mappings-1 {
         if netcode_address_equal(address[it], _address) {
-            expire_time[it] = milliseconds_to_apollo(-1);
-            last_access_time[it] = milliseconds_to_apollo(-1000);
+            expire_time[it] = seconds_to_apollo(-1);
+            last_access_time[it] = seconds_to_apollo(-1000);
             address[it] = .{};
             array_reset(send_key[it].data);
             array_reset(receive_key[it].data);
@@ -3129,7 +3157,7 @@ netcode_connect_token_entry_t :: struct {
 
 netcode_connect_token_entries_reset :: (connect_token_entries: [NETCODE_MAX_CONNECT_TOKEN_ENTRIES] netcode_connect_token_entry_t) {
     for * connect_token_entries {
-        it.time = milliseconds_to_apollo(-1000);
+        it.time = seconds_to_apollo(-1000);
         array_zero(it.mac);
         it.address = .{};
     }
@@ -3642,7 +3670,7 @@ netcode_server_process_connection_request_packet :: (using server: *netcode_serv
         return;
     }
 
-    expire_time := ifx connect_token_private.timeout_seconds >= .{} then time + connect_token_private.timeout_seconds else milliseconds_to_apollo(-1);
+    expire_time := ifx connect_token_private.timeout_seconds >= .{} then time + connect_token_private.timeout_seconds else seconds_to_apollo(-1);
 
     if !netcode_encryption_manager_add_encryption_mapping(*encryption_manager, from,
         connect_token_private.server_to_client_key, connect_token_private.client_to_server_key, time, expire_time,
@@ -3692,7 +3720,7 @@ netcode_server_connect_client :: (using server: *netcode_server_t, _client_index
     assert(client_connected[_client_index] == false);
     assert(num_connected_clients < max_clients);
 
-    netcode_encryption_manager_set_expire_time(*encryption_manager, _encryption_index, milliseconds_to_apollo(-1));
+    netcode_encryption_manager_set_expire_time(*encryption_manager, _encryption_index, seconds_to_apollo(-1));
 
     encryption_manager.client_index[_encryption_index] = _client_index;
 

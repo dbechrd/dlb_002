@@ -96,6 +96,114 @@ test_sequence :: () {
     check(netcode_sequence_number_bytes_required(0x1122334455667788) == 8);
 }
 
+test_address :: () {
+    // TODO(dlb): Do something with address duplication nonsense.
+}
+
+TEST_PROTOCOL_ID          : u64 : 0x1122334455667788;
+TEST_CLIENT_ID            : u64 : 0x1;
+TEST_SERVER_PORT          :: 40000;
+TEST_CONNECT_TOKEN_EXPIRY :: #run seconds_to_apollo(30);
+TEST_TIMEOUT_SECONDS      :: #run seconds_to_apollo(15);
+
+test_connect_token :: () {
+    // generate a connect token
+
+    server_address: netcode_address_t;
+    server_address.type = NETCODE_ADDRESS_IPV4;
+    server_address.data.ipv4[0] = 127;
+    server_address.data.ipv4[1] = 0;
+    server_address.data.ipv4[2] = 0;
+    server_address.data.ipv4[3] = 1;
+    server_address.port = TEST_SERVER_PORT;
+
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+
+    input_token: netcode_connect_token_private_t;
+
+    netcode_generate_connect_token_private(*input_token, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
+
+    check(input_token.client_id == TEST_CLIENT_ID);
+    check(input_token.num_server_addresses == 1);
+    check(array_equal(input_token.user_data, user_data) == true);
+    check(netcode_address_equal(input_token.server_addresses[0], server_address));
+
+    // write it to a buffer
+
+    buffer: ConnectTokenBuf;
+
+    netcode_write_connect_token_private(*input_token, buffer);
+
+    // encrypt the buffer
+
+    expire_timestamp := current_time_monotonic() + seconds_to_apollo(30);
+    nonce: BigNonceBuf;
+    netcode_generate_nonce(nonce);
+    key: EncryptionKeyBuf;
+    netcode_generate_key(key);
+
+    check(netcode_encrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key) == NETCODE_OK);
+
+    // decrypt the buffer
+
+    check(netcode_decrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key) == NETCODE_OK);
+
+    // read the connect token back in
+
+    output_token: netcode_connect_token_private_t;
+
+    check(netcode_read_connect_token_private(buffer, *output_token) == NETCODE_OK);
+
+    // make sure that everything matches the original connect token
+
+    check(output_token.client_id == input_token.client_id);
+    check(output_token.timeout_seconds == input_token.timeout_seconds);
+    check(output_token.num_server_addresses == input_token.num_server_addresses);
+    check(netcode_address_equal(output_token.server_addresses[0], input_token.server_addresses[0]));
+    check(array_equal(output_token.client_to_server_key, input_token.client_to_server_key) == true);
+    check(array_equal(output_token.server_to_client_key, input_token.server_to_client_key) == true);
+    check(array_equal(output_token.user_data, input_token.user_data) == true);
+}
+
+test_challenge_token :: () {
+    // generate a challenge token
+
+    input_token: netcode_challenge_token_t;
+
+    input_token.client_id = TEST_CLIENT_ID;
+    netcode_random_bytes(input_token.user_data);
+
+    // write it to a buffer
+
+    buffer: ChallengeTokenBuf;
+
+    netcode_write_challenge_token(*input_token, buffer);
+
+    // encrypt the buffer
+
+    sequence: u64 = 1000;
+    key: EncryptionKeyBuf;
+    netcode_generate_key(key);
+
+    check(netcode_encrypt_challenge_token(buffer, sequence, key) == NETCODE_OK);
+
+    // decrypt the buffer
+
+    check(netcode_decrypt_challenge_token(buffer, sequence, key) == NETCODE_OK);
+
+    // read the challenge token back in
+
+    output_token: netcode_challenge_token_t;
+
+    check(netcode_read_challenge_token(buffer, *output_token) == NETCODE_OK);
+
+    // make sure that everything matches the original challenge token
+
+    check(output_token.client_id == input_token.client_id);
+    check(array_equal(output_token.user_data, input_token.user_data) == true);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -121,8 +229,8 @@ netcode_test :: () {
     RUN_TEST(test_queue);
     RUN_TEST(test_sequence);
     // RUN_TEST(test_address);
-    // RUN_TEST(test_connect_token);
-    // RUN_TEST(test_challenge_token);
+    RUN_TEST(test_connect_token);
+    RUN_TEST(test_challenge_token);
     // RUN_TEST(test_connection_request_packet);
     // RUN_TEST(test_connection_denied_packet);
     // RUN_TEST(test_connection_challenge_packet);

@@ -6,8 +6,7 @@ array_zero :: (array: [] $T) {
     memset(array.data, 0, size_of(T) * array.count);
 }
 
-array_equal :: (a: [] $T, b: [] T) -> bool {
-    if a.count != b.count return false;
+array_equal :: (a: [$N] $T, b: [N] T) -> bool {
     return !memcmp(a.data, b.data, a.count);
 }
 

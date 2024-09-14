@@ -8,7 +8,7 @@ main :: () {
     reliable_test();
     netcode_test();
     // yojimbo_init();
-    yojimbo_tests();
+    // yojimbo_tests();
 
     //config: netcode_client_config_t;
     //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
@@ -41,7 +41,7 @@ log_cpu_info :: () {
 #import "dlb";
 #import "Reliable"; //(ENABLE_LOGGING=true);
 #import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
-#import "Netcode"(NETCODE_ENABLE_LOGGING=true);
+#import "Netcode"(NETCODE_ENABLE_LOGGING=true, NETCODE_DISABLE_SECURITY=true);
 #import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {
