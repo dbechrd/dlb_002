@@ -329,6 +329,195 @@ test_connection_denied_packet :: () {
     free(output_packet);
 }
 
+test_connection_challenge_packet :: () {
+    // setup a connection challenge packet
+
+    input_packet: netcode_connection_challenge_packet_t;
+    assert(input_packet.type == NETCODE_CONNECTION_CHALLENGE_PACKET);
+    input_packet.challenge_token_sequence = 0;
+    netcode_random_bytes(input_packet.challenge_token_data);
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_CHALLENGE_PACKET);
+    p := cast(*netcode_connection_challenge_packet_t) output_packet;
+    check(p.challenge_token_sequence == input_packet.challenge_token_sequence);
+    check(array_equal(p.challenge_token_data, input_packet.challenge_token_data) == true);
+
+    free(output_packet);
+}
+
+test_connection_response_packet :: () {
+    // setup a connection response packet
+
+    input_packet: netcode_connection_response_packet_t;
+    assert(input_packet.type == NETCODE_CONNECTION_RESPONSE_PACKET);
+    input_packet.challenge_token_sequence = 0;
+    netcode_random_bytes(input_packet.challenge_token_data);
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_RESPONSE_PACKET);
+    p := cast(*netcode_connection_response_packet_t) output_packet;
+    check(p.challenge_token_sequence == input_packet.challenge_token_sequence);
+    check(array_equal(p.challenge_token_data, input_packet.challenge_token_data) == true);
+
+    free(output_packet);
+}
+
+test_connection_keep_alive_packet :: () {
+    // setup a connection keep alive packet
+
+    input_packet: netcode_connection_keep_alive_packet_t;
+    assert(input_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+    input_packet.client_index = 10;
+    input_packet.max_clients = 16;
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+    p := cast(*netcode_connection_keep_alive_packet_t) output_packet;
+    check(p.client_index == input_packet.client_index);
+    check(p.max_clients == input_packet.max_clients);
+
+    free(output_packet);
+}
+
+test_connection_payload_packet :: () {
+    // setup a connection payload packet
+
+    input_packet := netcode_create_payload_packet(NETCODE_MAX_PAYLOAD_BYTES);
+
+    check(input_packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+    check(input_packet.payload_data.count == NETCODE_MAX_PAYLOAD_BYTES);
+
+    netcode_random_bytes(input_packet.payload_data);
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+    p := cast(*netcode_connection_payload_packet_t) output_packet;
+    check(p.payload_data.count == input_packet.payload_data.count);
+    check(memcmp(p.payload_data.data, input_packet.payload_data.data, input_packet.payload_data.count) == 0);
+
+    free(input_packet);
+    free(output_packet);
+}
+
+test_connection_disconnect_packet :: () {
+    // setup a connection disconnect packet
+
+    input_packet: netcode_connection_disconnect_packet_t;
+    assert(input_packet.type == NETCODE_CONNECTION_DISCONNECT_PACKET);
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_DISCONNECT_PACKET);
+
+    free(output_packet);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -358,10 +547,11 @@ netcode_test :: () {
     RUN_TEST(test_challenge_token);
     RUN_TEST(test_connection_request_packet);
     RUN_TEST(test_connection_denied_packet);
-    // RUN_TEST(test_connection_challenge_packet);
-    // RUN_TEST(test_connection_response_packet);
-    // RUN_TEST(test_connection_payload_packet);
-    // RUN_TEST(test_connection_disconnect_packet);
+    RUN_TEST(test_connection_challenge_packet);
+    RUN_TEST(test_connection_response_packet);
+    RUN_TEST(test_connection_keep_alive_packet);
+    RUN_TEST(test_connection_payload_packet);
+    RUN_TEST(test_connection_disconnect_packet);
     // RUN_TEST(test_connect_token_public);
     // RUN_TEST(test_encryption_manager);
     // RUN_TEST(test_replay_protection);
