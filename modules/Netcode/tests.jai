@@ -204,6 +204,131 @@ test_challenge_token :: () {
     check(array_equal(output_token.user_data, input_token.user_data) == true);
 }
 
+test_connection_request_packet :: () {
+    // generate a connect token
+
+    server_address: netcode_address_t;
+    server_address.type = NETCODE_ADDRESS_IPV4;
+    server_address.data.ipv4[0] = 127;
+    server_address.data.ipv4[1] = 0;
+    server_address.data.ipv4[2] = 0;
+    server_address.data.ipv4[3] = 1;
+    server_address.port = TEST_SERVER_PORT;
+
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+
+    input_token: netcode_connect_token_private_t;
+
+    netcode_generate_connect_token_private(*input_token, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
+
+    check(input_token.client_id == TEST_CLIENT_ID);
+    check(input_token.num_server_addresses == 1);
+    check(array_equal(input_token.user_data, user_data) == true);
+    check(netcode_address_equal(input_token.server_addresses[0], server_address));
+
+    // write the conect token to a buffer (non-encrypted)
+
+    connect_token_data: ConnectTokenBuf;
+
+    netcode_write_connect_token_private(*input_token, connect_token_data);
+
+    // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
+
+    encrypted_connect_token_data: ConnectTokenBuf;
+
+    array_copy(encrypted_connect_token_data, connect_token_data);
+
+    // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
+    connect_token_expire_timestamp := milliseconds_to_apollo(to_milliseconds(current_time_monotonic()) + 30 * 1000);
+    connect_token_nonce: BigNonceBuf;
+    netcode_generate_nonce(connect_token_nonce);
+    connect_token_key: EncryptionKeyBuf;
+    netcode_generate_key(connect_token_key);
+
+    check(netcode_encrypt_connect_token_private(encrypted_connect_token_data,
+                                                  NETCODE_VERSION_INFO,
+                                                  TEST_PROTOCOL_ID,
+                                                  connect_token_expire_timestamp,
+                                                  connect_token_nonce,
+                                                  connect_token_key) == NETCODE_OK);
+
+    // setup a connection request packet wrapping the encrypted connect token
+
+    input_packet: netcode_connection_request_packet_t;
+
+    assert(input_packet.type == NETCODE_CONNECTION_REQUEST_PACKET);
+    array_copy(input_packet.version_info, NETCODE_VERSION_INFO);
+    input_packet.protocol_id = TEST_PROTOCOL_ID;
+    input_packet.connect_token_expire_timestamp = connect_token_expire_timestamp;
+    array_copy(input_packet.connect_token_nonce, connect_token_nonce);
+    array_copy(input_packet.connect_token_data, encrypted_connect_token_data);
+
+    // write the connection request packet to a buffer
+
+    buffer: [2048] u8;
+    packet_key: EncryptionKeyBuf;
+    netcode_generate_key(packet_key);
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the connection request packet back in from the buffer (the connect token data is decrypted as part of the read packet validation)
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), *connect_token_key, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_REQUEST_PACKET);
+    p := cast(*netcode_connection_request_packet_t) output_packet;
+    check(array_equal(p.version_info, input_packet.version_info) == true);
+    check(p.protocol_id == input_packet.protocol_id);
+    check(p.connect_token_expire_timestamp == input_packet.connect_token_expire_timestamp);
+    check(array_equal(p.connect_token_nonce, input_packet.connect_token_nonce) == true);
+    check(array_equal(p.connect_token_data, connect_token_data) == true);
+
+    free(output_packet);
+}
+
+test_connection_denied_packet :: () {
+    // setup a connection denied packet
+
+    input_packet: netcode_connection_denied_packet_t;
+    assert(input_packet.type == NETCODE_CONNECTION_DENIED_PACKET);
+
+    // write the packet to a buffer
+
+    buffer: [NETCODE_MAX_PACKET_BYTES] u8;
+
+    packet_key: EncryptionKeyBuf;
+
+    netcode_generate_key(packet_key);
+
+    bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
+
+    check(bytes_written > 0);
+
+    // read the packet back in from the buffer
+
+    allowed_packet_types: AllowedPacketsBuf;
+    array_fill_byte(allowed_packet_types, 1);
+
+    output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
+
+    check(output_packet != null);
+
+    // make sure the read packet matches what was written
+
+    check(output_packet.type == NETCODE_CONNECTION_DENIED_PACKET);
+
+    free(output_packet);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -231,8 +356,8 @@ netcode_test :: () {
     // RUN_TEST(test_address);
     RUN_TEST(test_connect_token);
     RUN_TEST(test_challenge_token);
-    // RUN_TEST(test_connection_request_packet);
-    // RUN_TEST(test_connection_denied_packet);
+    RUN_TEST(test_connection_request_packet);
+    RUN_TEST(test_connection_denied_packet);
     // RUN_TEST(test_connection_challenge_packet);
     // RUN_TEST(test_connection_response_packet);
     // RUN_TEST(test_connection_payload_packet);
