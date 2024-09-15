@@ -14,12 +14,12 @@ Server :: struct {
     /*
     Override this to get a callback when a client connects on the server.
     */
-    onClientConnected :: #type (server: *Server, clientIndex: int);
+    onClientConnected: (server: *Server, clientIndex: int);
 
     /*
     Override this to get a callback when a client disconnects from the server.
     */
-    onClientDisconnected :: #type (server: *Server, clientIndex: int);
+    onClientDisconnected: (server: *Server, clientIndex: int);
 
     /*
     Override this callback to process packets sent from server to client over loopback.
@@ -29,7 +29,7 @@ Server :: struct {
     @param packetSequence The sequence number of the packet.
     @see Server::ConnectLoopbackClient
     */
-    onServerSendLoopbackPacket :: #type (server: *Server, clientIndex: int, packetData: [] u8, packetSequence: u64);
+    onServerSendLoopbackPacket: (server: *Server, clientIndex: int, packetData: [] u8, packetSequence: u64);
 
 };
 

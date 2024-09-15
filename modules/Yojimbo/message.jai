@@ -75,9 +75,9 @@ MessageFactory :: struct {
     messageTypes: [] Type;
 
     // Sadly.. this doesn't work:
-    //serialize: #type (stream: *$S, message: *Message) -> bool;
+    //serialize: (stream: *$S, message: *Message) -> bool;
     // So the user has to accept a *Stream and do the switch on stream.type themselves:
-    serializeRouter: #type (stream: *Stream, message: *Message) -> bool;
+    serializeRouter: (stream: *Stream, message: *Message) -> bool;
 }
 
 #scope_module

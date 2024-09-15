@@ -1,7 +1,12 @@
 #scope_file
 
-// Keep "check" for semantics of a test check vs. a test assert, but actually just use assert for now.
+// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
 check :: assert;
+
+// NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
+current_time_ms :: () {
+    return milliseconds_to_apollo(to_milliseconds(current_time_monotonic()))
+}
 
 test_queue :: () {
     queue: netcode_packet_queue_t;
@@ -131,8 +136,7 @@ test_connect_token :: () {
 
     // write it to a buffer
 
-    buffer: ConnectTokenBuf;
-
+    buffer: ConnectTokenPrivateDataBuf;
     netcode_write_connect_token_private(*input_token, buffer);
 
     // encrypt the buffer
@@ -229,29 +233,22 @@ test_connection_request_packet :: () {
 
     // write the conect token to a buffer (non-encrypted)
 
-    connect_token_data: ConnectTokenBuf;
-
+    connect_token_data: ConnectTokenPrivateDataBuf;
     netcode_write_connect_token_private(*input_token, connect_token_data);
 
     // copy to a second buffer then encrypt it in place (we need the unencrypted token for verification later on)
 
-    encrypted_connect_token_data: ConnectTokenBuf;
-
+    encrypted_connect_token_data: ConnectTokenPrivateDataBuf;
     array_copy(encrypted_connect_token_data, connect_token_data);
 
-    // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
-    connect_token_expire_timestamp := milliseconds_to_apollo(to_milliseconds(current_time_monotonic()) + 30 * 1000);
+    connect_token_expire_timestamp := current_time_ms() + seconds_to_apollo(30);
     connect_token_nonce: BigNonceBuf;
     netcode_generate_nonce(connect_token_nonce);
     connect_token_key: EncryptionKeyBuf;
     netcode_generate_key(connect_token_key);
 
-    check(netcode_encrypt_connect_token_private(encrypted_connect_token_data,
-                                                  NETCODE_VERSION_INFO,
-                                                  TEST_PROTOCOL_ID,
-                                                  connect_token_expire_timestamp,
-                                                  connect_token_nonce,
-                                                  connect_token_key) == NETCODE_OK);
+    check(netcode_encrypt_connect_token_private(encrypted_connect_token_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
+        connect_token_expire_timestamp, connect_token_nonce, connect_token_key) == NETCODE_OK);
 
     // setup a connection request packet wrapping the encrypted connect token
 
@@ -518,6 +515,85 @@ test_connection_disconnect_packet :: () {
     free(output_packet);
 }
 
+test_connect_token_public :: () {
+    // generate a private connect token
+
+    server_address: netcode_address_t;
+    server_address.type = NETCODE_ADDRESS_IPV4;
+    server_address.data.ipv4[0] = 127;
+    server_address.data.ipv4[1] = 0;
+    server_address.data.ipv4[2] = 0;
+    server_address.data.ipv4[3] = 1;
+    server_address.port = TEST_SERVER_PORT;
+
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+
+    connect_token_private: netcode_connect_token_private_t;
+    netcode_generate_connect_token_private(*connect_token_private, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
+
+    check(connect_token_private.client_id == TEST_CLIENT_ID);
+    check(connect_token_private.num_server_addresses == 1);
+    check(array_equal(connect_token_private.user_data, user_data) == true);
+    check(netcode_address_equal(connect_token_private.server_addresses[0], server_address));
+
+    // write it to a buffer
+
+    connect_token_private_data: ConnectTokenPrivateDataBuf;
+    netcode_write_connect_token_private(*connect_token_private, connect_token_private_data);
+
+    // encrypt the buffer
+
+    // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
+    create_timestamp := current_time_ms();
+    expire_timestamp := create_timestamp + seconds_to_apollo(30);
+    connect_token_nonce: BigNonceBuf;
+    netcode_generate_nonce(connect_token_nonce);
+    key: EncryptionKeyBuf;
+    netcode_generate_key(key);
+    check(netcode_encrypt_connect_token_private(connect_token_private_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
+        expire_timestamp, connect_token_nonce, key) == NETCODE_OK);
+
+    // wrap a public connect token around the private connect token data
+
+    input_connect_token: netcode_connect_token_t;
+    array_copy(input_connect_token.version_info, NETCODE_VERSION_INFO);
+    input_connect_token.protocol_id = TEST_PROTOCOL_ID;
+    input_connect_token.create_timestamp = create_timestamp;
+    input_connect_token.expire_timestamp = expire_timestamp;
+    array_copy(input_connect_token.nonce, connect_token_nonce);
+    array_copy(input_connect_token.private_data, connect_token_private_data);
+    input_connect_token.num_server_addresses = 1;
+    input_connect_token.server_addresses[0] = server_address;
+    array_copy(input_connect_token.client_to_server_key, connect_token_private.client_to_server_key);
+    array_copy(input_connect_token.server_to_client_key, connect_token_private.server_to_client_key);
+    input_connect_token.timeout_seconds = TEST_TIMEOUT_SECONDS;
+
+    // write the connect token to a buffer
+
+    buffer: ConnectTokenBuf;
+    netcode_write_connect_token(*input_connect_token, buffer);
+
+    // read the buffer back in
+
+    output_connect_token: netcode_connect_token_t;
+    check(netcode_read_connect_token(buffer, *output_connect_token) == NETCODE_OK);
+
+    // make sure the public connect token matches what was written
+
+    check(array_equal(output_connect_token.version_info, input_connect_token.version_info) == true);
+    check(output_connect_token.protocol_id == input_connect_token.protocol_id);
+    check(output_connect_token.create_timestamp == input_connect_token.create_timestamp);
+    check(output_connect_token.expire_timestamp == input_connect_token.expire_timestamp);
+    check(array_equal(output_connect_token.nonce, input_connect_token.nonce) == true);
+    check(array_equal(output_connect_token.private_data, input_connect_token.private_data) == true);
+    check(output_connect_token.num_server_addresses == input_connect_token.num_server_addresses);
+    check(netcode_address_equal(output_connect_token.server_addresses[0], input_connect_token.server_addresses[0]));
+    check(array_equal(output_connect_token.client_to_server_key, input_connect_token.client_to_server_key) == true);
+    check(array_equal(output_connect_token.server_to_client_key, input_connect_token.server_to_client_key) == true);
+    check(output_connect_token.timeout_seconds == input_connect_token.timeout_seconds);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -552,7 +628,7 @@ netcode_test :: () {
     RUN_TEST(test_connection_keep_alive_packet);
     RUN_TEST(test_connection_payload_packet);
     RUN_TEST(test_connection_disconnect_packet);
-    // RUN_TEST(test_connect_token_public);
+    RUN_TEST(test_connect_token_public);
     // RUN_TEST(test_encryption_manager);
     // RUN_TEST(test_replay_protection);
     // RUN_TEST(test_client_create);

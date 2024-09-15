@@ -18,7 +18,7 @@ Client :: struct {
     @param packetSequence The sequence number of the packet.
     @see Client::ConnectLoopback
     */
-    onClientSendLoopbackPacket :: #type (client: *Client, clientIndex: int, packetData: [] u8, packetSequence: u64);
+    onClientSendLoopbackPacket: (client: *Client, clientIndex: int, packetData: [] u8, packetSequence: u64);
 };
 
 /**
