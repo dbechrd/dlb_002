@@ -801,6 +801,48 @@ test_encryption_manager :: () {
     check(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time) == encryption_index);
 }
 
+test_replay_protection :: () {
+    replay_protection: netcode_replay_protection_t;
+
+    for 0..1 {
+        netcode_replay_protection_reset(*replay_protection);
+
+        check(replay_protection.most_recent_sequence == 0);
+
+        // the first time we receive packets, they should not be already received
+
+        MAX_SEQUENCE :: NETCODE_REPLAY_PROTECTION_BUFFER_SIZE * 4;
+
+        for 0..MAX_SEQUENCE-1 {
+            sequence := cast(u64) it;
+            check(netcode_replay_protection_already_received(*replay_protection, sequence) == false);
+            netcode_replay_protection_advance_sequence(*replay_protection, sequence);
+        }
+
+        // old packets outside buffer should be considered already received
+
+        check(netcode_replay_protection_already_received(*replay_protection, 0) == true);
+
+        // packets received a second time should be flagged already received
+
+        for MAX_SEQUENCE-10..MAX_SEQUENCE-1 {
+            sequence := cast(u64) it;
+            check(netcode_replay_protection_already_received(*replay_protection, sequence) == true);
+        }
+
+        // jumping ahead to a much higher sequence should be considered not already received
+
+        check(netcode_replay_protection_already_received(*replay_protection, MAX_SEQUENCE + NETCODE_REPLAY_PROTECTION_BUFFER_SIZE) == false);
+
+        // old packets should be considered already received
+
+        for 0..MAX_SEQUENCE-1 {
+            sequence := cast(u64) it;
+            check(netcode_replay_protection_already_received(*replay_protection, sequence) == true);
+        }
+    }
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -837,7 +879,7 @@ netcode_test :: () {
     RUN_TEST(test_connection_disconnect_packet);
     RUN_TEST(test_connect_token_public);
     RUN_TEST(test_encryption_manager);
-    // RUN_TEST(test_replay_protection);
+    RUN_TEST(test_replay_protection);
     // RUN_TEST(test_client_create);
     // RUN_TEST(test_server_create);
     // RUN_TEST(test_client_server_connect);
