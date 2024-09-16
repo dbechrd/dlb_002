@@ -2997,7 +2997,7 @@ netcode_encryption_manager_t :: struct {
 netcode_encryption_manager_reset :: (using encryption_manager: *netcode_encryption_manager_t) {
     netcode_log(.VERY_VERBOSE_ONLY, "reset encryption manager\n");
 
-    assert(encryption_manager);
+    assert(encryption_manager != null);
 
     num_encryption_mappings = 0;
 
@@ -3021,7 +3021,7 @@ netcode_encryption_manager_entry_expired :: (using encryption_manager: netcode_e
 
 netcode_encryption_manager_add_encryption_mapping :: (
     using encryption_manager: *netcode_encryption_manager_t,
-    _address: *netcode_address_t,
+    _address: netcode_address_t,
     _send_key: EncryptionKeyBuf,
     _receive_key: EncryptionKeyBuf,
     _time: Apollo_Time,
@@ -3029,7 +3029,7 @@ netcode_encryption_manager_add_encryption_mapping :: (
     _timeout: Apollo_Time
 ) -> bool {
     for 0..num_encryption_mappings-1 {
-        if netcode_address_equal(address[it], _address.*) && !netcode_encryption_manager_entry_expired(encryption_manager, it, _time) {
+        if netcode_address_equal(address[it], _address) && !netcode_encryption_manager_entry_expired(encryption_manager, it, _time) {
             timeout[it] = _timeout;
             expire_time[it] = _expire_time;
             last_access_time[it] = _time;
@@ -3044,7 +3044,7 @@ netcode_encryption_manager_add_encryption_mapping :: (
             timeout[it] = _timeout;
             expire_time[it] = _expire_time;
             last_access_time[it] = _time;
-            address[it] = _address.*;
+            address[it] = _address;
             array_copy(send_key[it], _send_key);
             array_copy(receive_key[it], _receive_key);
             if it >= num_encryption_mappings {
@@ -3059,15 +3059,14 @@ netcode_encryption_manager_add_encryption_mapping :: (
 
 netcode_encryption_manager_remove_encryption_mapping :: (using encryption_manager: *netcode_encryption_manager_t, _address: netcode_address_t, time: Apollo_Time) -> bool {
     assert(encryption_manager != null);
-    assert(address != null);
 
     for 0..num_encryption_mappings-1 {
         if netcode_address_equal(address[it], _address) {
             expire_time[it] = seconds_to_apollo(-1);
             last_access_time[it] = seconds_to_apollo(-1000);
             address[it] = .{};
-            array_reset(send_key[it].data);
-            array_reset(receive_key[it].data);
+            array_zero(send_key[it]);
+            array_zero(receive_key[it]);
 
             if it == num_encryption_mappings - 1 {
                 index := it - 1;

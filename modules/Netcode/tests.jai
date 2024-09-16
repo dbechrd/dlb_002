@@ -4,8 +4,8 @@
 check :: assert;
 
 // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
-current_time_ms :: () {
-    return milliseconds_to_apollo(to_milliseconds(current_time_monotonic()))
+current_time_ms :: () -> Apollo_Time {
+    return milliseconds_to_apollo(to_milliseconds(current_time_monotonic()));
 }
 
 test_queue :: () {
@@ -594,6 +594,213 @@ test_connect_token_public :: () {
     check(output_connect_token.timeout_seconds == input_connect_token.timeout_seconds);
 }
 
+test_encryption_manager :: () {
+    encryption_manager: netcode_encryption_manager_t;
+
+    netcode_encryption_manager_reset(*encryption_manager);
+
+    time := seconds_to_apollo(100);
+
+    // generate some test encryption mappings
+
+    encryption_mapping_t :: struct {
+        address     : netcode_address_t;
+        send_key    : EncryptionKeyBuf;
+        receive_key : EncryptionKeyBuf;
+    }
+
+    NUM_ENCRYPTION_MAPPINGS :: 5;
+
+    encryption_mapping: [NUM_ENCRYPTION_MAPPINGS] encryption_mapping_t;
+
+    for * encryption_mapping {
+        it.address.type = NETCODE_ADDRESS_IPV6;
+        it.address.data.ipv6[7] = 1;
+        it.address.port = cast(u16) (20000 + it_index);
+        netcode_generate_key(it.send_key);
+        netcode_generate_key(it.receive_key);
+    }
+
+    // add the encryption mappings to the manager and make sure they can be looked up by address
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        check(encryption_index == -1);
+
+        check(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index) == null);
+        check(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index) == null);
+
+        check(netcode_encryption_manager_add_encryption_mapping(*encryption_manager, it.address, it.send_key, it.receive_key, time, seconds_to_apollo(-1), TEST_TIMEOUT_SECONDS));
+
+        encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        check(send_key != null);
+        check(receive_key != null);
+
+        check(array_equal(send_key.*, it.send_key) == true);
+        check(array_equal(receive_key.*, it.receive_key) == true);
+    }
+
+    // removing an encryption mapping that doesn't exist should return 0
+    {
+        address: netcode_address_t;
+        address.type = NETCODE_ADDRESS_IPV6;
+        address.data.ipv6[7] = 1;
+        address.port = 50000;
+
+        check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, address, time) == false);
+    }
+
+    // remove the first and last encryption mappings
+
+    check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time) == true);
+
+    check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].address, time) == true);
+
+    // make sure the encryption mappings that were removed can no longer be looked up by address
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        if it_index > 0 && it_index < NUM_ENCRYPTION_MAPPINGS - 1 {
+            check(send_key != null);
+            check(receive_key != null);
+
+            check(array_equal(send_key.*, it.send_key) == true);
+            check(array_equal(receive_key.*, it.receive_key) == true);
+        } else {
+            check(send_key == null);
+            check(receive_key == null);
+        }
+    }
+
+    // add the encryption mappings back in
+
+    check(netcode_encryption_manager_add_encryption_mapping(
+        *encryption_manager,
+        encryption_mapping[0].address,
+        encryption_mapping[0].send_key,
+        encryption_mapping[0].receive_key,
+        time,
+        seconds_to_apollo(-1),
+        TEST_TIMEOUT_SECONDS) == true
+    );
+
+    check(netcode_encryption_manager_add_encryption_mapping(
+        *encryption_manager,
+        encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].address,
+        encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].send_key,
+        encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].receive_key,
+        time,
+        seconds_to_apollo(-1),
+        TEST_TIMEOUT_SECONDS) == true
+    );
+
+    // all encryption mappings should be able to be looked up by address again
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        check(send_key != null);
+        check(receive_key != null);
+
+        check(array_equal(send_key.*, it.send_key) == true);
+        check(array_equal(receive_key.*, it.receive_key) == true);
+    }
+
+    // check that encryption mappings time out properly
+
+    time += TEST_TIMEOUT_SECONDS * 2;
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        check(send_key == null);
+        check(receive_key == null);
+    }
+
+    // add the same encryption mappings after timeout
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        check(encryption_index == -1);
+
+        check(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index) == null);
+        check(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index) == null);
+
+        check(netcode_encryption_manager_add_encryption_mapping(
+            *encryption_manager,
+            it.address,
+            it.send_key,
+            it.receive_key,
+            time,
+            seconds_to_apollo(-1),
+            TEST_TIMEOUT_SECONDS) == true
+        );
+
+        encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        check(send_key != null);
+        check(receive_key != null);
+
+        check(array_equal(send_key.*, it.send_key) == true);
+        check(array_equal(receive_key.*, it.receive_key) == true);
+    }
+
+    // reset the encryption mapping and verify that all encryption mappings have been removed
+
+    netcode_encryption_manager_reset(*encryption_manager);
+
+    for * encryption_mapping {
+        encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
+
+        send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
+        receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
+
+        check(send_key == null);
+        check(receive_key == null);
+    }
+
+    // test the expire time for encryption mapping works as expected
+
+    check(netcode_encryption_manager_add_encryption_mapping(
+        *encryption_manager,
+        encryption_mapping[0].address,
+        encryption_mapping[0].send_key,
+        encryption_mapping[0].receive_key,
+        time,
+        time + seconds_to_apollo(1),
+        TEST_TIMEOUT_SECONDS)
+    );
+
+    encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time);
+
+    check(encryption_index != -1);
+
+    check(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time + milliseconds_to_apollo(1100)) == -1);
+
+    netcode_encryption_manager_set_expire_time(*encryption_manager, encryption_index, seconds_to_apollo(-1));
+
+    check(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time) == encryption_index);
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -629,7 +836,7 @@ netcode_test :: () {
     RUN_TEST(test_connection_payload_packet);
     RUN_TEST(test_connection_disconnect_packet);
     RUN_TEST(test_connect_token_public);
-    // RUN_TEST(test_encryption_manager);
+    RUN_TEST(test_encryption_manager);
     // RUN_TEST(test_replay_protection);
     // RUN_TEST(test_client_create);
     // RUN_TEST(test_server_create);
