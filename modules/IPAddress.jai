@@ -24,7 +24,7 @@ IPAddress :: struct {
 }
 
 /*
-Converts a canonical IPv4 string (e.g. "127.0.0.1") to a network byte order array.
+Converts a canonical IPv4 string (e.g. "127.0.0.1") to an IPAddress.
 
 This function does not handle port numbers. It does return the remaining unused string after parsing an address,
 though, so you can parse e.g. "127.0.0.1:80" and it will return an IPv4 IPAddress + ":80" as the remainder string,
@@ -133,14 +133,14 @@ address_init_v4 :: (a: u8, b: u8, c: u8, d: u8, port: u16 = 0) -> IPAddress {
 }
 
 /*
-Converts a canonical IPv6 string (e.g. "2001:db8:0000:0000:0000:0000:7777:8888") to a network byte order array.
+Converts a canonical IPv6 string (e.g. "2001:db8:0000:0000:0000:0000:7777:8888") to an IPAddress.
 
 We also handle the double-colon compression syntax for contiguous zeros; i.e."2001:db8::7777:8888" will result
 in the same byte array as the full version of the address above.
 
 We DO NOT handle IPv4-mapped IPv6 addresses in string format (e.g. "::ffff:127.0.0.1"). If you would like to create
 such an address, call `address_init_v4` with the IPv4 string, check for success, then pass the resulting buffer of
-bytes to `address_init_v6(ipv4: IPAddress)` to create an IPv6 address.
+bytes to `address_init_v6(ipv4: IPAddress)` to create an IPv4-mapped IPv6 address.
 
 Implementation inspired by: https://git.musl-libc.org/cgit/musl/tree/src/network/inet_pton.c
 Some example IPv6 variants:
@@ -297,11 +297,13 @@ address_init_v6 :: (str: string, port: u16 = 0) -> result: IPAddress, remainder:
         segment += 1;
 	}
 
-    // Fill the :worm: hole with zeroes and shift the other segments accordingly
+    // Fill the :worm: hole with zeroes and shift the other segments accordingly.
     // Note: If worm_segment is the last segment we read, we don't need to shift anything
     // (the code would work in that case, but why run it?)
 	if worm_segment >= 0 && worm_segment < segment {
-        // ::E:F | [0,E,F,0,0,0,0,0] -> [0:0:0:0:0:0:E:F] | worm_segment = 0, segment = 3
+        // input | before fix-up     -> after fix-up      | debugger info
+        //--------------------------------------------------------------------------------
+        // ::F:F | [0,F,F,0,0,0,0,0] -> [0:0:0:0:0:0:F:F] | worm_segment = 0, segment = 3
         // F::F  | [F,0,F,0,0,0,0,0] -> [F:0:0:0:0:0:0:F] | worm_segment = 1, segment = 3
         // F::   | [F,0,0,0,0,0,0,0] -> [F:0:0:0:0:0:0:0] | worm_segment = 1, segment = 2
         tail_start := worm_segment + 1;
@@ -530,15 +532,25 @@ operator == :: (a: IPAddress, b: IPAddress) -> bool {
     }
 }
 
+// ----------------------------------------------------------------
 
-address_tests_running := false;    // Disables normal logging
-address_last_log_message: string;  // Last log message that would have been written; for test asserts
+// When true, disables normal logging. You should set this to true before your
+// test cases if you use the address parser in a way that is expected to fail.
+// Don't forget to set it back to false when you're done (hint: use defer).
+address_tests_running := false;
 
-address_tests :: () {
+// Last log message that would have been written. This can be used to assert that
+// a particular error message would have been logged for a given failure case.
+address_last_log_message: string;
+
+// Anyone can call this to the run the tests.
+address_test :: () {
     address_tests_running = true;
     defer address_tests_running = false;
     run_tests();
 }
+
+// ----------------------------------------------------------------
 
 #scope_file
 
@@ -546,7 +558,7 @@ address_tests :: () {
 #import "dlb";
 
 address_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    if !ENABLE_LOGGING && !address_tests_running {
+    if !ENABLE_LOGGING && address_tests_running {
         // user doesn't want the logs
         return;
     }

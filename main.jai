@@ -11,7 +11,7 @@ main :: () {
         print("ip6 = %\n", address_to_string(ip6));
 
         log_cpu_info();
-        address_tests();
+        address_test();
         reliable_test();
         netcode_test();
         // yojimbo_init();
