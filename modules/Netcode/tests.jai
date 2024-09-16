@@ -102,7 +102,160 @@ test_sequence :: () {
 }
 
 test_address :: () {
-    // TODO(dlb): Do something with address duplication nonsense.
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("[", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("[]", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("[]:", *address) == NETCODE_ERROR);
+        check(netcode_parse_address(":", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("1", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("12", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("123", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("1234", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("1234.0.12313.0000", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("1234.0.12313.0000.0.0.0.0.0", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131", *address) == NETCODE_ERROR);
+        check(netcode_parse_address(".", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("..", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("...", *address) == NETCODE_ERROR);
+        check(netcode_parse_address("....", *address) == NETCODE_ERROR);
+        check(netcode_parse_address(".....", *address) == NETCODE_ERROR);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("107.77.207.77", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV4);
+        check(address.port == 0);
+        check(address.data.ipv4[0] == 107);
+        check(address.data.ipv4[1] == 77);
+        check(address.data.ipv4[2] == 207);
+        check(address.data.ipv4[3] == 77);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("127.0.0.1", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV4);
+        check(address.port == 0);
+        check(address.data.ipv4[0] == 127);
+        check(address.data.ipv4[1] == 0);
+        check(address.data.ipv4[2] == 0);
+        check(address.data.ipv4[3] == 1);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("107.77.207.77:40000", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV4);
+        check(address.port == 40000);
+        check(address.data.ipv4[0] == 107);
+        check(address.data.ipv4[1] == 77);
+        check(address.data.ipv4[2] == 207);
+        check(address.data.ipv4[3] == 77);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("127.0.0.1:40000", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV4);
+        check(address.port == 40000);
+        check(address.data.ipv4[0] == 127);
+        check(address.data.ipv4[1] == 0);
+        check(address.data.ipv4[2] == 0);
+        check(address.data.ipv4[3] == 1);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("fe80::202:b3ff:fe1e:8329", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 0);
+        check(address.data.ipv6[0] == 0xfe80);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0202);
+        check(address.data.ipv6[5] == 0xb3ff);
+        check(address.data.ipv6[6] == 0xfe1e);
+        check(address.data.ipv6[7] == 0x8329);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("::", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 0);
+        check(address.data.ipv6[0] == 0x0000);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0000);
+        check(address.data.ipv6[5] == 0x0000);
+        check(address.data.ipv6[6] == 0x0000);
+        check(address.data.ipv6[7] == 0x0000);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("::1", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 0);
+        check(address.data.ipv6[0] == 0x0000);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0000);
+        check(address.data.ipv6[5] == 0x0000);
+        check(address.data.ipv6[6] == 0x0000);
+        check(address.data.ipv6[7] == 0x0001);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("[fe80::202:b3ff:fe1e:8329]:40000", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 40000);
+        check(address.data.ipv6[0] == 0xfe80);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0202);
+        check(address.data.ipv6[5] == 0xb3ff);
+        check(address.data.ipv6[6] == 0xfe1e);
+        check(address.data.ipv6[7] == 0x8329);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("[::]:40000", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 40000);
+        check(address.data.ipv6[0] == 0x0000);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0000);
+        check(address.data.ipv6[5] == 0x0000);
+        check(address.data.ipv6[6] == 0x0000);
+        check(address.data.ipv6[7] == 0x0000);
+    }
+
+    {
+        address: netcode_address_t;
+        check(netcode_parse_address("[::1]:40000", *address) == NETCODE_OK);
+        check(address.type == NETCODE_ADDRESS_IPV6);
+        check(address.port == 40000);
+        check(address.data.ipv6[0] == 0x0000);
+        check(address.data.ipv6[1] == 0x0000);
+        check(address.data.ipv6[2] == 0x0000);
+        check(address.data.ipv6[3] == 0x0000);
+        check(address.data.ipv6[4] == 0x0000);
+        check(address.data.ipv6[5] == 0x0000);
+        check(address.data.ipv6[6] == 0x0000);
+        check(address.data.ipv6[7] == 0x0001);
+    }
 }
 
 TEST_PROTOCOL_ID          : u64 : 0x1122334455667788;
@@ -863,11 +1016,14 @@ RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
 #scope_export
 
 netcode_test :: () {
+    address_tests_running = true;
+    defer address_tests_running = false;
+
     log("--------------------------------------------------------------------------------\n");
     log("[Netcode] Running tests...\n");
     RUN_TEST(test_queue);
     RUN_TEST(test_sequence);
-    // RUN_TEST(test_address);
+    RUN_TEST(test_address);
     RUN_TEST(test_connect_token);
     RUN_TEST(test_challenge_token);
     RUN_TEST(test_connection_request_packet);

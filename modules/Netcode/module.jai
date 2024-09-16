@@ -929,6 +929,7 @@ netcode_network_simulator_t :: struct {
 #import "Basic";
 #import "Socket";
 System :: #import "System";
+#import "IPAddress";
 #import "dlb";
 
 APOLLO_MAX :: Apollo_Time.{0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF};
@@ -987,15 +988,72 @@ netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #c
 // ----------------------------------------------------------------
 
 netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> int {
-    // TODO(dlb): Implement this via yojimbo.address
-    assert(false, "Not implemented");
+    // TODO(dlb): Remove this after the bracket logic is moved to the real ipv6 parser.
+    if address_string_in.count == 0 {
+        return NETCODE_ERROR;
+    }
+
+    // TODO(dlb): Move the port stuff into the actual parser
+    {
+        ip, ip_remainder := address_init_v4(address_string_in);
+        if ip.type == .IPv4 {
+            address.type = NETCODE_ADDRESS_IPV4;
+            array_copy(address.data.ipv4, ip.data.v4);
+
+            if ip_remainder.count > 1 && ip_remainder[0] == #char ":" {
+                advance(*ip_remainder, 1);
+                port, success := to_integer(ip_remainder);
+                if success && port > 0 && port <= 0xffff {
+                    address.port = cast(u16) port;
+                }
+            }
+
+            return NETCODE_OK;
+        }
+    }
+
+    {
+        bracketed := false;
+        if address_string_in[0] == #char "[" {
+            advance(*address_string_in, 1);
+            bracketed = true;
+        }
+
+        ip, ip_remainder := address_init_v6(address_string_in);
+        if ip.type == .IPv6 {
+            address.type = NETCODE_ADDRESS_IPV6;
+            array_copy(address.data.ipv6, ip.data.v6);
+
+            if bracketed && ip_remainder.count > 2 && ip_remainder[0] == #char "]" && ip_remainder[1] == #char ":" {
+                advance(*ip_remainder, 2);
+                port, success := to_integer(ip_remainder);
+                if success && port > 0 && port <= 0xffff {
+                    address.port = cast(u16) port;
+                }
+            }
+
+            return NETCODE_OK;
+        }
+    }
+
     return NETCODE_ERROR;
 }
 
 netcode_address_to_string :: (address: netcode_address_t) -> string {
-    // TODO(dlb): Implement this via yojimbo.address
-    assert(false, "Not implemented");
-    return "Not implemented";
+    ip: IPAddress;
+
+    if address.type == {
+        case NETCODE_ADDRESS_IPV4;
+            ip.type = .IPv4;
+            ip.port = address.port;
+            array_copy(ip.data.v4, address.data.ipv4);
+        case NETCODE_ADDRESS_IPV6;
+            ip.type = .IPv6;
+            ip.port = address.port;
+            array_copy(ip.data.v6, address.data.ipv6);
+    }
+
+    return address_to_string(ip);
 }
 
 netcode_address_equal :: (a: netcode_address_t, b: netcode_address_t) -> bool {
@@ -1010,6 +1068,7 @@ netcode_address_equal :: (a: netcode_address_t, b: netcode_address_t) -> bool {
         case NETCODE_ADDRESS_IPV6;
             return array_equal(a.data.ipv6, b.data.ipv6);
     }
+
     assert(false, "Invalid address type");
     return false;
 }

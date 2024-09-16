@@ -11,7 +11,7 @@ array_equal :: (a: [$N] $T, b: [N] T) -> bool {
 }
 
 array_copy :: (a: [$N] $T, b: [N] T) {
-    memcpy(a.data, b.data, N);
+    memcpy(a.data, b.data, N * size_of(T));
 }
 
 pointer_diff :: (a: *$T, b: *$U) -> s64 #expand {
