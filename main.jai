@@ -4,7 +4,7 @@ main :: () {
         context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
         context.print_style.default_format_struct.use_newlines_if_long_form = true;
 
-        ip4 := address_init_v4("192.1f68.0.1", 80);
+        ip4 := address_init_v4("192.168.0.1", 80);
         print("ip4 = %\n", address_to_string(ip4));
 
         ip6 := address_init_v6("::1", 80);
