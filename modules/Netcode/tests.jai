@@ -997,8 +997,6 @@ test_replay_protection :: () {
 }
 
 test_client_create :: () {
-    netcode_init();
-
     {
         client_config: netcode_client_config_t;
         client := netcode_client_create("127.0.0.1:40000", *client_config, .{});
@@ -1007,8 +1005,8 @@ test_client_create :: () {
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
         check(client != null);
-        check(client.socket_holder.ipv4.handle != 0);
-        check(client.socket_holder.ipv6.handle == 0);
+        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(client.socket_holder.ipv6.handle == INVALID_SOCKET);
         check(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
@@ -1022,8 +1020,8 @@ test_client_create :: () {
         netcode_parse_address("[::]:50000", *test_address);
 
         check(client != null);
-        check(client.socket_holder.ipv4.handle == 0);
-        check(client.socket_holder.ipv6.handle != 0);
+        check(client.socket_holder.ipv4.handle == INVALID_SOCKET);
+        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
         check(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
@@ -1037,8 +1035,8 @@ test_client_create :: () {
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
         check(client != null);
-        check(client.socket_holder.ipv4.handle != 0);
-        check(client.socket_holder.ipv6.handle != 0);
+        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
         check(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
@@ -1052,14 +1050,74 @@ test_client_create :: () {
         netcode_parse_address("[::]:50000", *test_address);
 
         check(client != null);
-        check(client.socket_holder.ipv4.handle != 0);
-        check(client.socket_holder.ipv6.handle != 0);
+        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
         check(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
     }
+}
 
-    netcode_term();
+test_server_create :: () {
+    {
+        server_config: netcode_server_config_t;
+        server := netcode_server_create("127.0.0.1:40000", *server_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("127.0.0.1:40000", *test_address);
+
+        check(server != null);
+        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(server.socket_holder.ipv6.handle == INVALID_SOCKET);
+        check(netcode_address_equal(*server.address, *test_address));
+
+        netcode_server_destroy(server);
+    }
+
+    {
+        server_config: netcode_server_config_t;
+        server := netcode_server_create("[::1]:50000", *server_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("[::1]:50000", *test_address);
+
+        check(server != null);
+        check(server.socket_holder.ipv4.handle == INVALID_SOCKET);
+        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
+        check(netcode_address_equal(*server.address, *test_address));
+
+        netcode_server_destroy(server);
+    }
+
+    {
+        server_config: netcode_server_config_t;
+        server := netcode_server_create_overload("127.0.0.1:40000", "[::1]:50000", *server_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("127.0.0.1:40000", *test_address);
+
+        check(server != null);
+        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
+        check(netcode_address_equal(*server.address, *test_address));
+
+        netcode_server_destroy(server);
+    }
+
+    {
+        server_config: netcode_server_config_t;
+        server := netcode_server_create_overload("[::1]:50000", "127.0.0.1:40000", *server_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("[::1]:50000", *test_address);
+
+        check(server != null);
+        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
+        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
+        check(netcode_address_equal(*server.address, *test_address));
+
+        netcode_server_destroy(server);
+    }
 }
 
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
@@ -1084,6 +1142,7 @@ RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
 netcode_test :: () {
     log("--------------------------------------------------------------------------------\n");
     log("[Netcode] Running tests...\n");
+    netcode_init();
     RUN_TEST(test_queue);
     RUN_TEST(test_sequence);
 
@@ -1105,7 +1164,7 @@ netcode_test :: () {
     RUN_TEST(test_encryption_manager);
     RUN_TEST(test_replay_protection);
     RUN_TEST(test_client_create);
-    // RUN_TEST(test_server_create);
+    RUN_TEST(test_server_create);
     // RUN_TEST(test_client_server_connect);
     // RUN_TEST(test_client_server_ipv4_socket_connect);
     // RUN_TEST(test_client_server_ipv6_socket_connect);
@@ -1124,6 +1183,7 @@ netcode_test :: () {
     // RUN_TEST(test_disable_timeout);
     // RUN_TEST(test_loopback);
     // RUN_TEST(test_address_map);
+    netcode_term();
     log("Passed!\n");
     log("--------------------------------------------------------------------------------\n");
 }

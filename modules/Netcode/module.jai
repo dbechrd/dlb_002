@@ -206,7 +206,7 @@ netcode_client_update :: (client: *netcode_client_t, _time: Apollo_Time) {
     }
 
     if should_disconnect {
-        netcode_log(NETCODE_LOG_LEVEL_DEBUG, "client should disconnect -> %s\n", netcode_client_state_name(should_disconnect_state));
+        netcode_log(NETCODE_LOG_LEVEL_DEBUG, "client should disconnect -> %\n", netcode_client_state_name(should_disconnect_state));
         if netcode_client_connect_to_next_server(client) {
             return;
         }
@@ -483,7 +483,7 @@ netcode_server_t :: struct {
     address                         : netcode_address_t;
     flags                           : u32;
     time                            : Apollo_Time;
-    running                         : int;
+    running                         : bool;
     max_clients                     : int;
     num_connected_clients           : int;
     global_sequence                 : u64;
@@ -511,7 +511,7 @@ netcode_server_t :: struct {
 }
 
 netcode_server_create :: (server_address_string: string, config: netcode_server_config_t, time: Apollo_Time) -> *netcode_server_t {
-    return netcode_server_create_overload(server_address_string, null, config, time);
+    return netcode_server_create_overload(server_address_string, .{}, config, time);
 }
 
 netcode_server_destroy :: (server: *netcode_server_t) {
@@ -779,7 +779,7 @@ netcode_server_process_packet :: (using server: *netcode_server_t, from: netcode
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
     if read_packet_key == null && packet_data.count > 0 {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string(from));
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %\n", netcode_address_to_string(from));
         return;
     }
 
@@ -1101,7 +1101,7 @@ netcode_address_equal :: (a: netcode_address_t, b: netcode_address_t) -> bool {
 // ----------------------------------------------------------------
 
 netcode_socket_t :: struct {
-    handle: Socket;
+    handle: Socket = INVALID_SOCKET;
     address: netcode_address_t;
 }
 
@@ -1247,7 +1247,7 @@ netcode_socket_create :: (_socket: *netcode_socket_t, address: netcode_address_t
 }
 
 netcode_socket_send_packet :: (socket: netcode_socket_t, to: netcode_address_t, packet_data: [] u8) -> bool {
-    assert(socket.handle != 0);
+    assert(socket.handle != INVALID_SOCKET);
     assert(to.type == NETCODE_ADDRESS_IPV6 || to.type == NETCODE_ADDRESS_IPV4);
     assert(packet_data.count > 0);
 
@@ -1283,7 +1283,7 @@ netcode_socket_send_packet :: (socket: netcode_socket_t, to: netcode_address_t, 
 
 // TODO(dlb): Make `from` a return value
 netcode_socket_receive_packet :: (socket: netcode_socket_t, from: *netcode_address_t, packet_buf: [] u8) -> packet_bytes: int {
-    assert(socket.handle != 0);
+    assert(socket.handle != INVALID_SOCKET);
     assert(from != null);
     assert(packet_buf.count > 0);
 
@@ -2674,12 +2674,12 @@ netcode_client_state_name :: (client_state: int) -> string {
     }
 }
 
-netcode_client_socket_create :: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_client_config_t) -> bool {
+netcode_client_socket_create :: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: s32, receive_buffer_size: s32, config: netcode_client_config_t) -> bool {
     assert(socket != null);
 
     if config.network_simulator == null {
         if !config.override_send_and_receive {
-            if netcode_socket_create(socket, address, cast(s32) send_buffer_size, cast(s32) receive_buffer_size) != NETCODE_SOCKET_ERROR_NONE {
+            if netcode_socket_create(socket, address, send_buffer_size, receive_buffer_size) != NETCODE_SOCKET_ERROR_NONE {
                 return false;
             }
         }
@@ -3390,8 +3390,8 @@ netcode_fnv_write :: (fnv: *netcode_fnv_t, data: [] u8) {
     }
 }
 
-netcode_fnv_finalize :: (fnv: netcode_fnv_t) -> u64 {
-    return fnv;
+netcode_fnv_finalize :: inline (fnv: *netcode_fnv_t) -> u64 {
+    return fnv.*;
 }
 
 netcode_hash_string :: (str: string) -> u64 {
@@ -3401,15 +3401,15 @@ netcode_hash_string :: (str: string) -> u64 {
     return netcode_fnv_finalize(*fnv);
 }
 
-netcode_hash_data :: (data: [] u8) -> u64 {
+netcode_hash_data :: (data: [] u8) -> int {
     fnv: netcode_fnv_t;
     netcode_fnv_init(*fnv);
     netcode_fnv_write(*fnv, data);
-    return netcode_fnv_finalize(*fnv);
+    return cast(int) netcode_fnv_finalize(*fnv);
 }
 
 netcode_address_hash :: (address: netcode_address_t) -> int {
-    return netcode_hash_data(.{ size_of(address), cast(*u8) *address }) % NETCODE_ADDRESS_MAP_BUCKETS;
+    return netcode_hash_data(.{ size_of(type_of(address)), cast(*u8) *address }) % NETCODE_ADDRESS_MAP_BUCKETS;
 }
 
 netcode_address_map_element_reset :: (using element: *netcode_address_map_element_t) {
@@ -3496,7 +3496,7 @@ netcode_address_map_delete :: (map: *netcode_address_map_t, address: netcode_add
 NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS  :: 1;
 NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS :: 1 << 1;
 
-netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: int, receive_buffer_size: int, config: netcode_server_config_t) -> bool {
+netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_address_t, send_buffer_size: s32, receive_buffer_size: s32, config: netcode_server_config_t) -> bool {
     assert(socket != null);
 
     if config.network_simulator == null {
@@ -3521,7 +3521,7 @@ netcode_server_create_overload :: (server_address1_string: string, server_addres
         return null;
     }
 
-    if server_address2_string != null && netcode_parse_address(server_address2_string, *server_address2) != NETCODE_OK {
+    if server_address2_string.count > 0 && netcode_parse_address(server_address2_string, *server_address2) != NETCODE_OK {
         netcode_log(.ERROR, "error: failed to parse server public address2\n");
         return null;
     }
@@ -3557,9 +3557,9 @@ netcode_server_create_overload :: (server_address1_string: string, server_addres
     }
 
     if config.network_simulator == null {
-        netcode_log(.VERBOSE_ONLY, "server listening on %s\n", server_address1_string);
+        netcode_log(.VERBOSE_ONLY, "server listening on %\n", server_address1_string);
     } else {
-        netcode_log(.VERBOSE_ONLY, "server listening on %s (network simulator)\n", server_address1_string);
+        netcode_log(.VERBOSE_ONLY, "server listening on % (network simulator)\n", server_address1_string);
     }
 
     server.config = config;
@@ -3571,7 +3571,7 @@ netcode_server_create_overload :: (server_address1_string: string, server_addres
     for * server.client_encryption_index {
         it.* = -1;
     }
-    for * client_replay_protection {
+    for * server.client_replay_protection {
         netcode_replay_protection_reset(it);
     }
     netcode_address_map_reset(*server.client_address_map);
@@ -3688,8 +3688,8 @@ netcode_server_disconnect_client_internal :: (using server: *netcode_server_t, c
 
     netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, client_address[client_index], time);
 
-    client_connected[client_index] = 0;
-    client_confirmed[client_index] = 0;
+    client_connected[client_index] = false;
+    client_confirmed[client_index] = false;
     client_id[client_index] = 0;
     client_sequence[client_index] = 0;
     client_last_packet_send_time[client_index] = .{};
@@ -3966,7 +3966,7 @@ netcode_server_read_and_process_packet :: (using server: *netcode_server_t, from
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
     if read_packet_key == null && packet_data.count > 0 {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %s\n", netcode_address_to_string(from));
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %\n", netcode_address_to_string(from));
         return;
     }
 
@@ -4010,10 +4010,10 @@ netcode_server_receive_packets :: (using server: *netcode_server_t) {
             if config.override_send_and_receive {
                 packet_bytes = config.receive_packet_override(config.callback_context, *from, packet_data);
             } else {
-                if socket_holder.ipv4.handle != 0 {
+                if socket_holder.ipv4.handle != INVALID_SOCKET {
                     packet_bytes = netcode_socket_receive_packet(socket_holder.ipv4, *from, packet_data);
                 }
-                if packet_bytes == 0 && socket_holder.ipv6.handle != 0 {
+                if packet_bytes == 0 && socket_holder.ipv6.handle != INVALID_SOCKET {
                     packet_bytes = netcode_socket_receive_packet(socket_holder.ipv6, *from, packet_data);
                 }
             }
