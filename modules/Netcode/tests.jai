@@ -996,6 +996,72 @@ test_replay_protection :: () {
     }
 }
 
+test_client_create :: () {
+    netcode_init();
+
+    {
+        client_config: netcode_client_config_t;
+        client := netcode_client_create("127.0.0.1:40000", *client_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("127.0.0.1:40000", *test_address);
+
+        check(client != null);
+        check(client.socket_holder.ipv4.handle != 0);
+        check(client.socket_holder.ipv6.handle == 0);
+        check(netcode_address_equal(client.address, *test_address));
+
+        netcode_client_destroy(client);
+    }
+
+    {
+        client_config: netcode_client_config_t;
+        client := netcode_client_create("[::]:50000", *client_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("[::]:50000", *test_address);
+
+        check(client != null);
+        check(client.socket_holder.ipv4.handle == 0);
+        check(client.socket_holder.ipv6.handle != 0);
+        check(netcode_address_equal(client.address, *test_address));
+
+        netcode_client_destroy(client);
+    }
+
+    {
+        client_config: netcode_client_config_t;
+        client := netcode_client_create_overload("127.0.0.1:40000", "[::]:50000", *client_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("127.0.0.1:40000", *test_address);
+
+        check(client != null);
+        check(client.socket_holder.ipv4.handle != 0);
+        check(client.socket_holder.ipv6.handle != 0);
+        check(netcode_address_equal(client.address, *test_address));
+
+        netcode_client_destroy(client);
+    }
+
+    {
+        client_config: netcode_client_config_t;
+        client := netcode_client_create_overload("[::]:50000", "127.0.0.1:40000", *client_config, .{});
+
+        test_address: netcode_address_t;
+        netcode_parse_address("[::]:50000", *test_address);
+
+        check(client != null);
+        check(client.socket_holder.ipv4.handle != 0);
+        check(client.socket_holder.ipv6.handle != 0);
+        check(netcode_address_equal(client.address, *test_address));
+
+        netcode_client_destroy(client);
+    }
+
+    netcode_term();
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -1038,7 +1104,7 @@ netcode_test :: () {
     RUN_TEST(test_connect_token_public);
     RUN_TEST(test_encryption_manager);
     RUN_TEST(test_replay_protection);
-    // RUN_TEST(test_client_create);
+    RUN_TEST(test_client_create);
     // RUN_TEST(test_server_create);
     // RUN_TEST(test_client_server_connect);
     // RUN_TEST(test_client_server_ipv4_socket_connect);

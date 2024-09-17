@@ -295,7 +295,7 @@ netcode_client_free_packet :: (client: *netcode_client_t, packet: [] u8) {
 netcode_client_disconnect :: (using client: *netcode_client_t) {
     assert(client != null);
     assert(!loopback);
-    client_disconnect_internal(client, NETCODE_CLIENT_STATE_DISCONNECTED, true);
+    netcode_client_disconnect_internal(client, NETCODE_CLIENT_STATE_DISCONNECTED, true);
 }
 
 netcode_client_state :: inline (using client: *netcode_client_t) -> int {
@@ -928,6 +928,7 @@ netcode_network_simulator_t :: struct {
 
 #import "Basic";
 #import "Socket";
+#import "Random";
 System :: #import "System";
 #import "IPAddress";
 #import "dlb";
@@ -987,15 +988,29 @@ netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #c
 
 // ----------------------------------------------------------------
 
+// TODO(dlb): Move the vast majority of this auto-detect and port parsing logic into IPAddress module.
+// This accepts an IPv4 address *or* an IPv6 address in string form. See the comments on the `address_init_v4`
+// and `address_init_v6` methods to learn about valid formats.
 netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> int {
     // TODO(dlb): Remove this after the bracket logic is moved to the real ipv6 parser.
     if address_string_in.count == 0 {
         return NETCODE_ERROR;
     }
 
-    // TODO(dlb): Move the port stuff into the actual parser
+    ipv4_error: string;
+
     {
+        // HACK(dlb): When auto-detecting address type, we parse as IPv4 first, then IPv6 if IPv4 fails. In this case,
+        // we don't want the IPv4 parser to log errors, unless the IPv6 parse also fails, which we don't yet know. As
+        // such, we use the "tests_running" flag to tell IPAddress module not to log errors, then capture the error
+        // in a string, so that we can maybe log it later (if IPv6 also fails). This way, if the address is neither
+        // a valid IPv4 nor a valid IPv6 address, we can log both parse errors and let the user figure out what they
+        // were trying to do.
+        prev_tests_running := address_tests_running;
+        address_tests_running = true;
         ip, ip_remainder := address_init_v4(address_string_in);
+        address_tests_running = prev_tests_running;
+
         if ip.type == .IPv4 {
             address.type = NETCODE_ADDRESS_IPV4;
             array_copy(address.data.ipv4, ip.data.v4);
@@ -1010,6 +1025,9 @@ netcode_parse_address :: (address_string_in: string, address: *netcode_address_t
 
             return NETCODE_OK;
         }
+
+        // Capture the parse error in case IPv6 parsing also fails.
+        ipv4_error = address_last_log_message;
     }
 
     {
@@ -1034,6 +1052,13 @@ netcode_parse_address :: (address_string_in: string, address: *netcode_address_t
 
             return NETCODE_OK;
         }
+    }
+
+    if !address_tests_running {
+        // If both IPv4 parse and IPv6 parse failed, and we're not in test mode, log the IPv4 error
+        // (the IPv6 failure was already logged, but we had to defer logging the IPv4 error because we
+        // weren't yet sure if the string was a valid IPv6 address).
+        netcode_log(.ERROR, "%", ipv4_error);
     }
 
     return NETCODE_ERROR;
@@ -1163,17 +1188,29 @@ netcode_socket_create :: (_socket: *netcode_socket_t, address: netcode_address_t
 
     // bind to port
     if address.type == NETCODE_ADDRESS_IPV6 {
-        // TODO(dlb): Is this correct?
-        addr: [16] u8 = (cast(*[16] u8) address.data.ipv6.data).*;
-        if bind(_socket.handle, addr, address.port) < 0 {
+        addr: [8] u16;
+
+        // HACK(dlb): Reverse the bytes (network order -> host order) because Socket module expects host order
+        // TODO(dlb): We should probably just call the real bind() function ourselves in this case -_-
+        for 0..7 {
+            addr[it] = address.data.ipv6[7-it];
+        }
+
+        if bind(_socket.handle, cast,force([16] u8) addr, address.port) < 0 {
             netcode_log(.ERROR, "error: failed to bind socket (ipv6)\n");
             netcode_socket_destroy(_socket);
             return NETCODE_SOCKET_ERROR_BIND_IPV6_FAILED;
         }
     } else {
-        // TODO(dlb): Is this correct?
-        addr: u32 = (cast(*u32) address.data.ipv4.data).*;
-        if bind(_socket.handle, addr, address.port) < 0 {
+        addr: [4] u8;
+
+        // HACK(dlb): Reverse the bytes (network order -> host order) because Socket module expects host order
+        // TODO(dlb): We should probably just call the real bind() function ourselves in this case -_-
+        for 0..3 {
+            addr[it] = addr[3-it];
+        }
+
+        if bind(_socket.handle, (cast(*u32) addr.data).*, address.port) < 0 {
             netcode_log(.ERROR, "error: failed to bind socket (ipv4)\n");
             netcode_socket_destroy(_socket);
             return NETCODE_SOCKET_ERROR_BIND_IPV4_FAILED;
@@ -1229,12 +1266,12 @@ netcode_socket_send_packet :: (socket: netcode_socket_t, to: netcode_address_t, 
     } else if to.type == NETCODE_ADDRESS_IPV4 {
         socket_address: sockaddr_in;
         socket_address.sin_family = AF_INET;
-        socket_address.sin_addr.s_addr = ((cast(u32) to.data.ipv4[0])      ) |
-                                         ((cast(u32) to.data.ipv4[1]) << 8 ) |
-                                         ((cast(u32) to.data.ipv4[2]) << 16) |
-                                         ((cast(u32) to.data.ipv4[3]) << 24);
+        socket_address.sin_addr.S_un.S_addr = ((cast(u32) to.data.ipv4[0])      ) |
+                                              ((cast(u32) to.data.ipv4[1]) << 8 ) |
+                                              ((cast(u32) to.data.ipv4[2]) << 16) |
+                                              ((cast(u32) to.data.ipv4[3]) << 24);
         socket_address.sin_port = htons(to.port);
-        result := sendto(socket.handle, packet_data.data, packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in));
+        result := sendto(socket.handle, packet_data.data, cast(s32) packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in));
         if result == SOCKET_ERROR {
             netcode_log(.ERROR, "error: failed send packet (ipv4)\n");
             return false;
@@ -1279,10 +1316,10 @@ netcode_socket_receive_packet :: (socket: netcode_socket_t, from: *netcode_addre
     } else if sockaddr_from.ss_family == AF_INET {
         addr_ipv4 := cast(*sockaddr_in) *sockaddr_from;
         from.type = NETCODE_ADDRESS_IPV4;
-        from.data.ipv4[0] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x000000FF)      );
-        from.data.ipv4[1] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x0000FF00) >> 8 );
-        from.data.ipv4[2] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0x00FF0000) >> 16);
-        from.data.ipv4[3] = cast(u8) ((addr_ipv4.sin_addr.s_addr & 0xFF000000) >> 24);
+        from.data.ipv4[0] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x000000FF)      );
+        from.data.ipv4[1] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x0000FF00) >> 8 );
+        from.data.ipv4[2] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x00FF0000) >> 16);
+        from.data.ipv4[3] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0xFF000000) >> 24);
         from.port = ntohs(addr_ipv4.sin_port);
     } else {
         assert(false, "Invalid address family");
@@ -2503,7 +2540,7 @@ netcode_random_float :: inline (a: float, b: float) -> float {
     result := a + random_get_zero_to_one_new() * (b - a);
     assert(result >= a);
     assert(result <= b);
-    return a + r;
+    return cast(float) result;
 }
 
 netcode_network_simulator_queue_packet :: (using network_simulator: *netcode_network_simulator_t, from: netcode_address_t, to: netcode_address_t, packet_data: [] u8, delay: Apollo_Time) {
@@ -2532,16 +2569,18 @@ netcode_network_simulator_send_packet :: (using network_simulator: *netcode_netw
         array_reset(*entry.packet_data);
     }
 
-    delay := latency_milliseconds / 1000.0;
+    delay_ms := latency_milliseconds;
 
     if jitter_milliseconds > 0.0 {
-        delay += netcode_random_float(-jitter_milliseconds, jitter_milliseconds) / 1000.0;
+        delay_ms += netcode_random_float(-jitter_milliseconds, jitter_milliseconds);
     }
 
-    netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay);
+    delay_time := milliseconds_to_apollo(cast(s64) delay_ms);
+    netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay_time);
 
     if netcode_random_float(0.0, 100.0) <= duplicate_packet_percent {
-        netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay + netcode_random_float(0, 1.0));
+        duplicate_jitter_time := milliseconds_to_apollo(cast(s64) netcode_random_float(0, 1000));
+        netcode_network_simulator_queue_packet(network_simulator, from, to, packet_data, delay_time + duplicate_jitter_time);
     }
 }
 
@@ -2742,7 +2781,7 @@ netcode_client_reset_connection_data :: (using client: *netcode_client_t, client
     assert(client != null);
 
     sequence = 0;
-    loopback = 0;
+    loopback = false;
     client_index = 0;
     max_clients = 0;
     connect_start_time = .{};
