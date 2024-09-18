@@ -27,7 +27,7 @@ netcode_test :: () {
     RUN_TEST(test_client_server_connect);
     RUN_TEST(test_client_server_ipv4_socket_connect);
     RUN_TEST(test_client_server_ipv6_socket_connect);
-    // RUN_TEST(test_client_server_keep_alive);
+    RUN_TEST(test_client_server_keep_alive);
     // RUN_TEST(test_client_server_multiple_clients);
     // RUN_TEST(test_client_server_multiple_servers);
     // RUN_TEST(test_client_error_connect_token_expired);
@@ -1346,6 +1346,91 @@ test_client_server_ipv6_socket_connect :: () {
     client_server_socket_connect("[::]:50000"   , .{}         , "[::1]:40000", "127.0.0.1:40000");
     client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "[::1]:40000", .{}              );
     client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "[::1]:40000", "127.0.0.1:40000");
+}
+
+
+test_client_server_keep_alive :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    // connect client to server
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server_address := "[::1]:40000";
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+
+    connect_token: ConnectTokenBuf;
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // pump the client and server long enough that they would timeout without keep alive packets
+
+    num_iterations := cast(int) (1.25 * to_seconds(TEST_TIMEOUT_SECONDS) / to_seconds(delta_time)) + 1;
+
+    for 0..num_iterations-1 {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
 }
 
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
