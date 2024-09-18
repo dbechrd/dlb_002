@@ -1,4 +1,55 @@
+netcode_test :: () {
+    log("--------------------------------------------------------------------------------\n");
+    log("[Netcode] Running tests...\n");
+    netcode_init();
+    RUN_TEST(test_queue);
+    RUN_TEST(test_sequence);
+
+    // Prevent the IPAddress module from logging a bunch of errors when testing error cases.
+    address_tests_running = true;
+    RUN_TEST(test_address);
+    address_tests_running = false;
+
+    RUN_TEST(test_connect_token);
+    RUN_TEST(test_challenge_token);
+    RUN_TEST(test_connection_request_packet);
+    RUN_TEST(test_connection_denied_packet);
+    RUN_TEST(test_connection_challenge_packet);
+    RUN_TEST(test_connection_response_packet);
+    RUN_TEST(test_connection_keep_alive_packet);
+    RUN_TEST(test_connection_payload_packet);
+    RUN_TEST(test_connection_disconnect_packet);
+    RUN_TEST(test_connect_token_public);
+    RUN_TEST(test_encryption_manager);
+    RUN_TEST(test_replay_protection);
+    RUN_TEST(test_client_create);
+    RUN_TEST(test_server_create);
+    RUN_TEST(test_client_server_connect);
+    RUN_TEST(test_client_server_ipv4_socket_connect);
+    RUN_TEST(test_client_server_ipv6_socket_connect);
+    // RUN_TEST(test_client_server_keep_alive);
+    // RUN_TEST(test_client_server_multiple_clients);
+    // RUN_TEST(test_client_server_multiple_servers);
+    // RUN_TEST(test_client_error_connect_token_expired);
+    // RUN_TEST(test_client_error_invalid_connect_token);
+    // RUN_TEST(test_client_error_connection_timed_out);
+    // RUN_TEST(test_client_error_connection_response_timeout);
+    // RUN_TEST(test_client_error_connection_request_timeout);
+    // RUN_TEST(test_client_error_connection_denied);
+    // RUN_TEST(test_client_side_disconnect);
+    // RUN_TEST(test_server_side_disconnect);
+    // RUN_TEST(test_client_reconnect);
+    // RUN_TEST(test_disable_timeout);
+    // RUN_TEST(test_loopback);
+    // RUN_TEST(test_address_map);
+    netcode_term();
+    log("Passed!\n");
+    log("--------------------------------------------------------------------------------\n");
+}
+
 #scope_file
+
+#import "Random";
 
 // Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
 check :: assert;
@@ -1120,7 +1171,7 @@ test_server_create :: () {
     }
 }
 
-private_key: EncryptionKeyBuf = .[
+private_key: EncryptionKeyBuf : .[
     0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
     0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
     0x43, 0x71, 0xd6, 0x2c, 0xd1, 0x99, 0x27, 0x26,
@@ -1152,22 +1203,16 @@ test_client_server_connect :: () {
 
     server_address := "[::1]:40000";
     server := netcode_server_create(server_address, *server_config, time);
-
     check(server != null);
 
     netcode_server_start(server, 1);
 
-    connect_token: ConnectTokenBuf;
-
-    client_id: u64;
-    client_id_bytes: [] u8 = .{ size_of(type_of(client_id)), cast(*u8) *client_id };
-    netcode_random_bytes(client_id_bytes);
-
+    client_id := random_get();
     user_data: UserDataBuf;
     netcode_random_bytes(user_data);
 
+    connect_token: ConnectTokenBuf;
     check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
-
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -1247,6 +1292,62 @@ test_client_server_connect :: () {
     netcode_network_simulator_destroy(network_simulator);
 }
 
+client_server_socket_connect :: (client_address: string, client_address2: string, server_address: string, server_address2: string) {
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client := netcode_client_create_overload(client_address, client_address2, client_config, time);
+    check(client != null);
+
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    array_copy(server_config.private_key, private_key);
+    server := netcode_server_create_overload(server_address, server_address2, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+
+    connect_token: ConnectTokenBuf;
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+}
+
+test_client_server_ipv4_socket_connect :: () {
+    client_server_socket_connect("0.0.0.0:50000", .{}         , "127.0.0.1:40000", .{}          );
+    client_server_socket_connect("0.0.0.0:50000", .{}         , "127.0.0.1:40000", "[::1]:40000");
+    client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "127.0.0.1:40000", .{}          );
+    client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "127.0.0.1:40000", "[::1]:40000");
+}
+
+test_client_server_ipv6_socket_connect :: () {
+    client_server_socket_connect("[::]:50000"   , .{}         , "[::1]:40000", .{}              );
+    client_server_socket_connect("[::]:50000"   , .{}         , "[::1]:40000", "127.0.0.1:40000");
+    client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "[::1]:40000", .{}              );
+    client_server_socket_connect("0.0.0.0:50000", "[::]:50000", "[::1]:40000", "127.0.0.1:40000");
+}
+
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
 RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     assert(type_info(T).info.type == .PROCEDURE);
@@ -1260,57 +1361,13 @@ RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
         return arg0.name;
     };
 
-    log("[Test] %\n", arg0_name);
+    spaces := (80 - arg0_name.count - 10);
+    builder: String_Builder;
+    for 0..spaces-1 {
+        append(*builder, #char " ");
+    }
+    log("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+    log("│ [Test] %0%│\n", arg0_name, builder_to_string(*builder));
+    log("└──────────────────────────────────────────────────────────────────────────────┘\n");
     test();
-}
-
-#scope_export
-
-netcode_test :: () {
-    log("--------------------------------------------------------------------------------\n");
-    log("[Netcode] Running tests...\n");
-    netcode_init();
-    RUN_TEST(test_queue);
-    RUN_TEST(test_sequence);
-
-    // Prevent the IPAddress module from logging a bunch of errors when testing error cases.
-    address_tests_running = true;
-    RUN_TEST(test_address);
-    address_tests_running = false;
-
-    RUN_TEST(test_connect_token);
-    RUN_TEST(test_challenge_token);
-    RUN_TEST(test_connection_request_packet);
-    RUN_TEST(test_connection_denied_packet);
-    RUN_TEST(test_connection_challenge_packet);
-    RUN_TEST(test_connection_response_packet);
-    RUN_TEST(test_connection_keep_alive_packet);
-    RUN_TEST(test_connection_payload_packet);
-    RUN_TEST(test_connection_disconnect_packet);
-    RUN_TEST(test_connect_token_public);
-    RUN_TEST(test_encryption_manager);
-    RUN_TEST(test_replay_protection);
-    RUN_TEST(test_client_create);
-    RUN_TEST(test_server_create);
-    RUN_TEST(test_client_server_connect);
-    // RUN_TEST(test_client_server_ipv4_socket_connect);
-    // RUN_TEST(test_client_server_ipv6_socket_connect);
-    // RUN_TEST(test_client_server_keep_alive);
-    // RUN_TEST(test_client_server_multiple_clients);
-    // RUN_TEST(test_client_server_multiple_servers);
-    // RUN_TEST(test_client_error_connect_token_expired);
-    // RUN_TEST(test_client_error_invalid_connect_token);
-    // RUN_TEST(test_client_error_connection_timed_out);
-    // RUN_TEST(test_client_error_connection_response_timeout);
-    // RUN_TEST(test_client_error_connection_request_timeout);
-    // RUN_TEST(test_client_error_connection_denied);
-    // RUN_TEST(test_client_side_disconnect);
-    // RUN_TEST(test_server_side_disconnect);
-    // RUN_TEST(test_client_reconnect);
-    // RUN_TEST(test_disable_timeout);
-    // RUN_TEST(test_loopback);
-    // RUN_TEST(test_address_map);
-    netcode_term();
-    log("Passed!\n");
-    log("--------------------------------------------------------------------------------\n");
 }

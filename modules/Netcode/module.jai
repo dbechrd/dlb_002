@@ -141,7 +141,7 @@ netcode_client_t :: struct {
     loopback                 : bool;
 }
 
-netcode_client_create :: (address: string, config: *netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
+netcode_client_create :: (address: string, config: netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
     return netcode_client_create_overload(address, .{}, config, time);
 }
 
@@ -1490,10 +1490,12 @@ netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
     /////////////////////////////////////////////////////////////////////////////////////////////////////////
     // HACK(dlb): Put random nonsense in the MAC to make the test pass without importing libsodium
     /////////////////////////////////////////////////////////////////////////////////////////////////////////
-    #if NETCODE_DISABLE_SECURITY {
-        mac := message.data + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES;
-        memcpy(mac, nonce.data, NETCODE_MAC_BYTES);
+    #if !NETCODE_DISABLE_SECURITY {
+        print("CRITICAL: FAKE MAC AUTH ENABLED. YOUR DATA IS NOT SAFE!\n");
     }
+    mac := message.data + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES;
+    hash := netcode_hash_data(message) ^ netcode_hash_data(header) ^ netcode_hash_data(nonce);
+    memcpy(mac, *hash, size_of(type_of(hash)));
     /////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     assert(cast(int) encrypted_length == message.count + NETCODE_MAC_BYTES);
@@ -2689,6 +2691,7 @@ netcode_client_socket_create :: (socket: *netcode_socket_t, address: netcode_add
     return true;
 }
 
+// TODO(dlb): Rename this to netcode_client_create2
 netcode_client_create_overload :: (address1_string: string, address2_string: string, config: netcode_client_config_t, time: Apollo_Time) -> *netcode_client_t {
     assert(netcode.initialized);
 
@@ -3396,15 +3399,16 @@ netcode_hash_string :: (str: string) -> u64 {
     return netcode_fnv_finalize(*fnv);
 }
 
-netcode_hash_data :: (data: [] u8) -> int {
+netcode_hash_data :: (data: [] u8) -> u64 {
     fnv: netcode_fnv_t;
     netcode_fnv_init(*fnv);
     netcode_fnv_write(*fnv, data);
-    return cast(int) netcode_fnv_finalize(*fnv);
+    return netcode_fnv_finalize(*fnv);
 }
 
 netcode_address_hash :: (address: netcode_address_t) -> int {
-    return netcode_hash_data(.{ size_of(type_of(address)), cast(*u8) *address }) % NETCODE_ADDRESS_MAP_BUCKETS;
+    hash := cast,force(int) netcode_hash_data(.{ size_of(type_of(address)), cast(*u8) *address });
+    return hash % NETCODE_ADDRESS_MAP_BUCKETS;
 }
 
 netcode_address_map_element_reset :: (using element: *netcode_address_map_element_t) {
@@ -3505,6 +3509,7 @@ netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_addr
     return true;
 }
 
+// TODO(dlb): Rename this to netcode_server_create2
 netcode_server_create_overload :: (server_address1_string: string, server_address2_string: string, config: netcode_server_config_t, time: Apollo_Time) -> *netcode_server_t {
     assert(netcode.initialized);
 
