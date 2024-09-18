@@ -28,7 +28,7 @@ netcode_test :: () {
     RUN_TEST(test_client_server_ipv4_socket_connect);
     RUN_TEST(test_client_server_ipv6_socket_connect);
     RUN_TEST(test_client_server_keep_alive);
-    // RUN_TEST(test_client_server_multiple_clients);
+    RUN_TEST(test_client_server_multiple_clients);
     // RUN_TEST(test_client_server_multiple_servers);
     // RUN_TEST(test_client_error_connect_token_expired);
     // RUN_TEST(test_client_error_invalid_connect_token);
@@ -1430,6 +1430,205 @@ test_client_server_keep_alive :: () {
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_server_multiple_clients :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create("[::1]:40000", server_config, time);
+    check(server != null);
+
+    NUM_START_STOP_ITERATIONS :: 3;
+    max_clients: [NUM_START_STOP_ITERATIONS] int = .[ 2, 32, 5 ];
+
+    for 0..NUM_START_STOP_ITERATIONS-1 {
+        // start the server with max # of clients for this iteration
+
+        netcode_server_start(server, max_clients[it]);
+
+        // create # of client objects for this iteration and connect to server
+
+        clients := NewArray(max_clients[it], *netcode_client_t);
+        check(clients.count > 0 );
+
+        for * client: clients {
+            client_address := tprint("[::]:%", 50000 + it_index);
+
+            client_config: netcode_client_config_t;
+            client_config.network_simulator = network_simulator;
+            client.* = netcode_client_create(client_address, client_config, time);
+            check(client.* != null);
+
+            server_address := "[::1]:40000";
+            client_id := random_get();
+            connect_token: ConnectTokenBuf;
+            user_data: UserDataBuf;
+            netcode_random_bytes(user_data);
+
+            check(netcode_generate_connect_token(
+                .[ server_address ],
+                .[ server_address ],
+                TEST_CONNECT_TOKEN_EXPIRY,
+                TEST_TIMEOUT_SECONDS,
+                client_id,
+                TEST_PROTOCOL_ID,
+                private_key,
+                user_data,
+                connect_token
+            ) == NETCODE_OK);
+
+            netcode_client_connect(client.*, connect_token);
+        }
+
+        // make sure all clients can connect
+
+        while true {
+            netcode_network_simulator_update(network_simulator, time);
+
+            for client: clients {
+                netcode_client_update(client, time);
+            }
+
+            netcode_server_update(server, time);
+
+            num_connected_clients := 0;
+
+            for client: clients {
+                if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+                    break;
+                }
+                if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+                    num_connected_clients += 1;
+                }
+            }
+
+            if num_connected_clients == clients.count {
+                break;
+            }
+
+            time += delta_time;
+        }
+
+        check(netcode_server_num_connected_clients(server) == clients.count);
+
+        for client: clients {
+            check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+            check(netcode_server_client_connected(server, it_index) == true);
+        }
+
+        // make sure all clients can exchange packets with the server
+
+        server_num_packets_received := NewArray(clients.count, int);
+        client_num_packets_received := NewArray(clients.count, int);
+
+        packet_data: [NETCODE_MAX_PACKET_SIZE] u8;
+        for * packet_data {
+            it.* = cast(u8) (it_index & 0xFF);
+        }
+
+        while true {
+            netcode_network_simulator_update(network_simulator, time);
+
+            for client: clients {
+                netcode_client_update(client, time);
+            }
+
+            netcode_server_update(server, time);
+
+            for client: clients {
+                netcode_client_send_packet(client, packet_data);
+            }
+
+            for clients {
+                netcode_server_send_packet(server, it_index, packet_data);
+            }
+
+            for client: clients {
+                while true {
+                    packet, packet_sequence := netcode_client_receive_packet(client);
+                    if packet.count == 0 {
+                        break;
+                    }
+                    assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+                    assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+                    client_num_packets_received[it_index] += 1;
+                    netcode_client_free_packet(client, packet);
+                }
+            }
+
+            for clients {
+                while true {
+                    packet, packet_sequence := netcode_server_receive_packet(server, it_index);
+                    if packet.count == 0 {
+                        break;
+                    }
+                    assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+                    assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+                    server_num_packets_received[it_index] += 1;
+                    netcode_server_free_packet(server, packet);
+                }
+            }
+
+            num_clients_ready := 0;
+
+            for clients {
+                if client_num_packets_received[it_index] >= 1 && server_num_packets_received[it_index] >= 1 {
+                    num_clients_ready += 1;
+                }
+            }
+
+            if num_clients_ready == clients.count {
+                break;
+            }
+
+            for client: clients {
+                if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+                    assert(false, "a client disconnected, this test cannot complete");
+                }
+            }
+
+            time += delta_time;
+        }
+
+        num_clients_ready := 0;
+
+        for clients {
+            if client_num_packets_received[it_index] >= 1 && server_num_packets_received[it_index] >= 1 {
+                num_clients_ready += 1;
+            }
+        }
+
+        check(num_clients_ready == clients.count);
+
+        array_free(server_num_packets_received);
+        array_free(client_num_packets_received);
+
+        netcode_network_simulator_reset(network_simulator);
+
+        for client: clients {
+            netcode_client_destroy(client);
+        }
+
+        array_free(clients);
+
+        netcode_server_stop(server);
+    }
+
+    netcode_server_destroy(server);
     netcode_network_simulator_destroy(network_simulator);
 }
 

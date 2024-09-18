@@ -561,7 +561,6 @@ netcode_server_stop :: (using server: *netcode_server_t) {
     array_zero(challenge_key);
 
     netcode_connect_token_entries_reset(connect_token_entries);
-
     netcode_encryption_manager_reset(*encryption_manager);
 
     netcode_log(.VERBOSE_ONLY, "server stopped\n");
@@ -775,8 +774,8 @@ netcode_server_process_packet :: (using server: *netcode_server_t, from: netcode
     }
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
-    if read_packet_key == null && packet_data[0] != NETCODE_CONNECTION_REQUEST_PACKET {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %\n", netcode_address_to_string(from));
+    if read_packet_key == null && packet_data[0] != 0 {
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from));
         return;
     }
 
@@ -2112,9 +2111,7 @@ netcode_read_packet :: (
         assert(pointer_diff(cursor, start) == 1 + NETCODE_VERSION_INFO_BYTES + 8 + 8 + NETCODE_CONNECT_TOKEN_NONCE_BYTES + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES);
 
         return packet, 0;  // first packet is sequence number 0 of course, not an error case!
-    }
-    else
-    {
+    } else {
         // *** encrypted packets ***
 
         if read_packet_key.count == 0 {
@@ -3407,7 +3404,8 @@ netcode_hash_data :: (data: [] u8) -> u64 {
 }
 
 netcode_address_hash :: (address: netcode_address_t) -> int {
-    hash := cast,force(int) netcode_hash_data(.{ size_of(type_of(address)), cast(*u8) *address });
+    addr_bytes := [] u8.{ size_of(type_of(address)), cast(*u8) *address };
+    hash := cast(int) (netcode_hash_data(addr_bytes) >> 1);
     return hash % NETCODE_ADDRESS_MAP_BUCKETS;
 }
 
@@ -3471,7 +3469,7 @@ netcode_address_map_get :: (map: netcode_address_map_t, address: netcode_address
 
 netcode_address_map_delete :: (map: *netcode_address_map_t, address: netcode_address_t) -> bool {
     bucket_index := netcode_address_hash(address);
-    bucket := map.buckets[bucket_index];
+    bucket := *map.buckets[bucket_index];
 
     element := netcode_address_map_bucket_find(bucket, address);
     if element == null {
@@ -3963,8 +3961,8 @@ netcode_server_read_and_process_packet :: (using server: *netcode_server_t, from
     }
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
-    if read_packet_key == null && packet_data[0] != NETCODE_CONNECTION_REQUEST_PACKET {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet because no encryption mapping exists for %\n", netcode_address_to_string(from));
+    if read_packet_key == null && packet_data[0] != 0 {
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from));
         return;
     }
 
