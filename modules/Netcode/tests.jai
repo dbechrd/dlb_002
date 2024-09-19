@@ -1,6 +1,6 @@
 netcode_test :: () {
-    log("--------------------------------------------------------------------------------\n");
-    log("[Netcode] Running tests...\n");
+    log("\n--- Netcode --------------------------------------------------------------------\n");
+    log("Running tests...\n");
     netcode_init();
     RUN_TEST(test_queue);
     RUN_TEST(test_sequence);
@@ -44,7 +44,6 @@ netcode_test :: () {
     RUN_TEST(test_address_map);
     netcode_term();
     log("Passed!\n");
-    log("--------------------------------------------------------------------------------\n");
 }
 
 #scope_file
@@ -2903,8 +2902,10 @@ RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     for 0..spaces-1 {
         append(*builder, #char " ");
     }
+    /*
     log("┌──────────────────────────────────────────────────────────────────────────────┐\n");
     log("│ [Test] %0%│\n", arg0_name, builder_to_string(*builder));
     log("└──────────────────────────────────────────────────────────────────────────────┘\n");
+    */
     test();
 }

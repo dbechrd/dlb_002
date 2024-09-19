@@ -641,8 +641,8 @@ test_fragment_cleanup :: () {
 #scope_export
 
 reliable_test :: () {
-    log("--------------------------------------------------------------------------------\n");
-    log("[Reliable] Running tests...\n");
+    log("\n--- Reliable -------------------------------------------------------------------\n");
+    log("Running tests...\n");
     test_sequence_buffer();
     test_generate_ack_bits();
     test_packet_header();
@@ -653,5 +653,4 @@ reliable_test :: () {
     test_sequence_buffer_rollover();
     test_fragment_cleanup();
     log("Passed!\n");
-    log("--------------------------------------------------------------------------------\n");
 }

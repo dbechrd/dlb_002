@@ -1,5 +1,5 @@
 #module_parameters(
-    ENABLE_LOGGING := true
+    ENABLE_LOGGING := false
 );
 
 IPType :: enum u8 {
@@ -558,7 +558,7 @@ address_test :: () {
 #import "dlb";
 
 address_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    if !ENABLE_LOGGING && address_tests_running {
+    if !ENABLE_LOGGING && !address_tests_running {
         // user doesn't want the logs
         return;
     }
@@ -608,7 +608,6 @@ run_tests :: () {
 EOS
 
         FAIL_MSG :: #string EOS
-────────────────────────────────────────────────────────────────────────────────
 *** FAILURE ***
 
 While trying to parse "%" as %.
@@ -624,22 +623,24 @@ While trying to parse "%" as %.
 %
 "%"
 "%"
-────────────────────────────────────────────────────────────────────────────────
+
 EOS
 
         pass := ip == expected_address && remainder == expected_remainder && address_last_log_message == expected_log;
         if pass {
-            log(PASS_MSG, type, s, user_flags = 1);
+            #if ENABLE_LOGGING {
+                log(PASS_MSG, type, s);
+            }
         } else {
             log(FAIL_MSG, s, type,
                 address_to_string(expected_address, canonical=true), expected_remainder, expected_log,
-                address_to_string(ip, canonical=true), remainder, address_last_log_message,
-                user_flags = 1
+                address_to_string(ip, canonical=true), remainder, address_last_log_message
             );
         }
     }
 
-    log("[IPAddress] Running tests...\n", user_flags = 1);
+    log("\n--- IPAddress ------------------------------------------------------------------\n");
+    log("Running tests...\n");
 
     //--- ipv4 tests ----------------------------------------------------------
 
@@ -719,4 +720,5 @@ EOS
     test_ip(.IPv6, "0:1:2::4?",       .{ type = .IPv6, data.v6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, "?");
     test_ip(.IPv6, "0:1:2::4:?",      .{ type = .IPv6, data.v6 = .[0, 1, 2, 0, 0, 0, 0, 4] }, ":?");
     test_ip(.IPv6, "0:1:2::4:5?",     .{ type = .IPv6, data.v6 = .[0, 1, 2, 0, 0, 0, 4, 5] }, "?");
+    log("Passed!\n");
 }

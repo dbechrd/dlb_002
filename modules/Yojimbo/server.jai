@@ -207,7 +207,6 @@ Get the user data of the client.
 @returns The user data of the client.
 */
 server_get_client_user_data :: (using server: *Server, clientIndex: int) -> [] u8 {
-    // TODO(dlb): dafuq this for? should it return *u8 or [] u8?
     return netcode_server_client_user_data(netServer, clientIndex);
 }
 

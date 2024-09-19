@@ -30,20 +30,19 @@ Player :: struct {
 */
 
 log_cpu_info :: () {
-    log("--- CPU Info -------------------------------------------------------------------\n");
+    log("\n--- CPU Info -------------------------------------------------------------------\n");
     cpu_info := get_cpu_info();
     log("Vendor: %\n", cpu_info.vendor);
     log("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
     log("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
     log("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
-    log("--------------------------------------------------------------------------------\n");
 }
 
 #import "dlb";
-#import "IPAddress";
+#import "IPAddress"; //(ENABLE_LOGGING=true);
 #import "Reliable"; //(ENABLE_LOGGING=true);
 // #import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
-#import "Netcode"(NETCODE_ENABLE_LOGGING=true, NETCODE_DISABLE_SECURITY=true);
+#import "Netcode"(NETCODE_DISABLE_SECURITY=true); //, NETCODE_ENABLE_LOGGING=true);
 #import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {
@@ -98,6 +97,7 @@ capture_input_command :: (using inputCmd: *InputCommand) {
 }
 
 run_game :: () {
+    log("\n--- Game -----------------------------------------------------------------------\n");
     dlb_init_common();
 
     window := create_window(state.window_size.x, state.window_size.y, "dlb_002");
