@@ -34,6 +34,8 @@ https://github.com/mas-bandwidth/serialize/commit/cc75300b1bce50246374709bf1d29b
     LITTLE_ENDIAN := true
 );
 
+#load "tests.jai";
+
 /*
 Calculates the log base 2 of an unsigned 32 bit integer.
 @param x The input integer value.

@@ -30,18 +30,18 @@ netcode_test :: () {
     RUN_TEST(test_client_server_keep_alive);
     RUN_TEST(test_client_server_multiple_clients);
     RUN_TEST(test_client_server_multiple_servers);
-    // RUN_TEST(test_client_error_connect_token_expired);
-    // RUN_TEST(test_client_error_invalid_connect_token);
-    // RUN_TEST(test_client_error_connection_timed_out);
-    // RUN_TEST(test_client_error_connection_response_timeout);
-    // RUN_TEST(test_client_error_connection_request_timeout);
-    // RUN_TEST(test_client_error_connection_denied);
-    // RUN_TEST(test_client_side_disconnect);
-    // RUN_TEST(test_server_side_disconnect);
-    // RUN_TEST(test_client_reconnect);
-    // RUN_TEST(test_disable_timeout);
-    // RUN_TEST(test_loopback);
-    // RUN_TEST(test_address_map);
+    RUN_TEST(test_client_error_connect_token_expired);
+    RUN_TEST(test_client_error_invalid_connect_token);
+    RUN_TEST(test_client_error_connection_timed_out);
+    RUN_TEST(test_client_error_connection_response_timeout);
+    RUN_TEST(test_client_error_connection_request_timeout);
+    RUN_TEST(test_client_error_connection_denied);
+    RUN_TEST(test_client_side_disconnect);
+    RUN_TEST(test_server_side_disconnect);
+    RUN_TEST(test_client_reconnect);
+    RUN_TEST(test_disable_timeout);
+    RUN_TEST(test_loopback);
+    RUN_TEST(test_address_map);
     netcode_term();
     log("Passed!\n");
     log("--------------------------------------------------------------------------------\n");
@@ -1444,12 +1444,16 @@ test_client_server_multiple_clients :: () {
     time: Apollo_Time;
     delta_time := milliseconds_to_apollo(100);
 
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+
+    server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
     server_config.protocol_id = TEST_PROTOCOL_ID;
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
 
-    server := netcode_server_create("[::1]:40000", server_config, time);
+    server := netcode_server_create(server_address, server_config, time);
     check(server != null);
 
     NUM_START_STOP_ITERATIONS :: 3;
@@ -1468,12 +1472,9 @@ test_client_server_multiple_clients :: () {
         for * client: clients {
             client_address := tprint("[::]:%", 50000 + it_index);
 
-            client_config: netcode_client_config_t;
-            client_config.network_simulator = network_simulator;
             client.* = netcode_client_create(client_address, client_config, time);
             check(client.* != null);
 
-            server_address := "[::1]:40000";
             client_id := random_get();
             connect_token: ConnectTokenBuf;
             user_data: UserDataBuf;
@@ -1744,6 +1745,1144 @@ test_client_server_multiple_servers :: () {
     netcode_server_destroy(server);
     netcode_client_destroy(client);
     netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_connect_token_expired :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], .{}, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+    netcode_client_update(client, time);
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED);
+
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_invalid_connect_token :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    connect_token: ConnectTokenBuf;
+    netcode_random_bytes(connect_token);
+
+    client_id := random_get();
+    netcode_client_connect(client, connect_token);
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN);
+
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_connection_timed_out :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    // connect a client to the server
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // now disable updating the server and verify that the client times out
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_connection_response_timeout :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    server.flags = NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS;
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_connection_request_timeout :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(16);  // ~= 60 tps
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    server.flags = NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS;
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_error_connection_denied :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    // start a server and connect one client
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // now attempt to connect a second client. the connection should be denied.
+
+    client2 := netcode_client_create("[::]:50001", client_config, time);
+    check(client2 != null);
+
+    client_id2 := random_get();
+    user_data2: UserDataBuf;
+    netcode_random_bytes(user_data2);
+    connect_token2: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id2, TEST_PROTOCOL_ID, private_key, user_data2, connect_token2) == NETCODE_OK);
+
+    netcode_client_connect(client2, connect_token2);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_client_update(client2, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client2) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_state(client2) == NETCODE_CLIENT_STATE_CONNECTION_DENIED);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_client_destroy(client2);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_side_disconnect :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    // start a server and connect one client
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // disconnect client side and verify that the server sees that client disconnect cleanly, rather than timing out.
+
+    netcode_client_disconnect(client);
+
+    for 0..9 {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if !netcode_server_client_connected(server, 0) {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_server_client_connected(server, 0) == false);
+    check(netcode_server_num_connected_clients(server) == 0);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_server_side_disconnect :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    // start a server and connect one client
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // disconnect server side and verify that the client disconnects cleanly, rather than timing out.
+
+    netcode_server_disconnect_client(server, 0);
+
+    for 0..9 {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_DISCONNECTED);
+    check(netcode_server_client_connected(server, 0) == false);
+    check(netcode_server_num_connected_clients(server) == 0);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_client_reconnect :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    // start a server and connect one client
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create("[::1]:40000", server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // disconnect client on the server-side and wait until client sees the disconnect
+
+    netcode_network_simulator_reset(network_simulator);
+    netcode_server_disconnect_client(server, 0);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_DISCONNECTED);
+    check(netcode_server_client_connected(server, 0) == false);
+    check(netcode_server_num_connected_clients(server) == 0);
+
+    // now reconnect the client and verify they connect
+
+    netcode_network_simulator_reset(network_simulator);
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_disable_timeout :: () {
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    client_config: netcode_client_config_t;
+    client_config.network_simulator = network_simulator;
+    client := netcode_client_create("[::]:50000", client_config, time);
+    check(client != null);
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    netcode_server_start(server, 1);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, seconds_to_apollo(-1), client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    netcode_client_connect(client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(client) == 0);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    server_num_packets_received := 0;
+    client_num_packets_received := 0;
+
+    packet_data: [NETCODE_MAX_PACKET_SIZE] u8;
+    for * packet_data {
+        it.* = cast(u8) (it_index & 0xFF);
+    }
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(client, time);
+        netcode_server_update(server, time);
+
+        netcode_client_send_packet(client, packet_data);
+        netcode_server_send_packet(server, 0, packet_data);
+
+        while true {
+            packet, packet_sequence := netcode_client_receive_packet(client);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            client_num_packets_received += 1;
+            netcode_client_free_packet(client, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_server_receive_packet(server, 0);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            server_num_packets_received += 1;
+            netcode_server_free_packet(server, packet);
+        }
+
+        if client_num_packets_received >= 10 && server_num_packets_received >= 10 {
+            if netcode_server_client_connected(server, 0) {
+                netcode_server_disconnect_client(server, 0);
+            }
+        }
+
+        if netcode_client_state(client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += seconds_to_apollo(1000);  // normally this would timeout the client
+    }
+
+    check(client_num_packets_received >= 10 && server_num_packets_received >= 10);
+
+    netcode_server_destroy(server);
+    netcode_client_destroy(client);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_loopback_context_t :: struct {
+    client: *netcode_client_t;
+    server: *netcode_server_t;
+    num_loopback_packets_sent_to_client: int;
+    num_loopback_packets_sent_to_server: int;
+};
+
+client_send_loopback_packet_callback :: (ctx: *void, client_index: int, packet_data: [] u8, packet_sequence: u64) {
+    check(ctx != null);
+    check(client_index == 0);
+    check(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+    for * packet_data {
+        it.* = cast(u8) (it_index & 0xFF);
+    }
+
+    c := cast(*test_loopback_context_t) ctx;
+    c.num_loopback_packets_sent_to_server += 1;
+    netcode_server_process_loopback_packet(c.server, client_index, packet_data, packet_sequence);
+}
+
+server_send_loopback_packet_callback :: (ctx: *void, client_index: int, packet_data: [] u8, packet_sequence: u64) {
+    check(ctx != null);
+    check(client_index == 0);
+    check(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+    for packet_data {
+        check(it == cast(u8) (it_index & 0xFF));
+    }
+
+    c := cast(*test_loopback_context_t) ctx;
+    c.num_loopback_packets_sent_to_client += 1;
+    netcode_client_process_loopback_packet(c.client, packet_data, packet_sequence);
+}
+
+test_loopback :: () {
+    ctx: test_loopback_context_t;
+
+    network_simulator := New(netcode_network_simulator_t);
+
+    network_simulator.latency_milliseconds = 250;
+    network_simulator.jitter_milliseconds = 250;
+    network_simulator.packet_loss_percent = 5;
+    network_simulator.duplicate_packet_percent = 10;
+
+    time: Apollo_Time;
+    delta_time := milliseconds_to_apollo(100);
+
+    // start the server
+
+    server_address := "[::1]:40000";
+    server_config: netcode_server_config_t;
+    server_config.protocol_id = TEST_PROTOCOL_ID;
+    server_config.network_simulator = network_simulator;
+    server_config.callback_context = *ctx;
+    server_config.send_loopback_packet_callback = server_send_loopback_packet_callback;
+    array_copy(server_config.private_key, private_key);
+
+    server := netcode_server_create(server_address, server_config, time);
+    check(server != null);
+
+    max_clients := 2;
+
+    netcode_server_start(server, max_clients);
+
+    ctx.server = server;
+
+    // connect a loopback client in slot 0
+
+    client_config: netcode_client_config_t;
+    client_config.callback_context = *ctx;
+    client_config.send_loopback_packet_callback = client_send_loopback_packet_callback;
+    client_config.network_simulator = network_simulator;
+
+    loopback_client := netcode_client_create("[::]:50000", client_config, time);
+    check(loopback_client != null);
+    netcode_client_connect_loopback(loopback_client, 0, max_clients);
+    ctx.client = loopback_client;
+
+    check(netcode_client_index(loopback_client) == 0);
+    check(netcode_client_loopback(loopback_client) == true);
+    check(netcode_client_max_clients(loopback_client) == max_clients);
+    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+
+    loopback_client_id := random_get();
+    loopback_user_data: UserDataBuf;
+    netcode_server_connect_loopback_client(server, 0, loopback_client_id, loopback_user_data);
+
+    check(netcode_server_client_loopback(server, 0) == true);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    // connect a regular client in the other slot
+
+    regular_client := netcode_client_create("[::]:50001", client_config, time);
+    check(regular_client != null);
+
+    client_id := random_get();
+    user_data: UserDataBuf;
+    netcode_random_bytes(user_data);
+    connect_token: ConnectTokenBuf;
+
+    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+
+    netcode_client_connect(regular_client, connect_token);
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(regular_client, time);
+        netcode_server_update(server, time);
+
+        if netcode_client_state(regular_client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+        if netcode_client_state(regular_client) == NETCODE_CLIENT_STATE_CONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(netcode_client_state(regular_client) == NETCODE_CLIENT_STATE_CONNECTED);
+    check(netcode_client_index(regular_client) == 1);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_client_connected(server, 1) == true);
+    check(netcode_server_client_loopback(server, 0) == true);
+    check(netcode_server_client_loopback(server, 1) == false);
+    check(netcode_server_num_connected_clients(server) == 2);
+
+    // test that we can exchange packets for the regular client and the loopback client
+
+    loopback_client_num_packets_received := 0;
+    loopback_server_num_packets_received := 0;
+    regular_server_num_packets_received := 0;
+    regular_client_num_packets_received := 0;
+
+    packet_data: [NETCODE_MAX_PACKET_SIZE] u8;
+    for * packet_data {
+        it.* = cast(u8) (it_index & 0xFF);
+    }
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(regular_client, time);
+        netcode_server_update(server, time);
+
+        netcode_client_send_packet(loopback_client, packet_data);
+        netcode_client_send_packet(regular_client, packet_data);
+
+        netcode_server_send_packet(server, 0, packet_data);
+        netcode_server_send_packet(server, 1, packet_data);
+
+        while true {
+            packet, packet_sequence := netcode_client_receive_packet(loopback_client);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            loopback_client_num_packets_received += 1;
+            netcode_client_free_packet(loopback_client, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_client_receive_packet(regular_client);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            regular_client_num_packets_received += 1;
+            netcode_client_free_packet(regular_client, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_server_receive_packet(server, 0);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            loopback_server_num_packets_received += 1;
+            netcode_server_free_packet(server, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_server_receive_packet(server, 1);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            regular_server_num_packets_received += 1;
+            netcode_server_free_packet(server, packet);
+        }
+
+        if loopback_client_num_packets_received >= 10 && loopback_server_num_packets_received >= 10 &&
+           regular_client_num_packets_received >= 10 && regular_server_num_packets_received >= 10
+        {
+            break;
+        }
+
+        if netcode_client_state(regular_client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(loopback_client_num_packets_received >= 10);
+    check(loopback_server_num_packets_received >= 10);
+    check(regular_client_num_packets_received >= 10);
+    check(regular_server_num_packets_received >= 10);
+    check(ctx.num_loopback_packets_sent_to_client >= 10);
+    check(ctx.num_loopback_packets_sent_to_server >= 10);
+
+    // verify that we can disconnect the loopback client
+
+    check(netcode_server_client_loopback(server, 0) == true);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_num_connected_clients(server) == 2);
+
+    netcode_server_disconnect_loopback_client(server, 0);
+
+    check(netcode_server_client_loopback(server, 0) == false);
+    check(netcode_server_client_connected(server, 0) == false);
+    check(netcode_server_num_connected_clients(server) == 1);
+
+    netcode_client_disconnect_loopback(loopback_client);
+
+    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_DISCONNECTED);
+
+    // verify that we can reconnect the loopback client
+
+    loopback_client_id = random_get();
+    netcode_server_connect_loopback_client(server, 0, loopback_client_id, loopback_user_data);
+
+    check(netcode_server_client_loopback(server, 0) == true);
+    check(netcode_server_client_loopback(server, 1) == false);
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_client_connected(server, 1) == true);
+    check(netcode_server_num_connected_clients(server) == 2);
+
+    netcode_client_connect_loopback(loopback_client, 0, max_clients);
+
+    check(netcode_client_index(loopback_client) == 0);
+    check(netcode_client_loopback(loopback_client) == true);
+    check(netcode_client_max_clients(loopback_client) == max_clients);
+    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+
+    // verify that we can exchange packets for both regular and loopback client post reconnect
+
+    loopback_server_num_packets_received = 0;
+    loopback_client_num_packets_received = 0;
+    regular_server_num_packets_received = 0;
+    regular_client_num_packets_received = 0;
+    ctx.num_loopback_packets_sent_to_client = 0;
+    ctx.num_loopback_packets_sent_to_server = 0;
+
+    while true {
+        netcode_network_simulator_update(network_simulator, time);
+        netcode_client_update(regular_client, time);
+        netcode_server_update(server, time);
+
+        netcode_client_send_packet(loopback_client, packet_data);
+        netcode_client_send_packet(regular_client, packet_data);
+
+        netcode_server_send_packet(server, 0, packet_data);
+        netcode_server_send_packet(server, 1, packet_data);
+
+        while true {
+            packet, packet_sequence := netcode_client_receive_packet(loopback_client);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            loopback_client_num_packets_received += 1;
+            netcode_client_free_packet(loopback_client, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_client_receive_packet(regular_client);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            regular_client_num_packets_received += 1;
+            netcode_client_free_packet(regular_client, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_server_receive_packet(server, 0);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            loopback_server_num_packets_received += 1;
+            netcode_server_free_packet(server, packet);
+        }
+
+        while true {
+            packet, packet_sequence := netcode_server_receive_packet(server, 1);
+            if packet.count == 0 {
+                break;
+            }
+            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            regular_server_num_packets_received += 1;
+            netcode_server_free_packet(server, packet);
+        }
+
+        if loopback_client_num_packets_received >= 10 && loopback_server_num_packets_received >= 10 &&
+           regular_client_num_packets_received >= 10 && regular_server_num_packets_received >= 10
+        {
+            break;
+        }
+
+        if netcode_client_state(regular_client) <= NETCODE_CLIENT_STATE_DISCONNECTED {
+            break;
+        }
+
+        time += delta_time;
+    }
+
+    check(loopback_client_num_packets_received >= 10);
+    check(loopback_server_num_packets_received >= 10);
+    check(regular_client_num_packets_received >= 10);
+    check(regular_server_num_packets_received >= 10);
+    check(ctx.num_loopback_packets_sent_to_server >= 10);
+    check(ctx.num_loopback_packets_sent_to_client >= 10);
+
+    // verify the regular client times out but loopback client doesn't
+
+    time += seconds_to_apollo(1000); // 100000.0;
+
+    netcode_server_update(server, time);
+
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_client_connected(server, 1) == false);
+
+    netcode_client_update(loopback_client, time);
+
+    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+
+    // verify that disconnect all clients leaves loopback clients alone
+
+    netcode_server_disconnect_all_clients(server);
+
+    check(netcode_server_client_connected(server, 0) == true);
+    check(netcode_server_client_connected(server, 1) == false);
+    check(netcode_server_client_loopback(server, 0) == true);
+
+    // clean up
+
+    netcode_client_destroy(regular_client);
+    netcode_client_destroy(loopback_client);
+    netcode_server_destroy(server);
+    netcode_network_simulator_destroy(network_simulator);
+}
+
+test_address_map :: () {
+    str_address_1 := "107.77.207.77:40000";
+    str_address_2 := "127.0.0.1:23650";
+    str_address_3 := "fe80::202:b3ff:fe1e:8329";
+    str_address_4 := "fe80::202:b3ff:fe1e:8330";
+
+    map := netcode_address_map_create();
+
+    address_set: netcode_address_t;
+    address_get: netcode_address_t;
+    address_delete: netcode_address_t;
+
+    // Set ipv4
+    netcode_parse_address(str_address_1, *address_set);
+    check(netcode_address_map_set(map, address_set, 0) == true);
+
+    // Set ipv6
+    netcode_parse_address(str_address_3, *address_set);
+    check(netcode_address_map_set(map, address_set, 1) == true);
+
+    // Get ipv4
+    netcode_parse_address(str_address_1, *address_get);
+    check(netcode_address_map_get(map, address_get) == 0);
+
+    // Get ipv6
+    netcode_parse_address(str_address_3, *address_get);
+    check(netcode_address_map_get(map, address_get) == 1);
+
+    // Get non-existent ipv4
+    netcode_parse_address(str_address_2, *address_get);
+    check(netcode_address_map_get(map, address_get) == -1);
+
+    // Get non-existent ipv6
+    netcode_parse_address(str_address_4, *address_get);
+    check(netcode_address_map_get(map, address_get) == -1);
+
+    // Try to delete key, after that, the key should disappear
+    netcode_parse_address(str_address_1, *address_delete);
+    netcode_parse_address(str_address_1, *address_get);
+    check(netcode_address_map_delete(map, address_delete) == true);
+    check(netcode_address_map_get(map, address_get) == -1);
+
+    // Try to delete non-existent key
+    netcode_parse_address(str_address_2, *address_delete);
+    check (netcode_address_map_delete(map, address_delete) == false);
+
+    netcode_address_map_destroy(map);
 }
 
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.

@@ -314,7 +314,7 @@ netcode_client_max_clients :: inline (using client: *netcode_client_t) -> int {
 }
 
 netcode_client_connect_loopback :: (using client: *netcode_client_t, _client_index: int, _max_clients: int) {
-    assert(client);
+    assert(client != null);
     assert(state <= NETCODE_CLIENT_STATE_DISCONNECTED);
 
     netcode_log(.VERBOSE_ONLY, "client connected to server via loopback as client %\n", client_index);
@@ -369,7 +369,7 @@ netcode_client_process_loopback_packet :: (using client: *netcode_client_t, pack
     if packet == null {
         return;
     }
-    array_copy(packet.payload_data, packet_data);
+    memcpy(packet.payload_data.data, packet_data.data, packet_data.count);
 
     netcode_log(.VERY_VERBOSE_ONLY, "client processing loopback packet from server\n");
     netcode_packet_queue_push(*packet_receive_queue, packet, packet_sequence);
@@ -887,12 +887,11 @@ netcode_server_process_loopback_packet :: (using server: *netcode_server_t, clie
     assert(client_connected[client_index]);
     assert(client_loopback[client_index]);
 
-    packet := netcode_create_payload_packet(packet_bytes);
+    packet := netcode_create_payload_packet(packet_data.count);
     if packet == null {
         return;
     }
-
-    array_copy(packet.payload_data, packet_data);
+    memcpy(packet.payload_data.data, packet_data.data, packet_data.count);
 
     netcode_log(.VERY_VERBOSE_ONLY, "server processing loopback packet from client %\n", client_index);
 
@@ -1602,7 +1601,8 @@ netcode_write_connect_token_private :: (connect_token: netcode_connect_token_pri
     cursor := token_data_buffer.data;
 
     netcode_write_uint64(*cursor, connect_token.client_id);
-    netcode_write_uint32(*cursor, cast(u32) to_milliseconds(connect_token.timeout_seconds));
+    // NOTE(dlb): no_check because it's sometimes -1 for "no timeout". There's probably a better way to handle this? E.g. serialize a bit flag instead.
+    netcode_write_uint32(*cursor, cast,no_check(u32) to_milliseconds(connect_token.timeout_seconds));
     netcode_write_uint32(*cursor, cast(u32) connect_token.num_server_addresses);
 
     for it_address: 0..connect_token.num_server_addresses-1 {
@@ -2342,7 +2342,8 @@ netcode_write_connect_token :: (connect_token: *netcode_connect_token_t, buffer:
     netcode_write_uint64(*cursor, cast(u64) to_milliseconds(connect_token.expire_timestamp));
     netcode_write_bytes(*cursor, connect_token.nonce);
     netcode_write_bytes(*cursor, connect_token.private_data);
-    netcode_write_uint32(*cursor, cast(u32) to_milliseconds(connect_token.timeout_seconds));
+    // NOTE(dlb): no_check because -1 means "no timeout" and it's not a valid unsigned value bounds-wise
+    netcode_write_uint32(*cursor, cast,no_check(u32) to_milliseconds(connect_token.timeout_seconds));
     netcode_write_uint32(*cursor, cast(u32) connect_token.num_server_addresses);
 
     for it_address: 0..connect_token.num_server_addresses-1 {
