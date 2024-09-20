@@ -32,8 +32,8 @@ Server :: struct {
 
 };
 
-server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
-    server_init(*base, _config, _time);
+server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+    server_init(*base, _config, _messageFactory, _time);
     assert(KeyBytes == NETCODE_KEY_BYTES);
     array_copy(privateKey, _privateKey);
     address = _address;

@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 Client implementation
 */
@@ -27,7 +25,7 @@ The client constructor.
 @param config The client/server configuration.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (client: *Client, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+client_init :: (using client: *Client, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
     client_init(*base, _config, _messageFactory, _time);
     address = _address;
     boundAddress = address;
@@ -35,18 +33,18 @@ client_init :: (client: *Client, _address: Address, _config: ClientServerConfig,
     processPacketFunction = client_process_packet_function;
 }
 
-client_free :: (client: *Client) {
+client_free :: (using client: *Client) {
     // IMPORTANT: Please disconnect the client before destroying it
     assert(netClient == null);
 }
 
-client_insecure_connect :: (client: *Client, privateKey: [] u8, clientId: u64, address: Address) {
+client_insecure_connect :: (client: *Client, privateKey: [KeyBytes] u8, clientId: u64, address: Address) {
     client_insecure_connect(client, privateKey, clientId, .{ 1, *address });
 }
 
-client_insecure_connect :: (using client: *Client, privateKey: [] u8, _clientId: u64, serverAddresses: [] Address) {
+client_insecure_connect :: (using client: *Client, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] Address) {
     assert(serverAddresses.count > 0);
-    assert(serverAddresses <= NETCODE_MAX_SERVERS_PER_CONNECT);
+    assert(serverAddresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
     client_disconnect(client);
     client_create_internal(client);
@@ -58,7 +56,7 @@ client_insecure_connect :: (using client: *Client, privateKey: [] u8, _clientId:
     }
 
     connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8;
-    if !client_generate_insecure_connect_token(connectToken, privateKey, clientId, serverAddresses, numServerAddresses) {
+    if !client_generate_insecure_connect_token(client, connectToken, privateKey, clientId, serverAddresses) {
         yojimbo_log(.ERROR, "error: failed to generate insecure connect token\n");
         clientState = .Error;
         return;
@@ -67,14 +65,15 @@ client_insecure_connect :: (using client: *Client, privateKey: [] u8, _clientId:
     clientState = .Connecting;
 }
 
-client_generate_insecure_connect_token :: (using client: *Client, connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8, privateKey: [] u8, _clientId: u64, serverAddresses: [] Address) -> bool {
+client_generate_insecure_connect_token :: (using client: *Client, connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] Address) -> bool {
     assert(serverAddresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
-    serverAddressStrings := New(serverAddresses.count, string,, temp);
+    serverAddressStrings := NewArray(serverAddresses.count, string,, temp);
     for serverAddresses {
-        serverAddressStrings[i] = address_to_string(it,, temp);
+        serverAddressStrings[it_index] = address_to_string(it,, temp);
     }
 
+    userData: [NETCODE_USER_DATA_BYTES] u8;
     err := netcode_generate_connect_token(
         serverAddressStrings,
         serverAddressStrings,
@@ -83,7 +82,7 @@ client_generate_insecure_connect_token :: (using client: *Client, connectToken: 
         _clientId,
         config.protocolId,
         privateKey,
-        null,
+        userData,
         connectToken
     );
     return err == NETCODE_OK;
@@ -121,32 +120,29 @@ client_send_packets :: (using client: *Client) {
 
     packetBytes: int;
     packetSequence := reliable_endpoint_next_packet_sequence(endpoint);
-    if connection_generate_packet(connection, packetSequence, packetBuffer, config.maxPacketSize, *packetBytes) {
+    if connection_generate_packet(connection, packetSequence, packetBuffer, *packetBytes) {
         reliable_endpoint_send_packet(endpoint, .{ packetBytes, packetBuffer.data });
     }
 }
 
-client_receive_packets :: () {
+client_receive_packets :: (using client: *Client) {
     if !client_is_connected(client) {
         return;
     }
 
     assert(netClient != null);
     while true {
-        // TODO(dlb): Why doesn't this use packetBuffer? Hmm..
-        packetBytes: int;
-        packetSequence: u64;
-        packetData := netcode_client_receive_packet(netClient, *packetBytes, *packetSequence);
+        packetData, packetSequence := netcode_client_receive_packet(netClient);
         if packetData.count == 0 {
             break;
         }
 
-        reliable_endpoint_receive_packet(endpoint, packetData, packetBytes);
+        reliable_endpoint_receive_packet(endpoint, packetData);
         netcode_client_free_packet(netClient, packetData);
     }
 }
 
-client_advance_time :: (_time: Apollo_Time) {
+client_advance_time :: (using client: *Client, _time: Apollo_Time) {
     client_advance_time(*base, _time);
     if netClient == null {
         return;
@@ -210,11 +206,11 @@ client_process_loopback_packet :: (using client: *Client, packetData: [] u8, pac
 
 #import "Netcode";
 
-client_create_net_client :: (using client: *Client, address: Address) {
-    client_destroy_net_client();
+client_create_net_client :: (using client: *Client, _address: Address) {
+    client_destroy_net_client(client);
 
     // TODO(dlb): Could we maybe.. *not* convert our addresses back to strings just to call into another library? :/
-    addressString := address_to_string(address,, temp);
+    addressString := address_to_string(_address,, temp);
 
     netcodeConfig: netcode_client_config_t;
     netcodeConfig.callback_context              = cast(*void) client;
@@ -247,10 +243,10 @@ client_transmit_packet_function :: (ctx: *void, id: u64, packetSequence: u16, pa
     }
 }
 
-client_process_packet_function :: (ctx: *void, id: u64, packetSequence: u16, packetData: [] u8) -> int {
+client_process_packet_function :: (ctx: *void, id: u64, packetSequence: u16, packetData: [] u8) -> bool {
     using client := cast(*Client) ctx;
 
-    return ifx connection_process_packet(connection, packetSequence, packetData) then 1 else 0;
+    return ifx connection_process_packet(connection, packetSequence, packetData) then true else false;
 }
 
 client_state_change_callback :: (ctx: *void, previous: int, current: int) {

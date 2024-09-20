@@ -1,11 +1,11 @@
-#scope_module
-
 ClientState :: enum {
     Error :: -1;
     Disconnected;
     Connecting;
     Connected;
 };
+
+#scope_module
 
 /*
 Functionality that is common across all client implementations.
@@ -31,8 +31,8 @@ Base client constructor.
 @param config The base client/server configuration.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (client: *BaseClient, _config: *ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
-    config = _config.*;
+client_init :: (using client: *BaseClient, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+    config = _config;
     messageFactory = _messageFactory;
     time = _time;
     clientIndex = -1;
@@ -86,11 +86,11 @@ client_advance_time :: (using client: *BaseClient, _time: Apollo_Time) {
         }
         reliable_endpoint_update(endpoint, time);
         acks := reliable_endpoint_get_acks(endpoint);
-        connection_process_acks(acks);
+        connection_process_acks(connection, acks);
         reliable_endpoint_clear_acks(endpoint);
     }
     if networkSimulator != null {
-        network_simulator_advance_time(time);
+        network_simulator_advance_time(networkSimulator, time);
     }
 }
 
@@ -266,7 +266,7 @@ client_create_internal :: (using client: *BaseClient) {
     // original code frees and reallocs these when the connection is dropped. I'm not sure what state would have
     // to be reset or re-init()ed if you wanted to re-use the memory.
     connection = New(Connection);
-    connection_init(connection, messageFactory, config.*, time);
+    connection_init(connection, messageFactory, config, time);
     if config.networkSimulator {
         networkSimulator = New(NetworkSimulator);
         network_simulator_init(networkSimulator, config.maxSimulatorPackets, time);
@@ -274,7 +274,7 @@ client_create_internal :: (using client: *BaseClient) {
 
     reliable_config: reliable_config_t;
     reliable_config.name = "client endpoint";
-    reliable_config.context = cast(*void) client;
+    reliable_config.ctx = cast(*void) client;
     reliable_config.max_packet_size = config.maxPacketSize;
     reliable_config.fragment_above = config.fragmentPacketsAbove;
     reliable_config.max_fragments = client_server_config_get_max_packet_fragments(*config);

@@ -20,8 +20,9 @@ BaseServer :: struct {
     disconnectClientFunction : (server: *BaseServer, clientIndex: int);
 };
 
-server_init :: (using server: *BaseServer, _config: ClientServerConfig, _time: Apollo_Time) {
+server_init :: (using server: *BaseServer, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
     config = _config;
+    messageFactory = _messageFactory;
     time = _time;
 }
 

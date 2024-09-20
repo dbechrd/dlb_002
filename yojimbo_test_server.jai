@@ -16,7 +16,7 @@ server_main :: () {
 
     server_address := address_create_ipv4("127.0.0.1", ServerPort);
     server := New(Server);
-    server_init(server, privateKey, server_address, config, time);
+    server_init(server, privateKey, server_address, config, TestMessageFactory, time);
 
     server_start(server, MaxClients);
 
@@ -44,10 +44,12 @@ server_main :: () {
 main :: () {
     if !yojimbo_init() {
         log("error: failed to initialize Yojimbo!\n");
+        return;
     }
 
     //yojimbo_log_level(YOJIMBO_LOG_LEVEL_INFO);
     //random_seed(current_time_monotonic());
+
     server_main();
 
     yojimbo_shutdown();
