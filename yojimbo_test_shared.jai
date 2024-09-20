@@ -1,5 +1,6 @@
 #import "Basic";
-#import "Yojimbo";
+#import "Random";
+#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_DEFAULT_TIMEOUT=#run seconds_to_apollo(100));
 #import "Serialize";
 
 ProtocolId :: cast(u64) 0x11223344556677;
@@ -27,7 +28,7 @@ TestMessage :: struct {
 
     sequence: u16;
 
-    #as serializer := MessageSerializer.{
+    serializer :: MessageSerializer.{
         create = () -> *Message {
             return New(TestMessage);
         },
@@ -57,7 +58,7 @@ TestBlockMessage :: struct {
 
     sequence: u16;
 
-    #as serializer := MessageSerializer.{
+    serializer :: MessageSerializer.{
         create = () -> *Message {
             return New(TestBlockMessage);
         },
@@ -73,7 +74,7 @@ TestSerializeFailOnReadMessage :: struct {
     using #as base: Message;
     base.type = cast(u16) TestMessageType.TEST_SERIALIZE_FAIL_ON_READ_MESSAGE;
 
-    #as serializer := MessageSerializer.{
+    serializer :: MessageSerializer.{
         create = () -> *Message {
             return New(TestSerializeFailOnReadMessage);
         },
@@ -87,7 +88,7 @@ TestExhaustStreamAllocatorOnReadMessage :: struct {
     using #as base: Message;
     base.type = cast(u16) TestMessageType.TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE;
 
-    #as serializer := MessageSerializer.{
+    serializer :: MessageSerializer.{
         create = () -> *Message {
             return New(TestExhaustStreamAllocatorOnReadMessage);
         },
@@ -111,11 +112,11 @@ TestExhaustStreamAllocatorOnReadMessage :: struct {
     };
 }
 
-TestMessageFactory: MessageFactory : #run MessageSerializer.[
-    TestMessage.{},
-    TestBlockMessage.{},
-    TestSerializeFailOnReadMessage.{},
-    TestExhaustStreamAllocatorOnReadMessage.{}
+TestMessageFactory: MessageFactory : MessageSerializer.[
+    TestMessage.serializer,
+    TestBlockMessage.serializer,
+    TestSerializeFailOnReadMessage.serializer,
+    TestExhaustStreamAllocatorOnReadMessage.serializer
 ];
 
 SingleTestMessageType :: enum u16 {
@@ -123,8 +124,8 @@ SingleTestMessageType :: enum u16 {
     NUM_SINGLE_TEST_MESSAGE_TYPES;
 }
 
-SingleTestMessageFactory: MessageFactory : #run MessageSerializer.[
-    TestMessage.{}
+SingleTestMessageFactory: MessageFactory : MessageSerializer.[
+    TestMessage.serializer
 ];
 
 SingleBlockTestMessageType :: enum u16 {
@@ -132,6 +133,6 @@ SingleBlockTestMessageType :: enum u16 {
     NUM_SINGLE_BLOCK_TEST_MESSAGE_TYPES;
 }
 
-SingleBlockTestMessageFactory: MessageFactory : #run MessageSerializer.[
-    TestBlockMessage.{}
+SingleBlockTestMessageFactory: MessageFactory : MessageSerializer.[
+    TestBlockMessage.serializer
 ];

@@ -1,7 +1,3 @@
-#import "Basic";
-#import "Yojimbo";
-#import "Random";
-
 #load "yojimbo_test_shared.jai";
 
 quit := false;
@@ -41,11 +37,13 @@ client_main :: () {
 
     log("client address is %\n", address_to_string(client.boundAddress));
 
-    deltaTime := milliseconds_to_apollo(10);
+    deltaTime := milliseconds_to_apollo(100);
 
     while !quit {
         client_send_packets(client);
         client_receive_packets(client);
+
+        log("client: %\n", client.clientState);
 
         if client.clientState == .Disconnected {
             break;

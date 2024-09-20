@@ -221,7 +221,7 @@ server_get_client_address :: (using server: *Server, clientIndex: int) -> *netco
 Get the number of clients that are currently connected to the server.
 @returns the number of connected clients.
 */
-server_get_num_connected_clients :: () -> int {
+server_get_num_connected_clients :: (using server: *Server) -> int {
     return netcode_server_num_connected_clients(netServer);
 }
 

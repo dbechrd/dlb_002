@@ -1,6 +1,3 @@
-#import "Basic";
-#import "Yojimbo";
-
 #load "yojimbo_test_shared.jai";
 
 quit := false;
@@ -22,7 +19,7 @@ server_main :: () {
 
     log("server address is %\n", address_to_string(server_address));
 
-    deltaTime := milliseconds_to_apollo(10);
+    deltaTime := milliseconds_to_apollo(100);
 
     while !quit {
         server_send_packets(server);
@@ -30,6 +27,8 @@ server_main :: () {
 
         time += deltaTime;
         server_advance_time(server, time);
+
+        log("clients: %\n", server_get_num_connected_clients(server));
 
         if !server.running {
             break;
