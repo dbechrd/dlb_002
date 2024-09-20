@@ -1,20 +1,20 @@
 main :: () {
-        context.logger = logger;
-        context.log_level = .VERY_VERBOSE;
-        context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
-        context.print_style.default_format_struct.use_newlines_if_long_form = true;
+    context.logger = logger;
+    context.log_level = .VERY_VERBOSE;
+    context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
+    context.print_style.default_format_struct.use_newlines_if_long_form = true;
 
-        log_cpu_info();
-        address_test();
-        reliable_test();
-        netcode_test();
-        // yojimbo_init();
-        // yojimbo_tests();
+    log_cpu_info();
+    address_test();
+    reliable_test();
+    netcode_test();
+    // yojimbo_init();
+    // yojimbo_tests();
 
-        //config: netcode_client_config_t;
-        //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
+    //config: netcode_client_config_t;
+    //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
 
-        run_game();
+    run_game();
 }
 
 #scope_file
@@ -41,7 +41,7 @@ log_cpu_info :: () {
 #import "dlb";
 #import "IPAddress"; //(ENABLE_LOGGING=true);
 #import "Reliable"; //(ENABLE_LOGGING=true);
-// #import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
+#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
 #import "Netcode"(NETCODE_DISABLE_SECURITY=true); //, NETCODE_ENABLE_LOGGING=true);
 #import "Socket";
 

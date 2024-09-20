@@ -28,7 +28,7 @@ The client constructor.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
 client_init :: (client: *Client, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
-    client_init(base, _config, _time);
+    client_init(*base, _config, _time);
     address = _address;
     boundAddress = address;
     transmitPacketFunction = client_transmit_packet_function;
@@ -78,10 +78,10 @@ client_generate_insecure_connect_token :: (using client: *Client, connectToken: 
     err := netcode_generate_connect_token(
         serverAddressStrings,
         serverAddressStrings,
-        m_config.timeout,
-        m_config.timeout,
+        config.timeout,
+        config.timeout,
         _clientId,
-        m_config.protocolId,
+        config.protocolId,
         privateKey,
         null,
         connectToken
@@ -105,7 +105,7 @@ client_connect :: (using client: *Client, _clientId: u64, connectToken: [] u8) {
 }
 
 client_disconnect :: (using client: *Client) {
-    client_disconnect(base);
+    client_disconnect(*base);
     client_destroy_net_client(client);
     client_destroy_internal(client);
     clientId = 0;
@@ -121,7 +121,7 @@ client_send_packets :: (using client: *Client) {
 
     packetBytes: int;
     packetSequence := reliable_endpoint_next_packet_sequence(endpoint);
-    if connection_generate_packet(connection, packetSequence, packetBuffer, m_config.maxPacketSize, *packetBytes) {
+    if connection_generate_packet(connection, packetSequence, packetBuffer, config.maxPacketSize, *packetBytes) {
         reliable_endpoint_send_packet(endpoint, .{ packetBytes, packetBuffer.data });
     }
 }
@@ -147,7 +147,7 @@ client_receive_packets :: () {
 }
 
 client_advance_time :: (_time: Apollo_Time) {
-    client_advance_time(base, _time);
+    client_advance_time(*base, _time);
     if netClient == null {
         return;
     }
@@ -257,7 +257,6 @@ client_state_change_callback :: (ctx: *void, previous: int, current: int) {
     // intentionally empty callback, we don't care about these events
 }
 
-//NOTE(dlb): This is some kind of user-provided callback on Client in C++, but idk if it's actually useful..
 client_send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] u8, packetSequence: u64) {
     using client := cast(*Client) ctx;
 

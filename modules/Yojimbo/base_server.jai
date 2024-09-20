@@ -17,6 +17,7 @@ BaseServer :: struct {
     // callbacks for packet read/write
     transmitPacketFunction : TransmitPacketFunction;
     processPacketFunction  : ProcessPacketFunction;
+    disconnectClientFunction : (server: *BaseServer, clientIndex: int);
 };
 
 server_init :: (using server: *BaseServer, _config: ClientServerConfig, _time: Apollo_Time) {
@@ -46,8 +47,8 @@ server_start :: (using server: *BaseServer, _maxClients: int) {
 
         reliable_config: reliable_config_t;
         reliable_config.name = "server endpoint";
-        reliable_config.context = cast(*void) server;
-        reliable_config.id = it;
+        reliable_config.ctx = cast(*void) server;
+        reliable_config.id = cast(u64) it;
         reliable_config.max_packet_size = config.maxPacketSize;
         reliable_config.fragment_above = config.fragmentPacketsAbove;
         reliable_config.max_fragments = client_server_config_get_max_packet_fragments(*config);
@@ -62,7 +63,7 @@ server_start :: (using server: *BaseServer, _maxClients: int) {
         clientEndpoint[it] = reliable_endpoint_create(*reliable_config, time);
         reliable_endpoint_reset(clientEndpoint[it]);
     }
-    packetBuffer = New(config.maxPacketSize, u8);
+    packetBuffer = NewArray(config.maxPacketSize, u8);
 }
 
 server_stop :: (using server: *BaseServer) {
@@ -76,7 +77,7 @@ server_stop :: (using server: *BaseServer) {
     }
     for 0..maxClients-1 {
         reliable_endpoint_destroy(clientEndpoint[it]);
-        clientEndpoint[it] = NULL;
+        clientEndpoint[it] = null;
 
         free(clientConnection[it]);
         free(clientMessageFactory[it]);
@@ -95,7 +96,7 @@ server_advance_time :: (using server: *BaseServer, _time: Apollo_Time) {
         connection_advance_time(clientConnection[it], time);
         if clientConnection[it].errorLevel != .None {
             yojimbo_log(.ERROR, "client % connection is in error state. disconnecting client\n", it);
-            server_disconnect_client(server, it);
+            disconnectClientFunction(server, it);
             continue;
         }
         reliable_endpoint_update(clientEndpoint[it], time);
@@ -111,7 +112,7 @@ server_advance_time :: (using server: *BaseServer, _time: Apollo_Time) {
 /*
 Create a message of the specified type for a specific client.
 @param clientIndex The index of the client this message belongs to. Determines which client heap is used to allocate the message.
-@param type The type of the message to create. The message types corresponds to the message factory created by the adapter set on the server.
+@param type The type of the message to create. The message types corresponds to the message factory set on the server.
 */
 server_create_message :: (using server: *BaseServer, clientIndex: int, type: int) -> *Message {
     assert(clientIndex >= 0);

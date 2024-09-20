@@ -1,5 +1,3 @@
-#scope_module
-
 // Determines the reliability and ordering guarantees for a channel.
 ChannelType :: enum {
     ReliableOrdered;      // Messages are received reliably and in the same order they were sent.
@@ -43,8 +41,8 @@ ChannelConfig :: struct {
     packetBudget            : int         = -1;                // Maximum amount of message data to write to the packet for this channel (bytes). Specifying -1 means the channel can use up to the rest of the bytes remaining in the packet.
     maxBlockSize            : int         = 256 * 1024;        // The size of the largest block that can be sent across this channel (bytes).
     blockFragmentSize       : int         = 1024;              // Blocks are split up into fragments of this size (bytes). Reliable-ordered channel only.
-    messageResendTime       : float       = 0.1;               // Minimum delay between message resends (seconds). Avoids sending the same message too frequently. Reliable-ordered channel only.
-    blockFragmentResendTime : float       = 0.25;              // Minimum delay between block fragment resends (seconds). Avoids sending the same fragment too frequently. Reliable-ordered channel only.
+    messageResendTime       : Apollo_Time = #run milliseconds_to_apollo(100);  // Minimum delay between message resends (seconds). Avoids sending the same message too frequently. Reliable-ordered channel only.
+    blockFragmentResendTime : Apollo_Time = #run milliseconds_to_apollo(250);  // Minimum delay between block fragment resends (seconds). Avoids sending the same fragment too frequently. Reliable-ordered channel only.
 }
 
 channel_config_get_max_fragments_per_block :: inline (using channelConfig: ChannelConfig) -> int {
@@ -87,5 +85,5 @@ ClientServerConfig :: struct {
 
 // Maximum number of fragments a packet can be split up into.
 client_server_config_get_max_packet_fragments :: inline (using clientServerConfig: *ClientServerConfig) -> int {
-    return cast(int) ceil(maxPacketSize / packetFragmentSize);
+    return cast(int) Math.ceil(cast(float) maxPacketSize / packetFragmentSize);
 }

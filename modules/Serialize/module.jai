@@ -30,8 +30,7 @@ https://github.com/mas-bandwidth/serialize/commit/cc75300b1bce50246374709bf1d29b
 */
 
 #module_parameters(
-    ENABLE_LOGGING := false,
-    LITTLE_ENDIAN := true
+    ENABLE_LOGGING := false
 );
 
 #load "tests.jai";
@@ -41,14 +40,15 @@ Calculates the log base 2 of an unsigned 32 bit integer.
 @param x The input integer value.
 @returns The log base 2 of the input.
 */
-log2 :: inline (x: u32) -> u32 {
-    a: u32 = x | (x >> 1);
-    b: u32 = a | (a >> 2);
-    c: u32 = b | (b >> 4);
-    d: u32 = c | (c >> 8);
-    e: u32 = d | (d >> 16);
-    f: u32 = e >> 1;
-    return popcount(f);
+log2 :: inline (x: u64) -> int {
+    a: u64 = x | (x >> 1);
+    b: u64 = a | (a >> 2);
+    c: u64 = b | (b >> 4);
+    d: u64 = c | (c >> 8);
+    e: u64 = d | (d >> 16);
+    f: u64 = e | (e >> 32);
+    g: u64 = f >> 1;
+    return popcount(g);
 }
 
 /*
@@ -57,65 +57,63 @@ Calculates the number of bits required to serialize an integer in range [min,max
 @param max The maximum value.
 @returns The number of bits required to serialize the integer.
 */
-bits_required :: inline (min: u32, max: u32) -> u32 {
-    /*
-    #ifdef __GNUC__ {
-        return ( min == max ) ? 0 : 32 - __builtin_clz( max - min );
-    } else {
-        return ( min == max ) ? 0 : log2(max - min) + 1;
-    }
-    */
-
+bits_required :: inline (min: u64, max: u64) -> int {
     return ifx min == max then 0 else log2(max - min) + 1;
 }
 
 /*
-Convert an integer value from local byte order to network byte order.
-IMPORTANT: Because most machines are little endian, serialize defines network byte order to be little endian.
-@param value The input value in local byte order. Supported integer types: uint64_t, uint32_t, uint16_t.
-@returns The input value converted to network byte order. If this processor is little endian the output is the same as the input. If the processor is big endian, the output is the input byte swapped.
+IMPORTANT: Because most machines are little endian, serialize defines "network byte order" to be little endian.
+Convert an integer value from host byte order to "network byte order".
+@param value The input value in host byte order.
+@returns The input value converted to "network byte order".
 */
-host_to_network :: inline (value: $T) -> T {
-    #if LITTLE_ENDIAN {
-        return value;
-    } else {
-        return byte_swap(value);
+host_to_le_32 :: inline (value: u32) -> u32 {
+    // This is an endian-independent way to convert an integer to little-endian. See:
+    // https://commandcenter.blogspot.com/2012/04/byte-order-fallacy.html
+    result: u32;
+    for 0..3 {
+        result |= (value & 0xFF);
+        result << 8;
     }
+    return result;
 }
 
 /*
-Convert an integer value from network byte order to local byte order.
-IMPORTANT: Because most machines are little endian, serialize defines network byte order to be little endian.
-@param value The input value in network byte order. Supported integer types: uint64_t, uint32_t, uint16_t.
-@returns The input value converted to local byte order. If this processor is little endian the output is the same as the input. If the processor is big endian, the output is the input byte swapped.
+IMPORTANT: Because most machines are little endian, serialize defines "network byte order" to be little endian.
+Convert an integer value from "network byte order" to host byte order.
+@param value The input value in "network byte order".
+@returns The input value converted to host byte order.
 */
-network_to_host :: inline (value: $T) -> T {
-    #if LITTLE_ENDIAN {
-        return value;
-    } else {
-        return byte_swap(value);
-    }
+le_to_host_32 :: inline (value: u32) -> u32 {
+    // This is an endian-independent way to convert little-endian data to an integer. See:
+    // https://commandcenter.blogspot.com/2012/04/byte-order-fallacy.html
+    bytes := cast([4] u8) *value;
+    result: u32 = (bytes[0] << 0) | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
+    return result;
 }
 
-/*
-Convert a signed integer to an unsigned integer with zig-zag encoding.
-0,-1,+1,-2,+2... becomes 0,1,2,3,4 ...
-@param n The input value.
-@returns The input value converted from signed to unsigned with zig-zag encoding.
-*/
-signed_to_unsigned :: inline (n: s32) -> u32 {
-    return (n << 1) ^ (n >> 31);
-}
-
-/*
-Convert an unsigned integer to as signed integer with zig-zag encoding.
-0,1,2,3,4... becomes 0,-1,+1,-2,+2...
-@param n The input value.
-@returns The input value converted from unsigned to signed with zig-zag encoding.
-*/
-unsigned_to_signed :: inline (n: u32) -> s32 {
-    return ( n >> 1 ) ^ ( -int32_t( n & 1 ) );
-}
+// Not using these right now, but could be useful. Keeps # of bits low for signed values near zero.
+//
+//   /*
+//   Convert a signed integer to an unsigned integer with zig-zag encoding.
+//   0,-1,+1,-2,+2... becomes 0,1,2,3,4 ...
+//   @param n The input value.
+//   @returns The input value converted from signed to unsigned with zig-zag encoding.
+//   */
+//   signed_to_unsigned :: inline (n: s32) -> u32 {
+//       return (n << 1) ^ (n >> 31);
+//   }
+//
+//   /*
+//   Convert an unsigned integer to as signed integer with zig-zag encoding.
+//   0,1,2,3,4... becomes 0,-1,+1,-2,+2...
+//   @param n The input value.
+//   @returns The input value converted from unsigned to signed with zig-zag encoding.
+//   */
+//   unsigned_to_signed :: inline (n: u32) -> s32 {
+//       return ( n >> 1 ) ^ ( -cast(s32) ( n & 1 ) );
+//   }
+//
 
 /*
 Bitpacks unsigned integer values to a buffer.
@@ -141,7 +139,7 @@ bit_writer_init :: (using writer: *BitWriter, buffer: [] u8) {
     assert(buffer.count > 0);
     assert(buffer.count % 4 == 0);
 
-    data = .{ buffer.count / 4, buffer.data };
+    data = .{ buffer.count / 4, cast(*u32) buffer.data };
     numBits = buffer.count * 32;
 }
 
@@ -157,14 +155,14 @@ bit_writer_write_bits :: (using writer: *BitWriter, value: u32, bits: int) {
     assert(bits > 0);
     assert(bits <= 32);
     assert(bitsWritten + bits <= numBits);
-    assert(cast(u64) value <= ((1 << bits) - 1));
+    assert(cast(u64) value <= (((cast(u64) 1) << bits) - 1));
 
     scratch |= (cast(u64) value) << scratchBits;
     scratchBits += bits;
 
     if scratchBits >= 32 {
         assert(wordIndex < data.count);
-        data[wordIndex] = host_to_network(cast(u32) (scratch & 0xFFFFFFFF));
+        data[wordIndex] = host_to_le_32(cast(u32) (scratch & 0xFFFFFFFF));
         scratch >>= 32;
         scratchBits -= 32;
         wordIndex += 1;
@@ -178,13 +176,13 @@ Write an alignment to the bit stream, padding zeros so the bit index becomes is 
 This is useful if you want to write some data to a packet that should be byte aligned. For example, an array of bytes, or a string.
 IMPORTANT: If the current bit index is already a multiple of 8, nothing is written.
 */
-bit_writer_align :: (writer: *BitWriter) {
+bit_writer_align :: (using writer: *BitWriter) {
     remainderBits := writer.bitsWritten % 8;
 
     if remainderBits != 0 {
         zero: u32 = 0;
         bit_writer_write_bits(writer, zero, 8 - remainderBits);
-        assert((m_bitsWritten % 8) == 0);
+        assert((bitsWritten % 8) == 0);
     }
 }
 
@@ -231,7 +229,7 @@ bit_writer_write_bytes :: (using writer: *BitWriter, bytes: [] u8) {
     for 0..tailBytes-1 {
         bit_writer_write_bits(writer, bytes[tailStart + it], 8);
     }
-    assert(writer.bit_writer_get_align_bits(writer) == 0);
+    assert(bit_writer_get_align_bits(writer) == 0);
 
     assert(headBytes + numWords * 4 + tailBytes == bytes.count);
 }
@@ -243,9 +241,9 @@ Call this once after you've finished writing bits to flush the last dword of scr
 bit_writer_flush_bits :: (using writer: *BitWriter) {
     if scratchBits != 0 {
         assert(scratchBits <= 32);
-        assert(wordIndex < m_numWords);
+        assert(wordIndex < numWords);
 
-        data[wordIndex] = host_to_network(cast(u32) (scratch & 0xFFFFFFFF));
+        data[wordIndex] = host_to_le_32(cast(u32) (scratch & 0xFFFFFFFF));
         scratch >>= 32;
         scratchBits = 0;
         wordIndex += 1;
@@ -256,7 +254,7 @@ bit_writer_flush_bits :: (using writer: *BitWriter) {
 How many align bits would be written, if we were to write an align right now?
 @returns Result in [0,7], where 0 is zero bits required to align (already aligned) and 7 is worst case.
 */
-bit_writer_get_align_bits :: (using writer: *BitWriter) {
+bit_writer_get_align_bits :: (using writer: *BitWriter) -> int {
     return (8 - (bitsWritten % 8)) % 8;
 }
 
@@ -293,7 +291,7 @@ bit_reader_init :: (using reader: *BitReader, buffer: [] u8) {
     assert(buffer.count > 0);
     assert(buffer.count % 4 == 0);
 
-    data = .{ buffer.count / 4, buffer.data };
+    data = .{ buffer.count / 4, cast(*u32) buffer.data };
     numBits = buffer.count * 32;
 }
 
@@ -302,7 +300,7 @@ Would the bit reader would read past the end of the buffer if it read this many 
 @param bits The number of bits that would be read.
 @returns True if reading the number of bits would read past the end of the buffer.
 */
-bit_reader_would_read_past_end :: (using reader: *BitReader, bits: int) -> bool {
+bit_reader_would_read_past_end :: inline (using reader: *BitReader, bits: int) -> bool {
     return bitsRead + bits > numBits;
 }
 
@@ -318,14 +316,14 @@ In production situations, the higher level ReadStream takes care of checking all
 bit_reader_read_bits :: (using reader: *BitReader, bits: int) -> u32 {
     assert(bits > 0);
     assert(bits <= 32);
-    assert(m_bitsRead + bits <= m_numBits);
+    assert(bitsRead + bits <= numBits);
 
-    m_bitsRead += bits;
+    bitsRead += bits;
 
     assert(scratchBits >= 0 && scratchBits <= 64);
 
     if scratchBits < bits {
-        scratch |= (cast(u64) network_to_host(data[m_wordIndex])) << scratchBits;
+        scratch |= (cast(u64) le_to_host_32(data[wordIndex])) << scratchBits;
         scratchBits += 32;
         wordIndex += 1;
     }
@@ -333,7 +331,7 @@ bit_reader_read_bits :: (using reader: *BitReader, bits: int) -> u32 {
     assert(scratchBits >= bits);
 
     value := cast(u32) (scratch & (((cast(u64) 1) << bits) - 1));
-    scratch >>= bits;
+    scratch >>= cast(u64) bits;
     scratchBits -= bits;
     return value;
 }
@@ -349,7 +347,7 @@ This will typically abort packet read. Just another safety measure...
 bit_reader_align :: (using reader: *BitReader) -> bool {
     remainderBits := bitsRead % 8;
     if remainderBits != 0 {
-        value := bit_reader_read_bits(8 - remainderBits);
+        value := bit_reader_read_bits(reader, 8 - remainderBits);
         assert(bitsRead % 8 == 0);
         if value != 0 {
             return false;
@@ -417,6 +415,95 @@ StreamType :: enum {
 
 Stream :: struct {
     type: StreamType;
+    isWriting: bool;
+    isReading: bool;
+}
+
+// NOTE: You probably want to call serialize_bits() macro rather than this directly.
+stream_serialize_bits :: (stream: *Stream, value: *u64, bits: int) -> bool {
+    assert(bits > 0);
+    assert(bits <= 64);
+
+    lo, hi: u32;
+    if stream.isWriting {
+        lo = cast(u32) (value.* & 0xFFFFFFFF);
+        hi = cast(u32) (value.* >> 32);
+    }
+
+    if stream.type == {
+        case .Write;
+            s := cast(*WriteStream) stream;
+            bit_writer_write_bits(*s.writer, lo, 32);
+            if bits > 32 {
+                bit_writer_write_bits(*s.writer, hi, bits - 32);
+            }
+        case .Read;
+            s := cast(*ReadStream) stream;
+            if bit_reader_would_read_past_end(*s.reader, bits) {
+                return false;
+            }
+            lo := bit_reader_read_bits(*s.reader, 32);
+            if bits > 32 {
+                hi := bit_reader_read_bits(*s.reader, bits - 32);
+            }
+            value.* = cast(u64) ((hi << 32) | lo);
+        case .Measure;
+            s := cast(*MeasureStream) stream;
+            s.bitsWritten += bits;
+    }
+
+    return true;
+}
+
+// NOTE: You probably want to call serialize_bytes() macro rather than this directly.
+stream_serialize_bytes :: (stream: *Stream, bytes: [] u8) -> bool {
+    assert(bytes.count > 0);
+
+    if stream.type == {
+        case .Write;
+            s := cast(*WriteStream) stream;
+            stream_align(s);
+            bit_writer_write_bytes(*s.writer, bytes);
+        case .Read;
+            s := cast(*ReadStream) stream;
+            if !stream_align(s) {
+                return false;
+            }
+            if bit_reader_would_read_past_end(*s.reader, bytes.count * 8) {
+                return false;
+            }
+
+            bit_reader_read_bytes(*s.reader, bytes);
+        case .Measure;
+            s := cast(*MeasureStream) stream;
+            stream_align(s);
+            s.bitsWritten += bytes.count * 8;
+    }
+
+    return true;
+}
+
+// NOTE: You probably want to call serialize_align() macro rather than this directly.
+stream_align :: (stream: *Stream) -> bool {
+    if stream.type == {
+        case .Write;
+            s := cast(*WriteStream) stream;
+            bit_writer_align(*s.writer);
+        case .Read;
+            s := cast(*ReadStream) stream;
+            alignBits := bit_reader_get_align_bits(*s.reader);
+            if bit_reader_would_read_past_end(*s.reader, alignBits) {
+                return false;
+            }
+            if !bit_reader_align(*s.reader) {
+                return false;
+            }
+        case .Measure;
+            s := cast(*MeasureStream) stream;
+            alignBits := stream_get_align_bits(s);
+            s.bitsWritten += alignBits;
+    }
+    return true;
 }
 
 /*
@@ -428,10 +515,10 @@ IMPORTANT: Generally, you don't call methods on this class directly. Use the ser
 @see BitWriter
 */
 WriteStream :: struct {
-    using #as base := Stream.{ type = .Write };
-
-    isWriting :: true;
-    isReading :: false;
+    using #as base: Stream;
+    base.type = .Write;
+    base.isWriting = true;
+    base.isReading = false;
 
     writer: BitWriter;  // The bit writer used for all bitpacked write operations.
 }
@@ -441,68 +528,15 @@ Write stream constructor.
 @param buffer The buffer to write to.
 @param bytes The number of bytes in the buffer. Must be a multiple of four.
 */
-stream_init :: (using stream: *WriteStream, buffer: [] u8) {
-    bit_writer_init(writer, buffer);
-}
-
-/*
-Serialize an integer (write).
-@param value The integer value in [min,max].
-@param min The minimum value.
-@param max The maximum value.
-@returns Always returns true. All checking is performed by debug asserts only on write.
-*/
-stream_serialize_integer :: (using stream: *WriteStream, value: s32, min: s32, max: s32) -> bool {
-    assert(min < max);
-    assert(value >= min);
-    assert(value <= max);
-
-    bits := bits_required(min, max);
-    unsigned_value = cast(u32) (value - min);
-    bit_writer_write_bits(writer, unsigned_value, bits);
-    return true;
-}
-
-/*
-Serialize a number of bits (write).
-@param value The unsigned integer value to serialize. Must be in range [0,(1<<bits)-1].
-@param bits The number of bits to write in [1,32].
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_serialize_bits :: (using stream: *WriteStream, value: *u32, bits: int) -> bool {
-    assert(bits > 0);
-    assert(bits <= 32);
-
-    bit_writer_write_bits(writer, value.*, bits);
-    return true;
-}
-
-/*
-Serialize an array of bytes (write).
-@param data Array of bytes to be written.
-@param bytes The number of bytes to write.
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_serialize_bytes :: (using stream: *WriteStream, bytes: [] u8) -> bool {
-    assert(bytes.count > 0);
-
-    stream_align(stream);
-    bit_writer_write_bytes(writer, bytes);
-    return true;
-}
-
-/*
-Serialize an align (write).
-*/
-stream_align :: (using stream: *WriteStream) {
-    bit_writer_align(writer);
+stream_init :: inline (using stream: *WriteStream, buffer: [] u8) {
+    bit_writer_init(*writer, buffer);
 }
 
 /*
 If we were to write an align right now, how many bits would be required?
 @returns The number of zero pad bits required to achieve byte alignment in [0,7].
 */
-stream_get_align_bits :: (using stream: *WriteStream) {
+stream_get_align_bits :: inline (using stream: *WriteStream) -> int {
     return bit_writer_get_align_bits(writer);
 }
 
@@ -511,8 +545,8 @@ Flush the stream to memory after you finish writing.
 Always call this after you finish writing and before you call WriteStream::GetData, or you'll potentially truncate the last dword of data you wrote.
 @see BitWriter::FlushBits
 */
-stream_flush :: (using stream: *WriteStream) {
-    bit_writer_flush_bits(writer);
+stream_flush :: inline (using stream: *WriteStream) {
+    bit_writer_flush_bits(*writer);
 }
 
 /*
@@ -520,7 +554,7 @@ Get a pointer to the data written by the stream.
 IMPORTANT: Call WriteStream::Flush before you call this function!
 @returns A pointer to the data written by the stream
 */
-stream_get_data :: (using stream: *WriteStream) -> [] u8 {
+stream_get_data :: inline (using stream: *WriteStream) -> [] u8 {
     return writer.data;
 }
 
@@ -528,15 +562,15 @@ stream_get_data :: (using stream: *WriteStream) -> [] u8 {
 How many bytes have been written so far?
 @returns Number of bytes written. This is effectively the packet size.
 */
-stream_get_bytes_processed :: (using stream: *WriteStream) -> int {
-    return bit_writer_get_bytes_written(writer);
+stream_get_bytes_processed :: inline (using stream: *WriteStream) -> int {
+    return bit_writer_get_bytes_written(*writer);
 }
 
 /*
 Get number of bits written so far.
 @returns Number of bits written.
 */
-stream_get_bits_processed :: (using stream: *WriteStream) -> int {
+stream_get_bits_processed :: inline (using stream: *WriteStream) -> int {
     return writer.bitsWritten;
 }
 
@@ -549,10 +583,10 @@ IMPORTANT: Generally, you don't call methods on this class directly. Use the ser
 @see BitReader
 */
 ReadStream :: struct {
-    using #as base := Stream.{ type = .Read };
-
-    isWriting :: false;
-    isReading :: true;
+    using #as base: Stream;
+    base.type = .Read;
+    base.isWriting = false;
+    base.isReading = true;
 
     reader: BitReader;  // The bit reader used for all bitpacked read operations.
 }
@@ -563,88 +597,15 @@ Read stream constructor.
 @param bytes The number of bytes in the buffer. May be a non-multiple of four, however if it is, the underlying buffer allocated should be large enough to read the any remainder bytes as a dword.
 @param allocator The allocator to use for stream allocations. This lets you dynamically allocate memory as you read and write packets.
 */
-stream_init :: (using stream: *ReadStream, buffer: [] u8) {
-    bit_reader_init(reader, buffer);
-}
-
-/*
-Serialize an integer (read).
-@param value The integer value read is stored here. It is guaranteed to be in [min,max] if this function succeeds.
-@param min The minimum allowed value.
-@param max The maximum allowed value.
-@returns Returns true if the serialize succeeded and the value is in the correct range. False otherwise.
-*/
-stream_serialize_integer :: (using stream: *ReadStream, value: *s32, min: s32, max: s32) -> bool {
-    assert(min < max);
-
-    bits := bits_required(min, max);
-    if bit_reader_would_read_past_end(reader, bits) {
-        return false;
-    }
-
-    bit_reader_read_bits(reader, bits);
-    unsigned_value := bit_reader_read_bits(reader, bits);
-    value.* = (cast(s32) unsigned_value) + min;
-    return true;
-}
-
-/*
-Serialize a number of bits (read).
-@param value The integer value read is stored here. Will be in range [0,(1<<bits)-1].
-@param bits The number of bits to read in [1,32].
-@returns Returns true if the serialize read succeeded, false otherwise.
-*/
-stream_serialize_bits :: (using stream: *ReadStream, value: *u32, bits: int) -> bool {
-    assert(bits > 0);
-    assert(bits <= 32);
-
-    if bit_reader_would_read_past_end(reader, bits) {
-        return false;
-    }
-
-    value.* = bit_reader_read_bits(reader, bits);
-    return true;
-}
-
-/*
-Serialize an array of bytes (read).
-@param data Array of bytes to read.
-@param bytes The number of bytes to read.
-@returns Returns true if the serialize read succeeded. False otherwise.
-*/
-stream_serialize_bytes :: (using stream: *ReadStream, bytes: [] u8) -> bool {
-    if !stream_align(stream) {
-        return false;
-    }
-    if bit_reader_would_read_past_end(reader, bytes.count * 8) {
-        return false;
-    }
-
-    bit_reader_read_bytes(reader, bytes);
-    return true;
-}
-
-/*
-Serialize an align (read).
-@returns Returns true if the serialize read succeeded. False otherwise.
-*/
-stream_align :: (using stream: *ReadStream) -> bool {
-    alignBits := bit_reader_get_align_bits(reader);
-    if bit_reader_would_read_past_end(reader, alignBits) {
-        return false;
-    }
-    if !bit_reader_align(reader) {
-        return false;
-    }
-
-    return true;
+stream_init :: inline (using stream: *ReadStream, buffer: [] u8) {
+    bit_reader_init(*reader, buffer);
 }
 
 /*
 If we were to read an align right now, how many bits would we need to read?
 @returns The number of zero pad bits required to achieve byte alignment in [0,7].
 */
-stream_get_align_bits :: (using stream: *ReadStream) -> int {
+stream_get_align_bits :: inline (using stream: *ReadStream) -> int {
     return bit_reader_get_align_bits(reader);
 }
 
@@ -652,7 +613,7 @@ stream_get_align_bits :: (using stream: *ReadStream) -> int {
 Get number of bits read so far.
 @returns Number of bits read.
 */
-stream_get_bits_processed :: (using stream: *ReadStream) -> int {
+stream_get_bits_processed :: inline (using stream: *ReadStream) -> int {
     return reader.bitsRead;
 }
 
@@ -660,7 +621,7 @@ stream_get_bits_processed :: (using stream: *ReadStream) -> int {
 How many bytes have been read so far?
 @returns Number of bytes read. Effectively this is the number of bits read, rounded up to the next byte where necessary.
 */
-stream_get_bytes_processed :: (using stream: *ReadStream) -> int {
+stream_get_bytes_processed :: inline (using stream: *ReadStream) -> int {
     return (reader.bitsRead + 7) / 8;
 }
 
@@ -672,65 +633,12 @@ Note that when the serialization includes alignment to byte (see MeasureStream::
 @see BitReader
 */
 MeasureStream :: struct {
-    using #as base := Stream.{ type = .Measure };
-
-    isWriting :: true;
-    isReading :: false;
+    using #as base: Stream;
+    base.type = .Measure;
+    base.isWriting = true;
+    base.isReading = false;
 
     bitsWritten: int;  // Counts the number of bits written.
-}
-
-/*
-Serialize an integer (measure).
-@param value The integer value to write. Not actually used or checked.
-@param min The minimum value.
-@param max The maximum value.
-@returns Always returns true. All checking is performed by debug asserts only on measure.
-*/
-stream_serialize_integer :: (using stream: *MeasureStream, value: s32, min: s32, max: s32) -> bool {
-    assert(min < max);
-    assert(value >= min);
-    assert(value <= max);
-
-    bits := bits_required(min, max);
-    bitsWritten += bits;
-    return true;
-}
-
-/*
-Serialize a number of bits (write).
-@param value The unsigned integer value to serialize. Not actually used or checked.
-@param bits The number of bits to write in [1,32].
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_serialize_bits :: (using stream: *MeasureStream, value: *u32, bits: int) -> bool {
-    assert(bits > 0);
-    assert(bits <= 32);
-
-    bitsWritten += bits;
-    return true;
-}
-
-/*
-Serialize an array of bytes (measure).
-@param data Array of bytes to 'write'. Not actually used.
-@param bytes The number of bytes to 'write'.
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_serialize_bytes :: (using stream: *MeasureStream, bytes: [] u8) -> bool {
-    stream_align(stream);
-    bitsWritten += bytes.count * 8;
-    return true;
-}
-
-/*
-Serialize an align (measure).
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_align :: (using stream: *MeasureStream) -> bool {
-    alignBits := stream_get_align_bits(stream);
-    bitsWritten += alignBits;
-    return true;
 }
 
 /*
@@ -738,30 +646,30 @@ If we were to write an align right now, how many bits would be required?
 IMPORTANT: Since the number of bits required for alignment depends on where an object is written in the final bit stream, this measurement is conservative.
 @returns Always returns worst case 7 bits.
 */
-stream_get_align_bits :: (using stream: *MeasureStream) -> int {
+stream_get_align_bits :: inline (using stream: *MeasureStream) -> int {
     return 7;
 }
 
-/*
 // TODO(dlb)[cleanup]: I don't think anyone calls this.
-/*
-Serialize a safety check to the stream (measure).
-@returns Always returns true. All checking is performed by debug asserts on write.
-*/
-stream_serialize_check :: (using stream: *MeasureStream) -> bool {
-    #if YOJIMBO_SERIALIZE_CHECKS {
-        stream_align(stream);
-        bitsWritten += 32;
-    }
-    return true;
-}
-*/
+//
+//   /*
+//   Serialize a safety check to the stream (measure).
+//   @returns Always returns true. All checking is performed by debug asserts on write.
+//   */
+//   stream_serialize_check :: (using stream: *MeasureStream) -> bool {
+//       #if YOJIMBO_SERIALIZE_CHECKS {
+//           stream_align(stream);
+//           bitsWritten += 32;
+//       }
+//       return true;
+//   }
+//
 
 /*
 Get number of bits written so far.
 @returns Number of bits written.
 */
-stream_get_bits_processed :: (using stream: *MeasureStream) -> int {
+stream_get_bits_processed :: inline (using stream: *MeasureStream) -> int {
     return bitsWritten;
 }
 
@@ -769,7 +677,7 @@ stream_get_bits_processed :: (using stream: *MeasureStream) -> int {
 How many bytes have been written so far?
 @returns Number of bytes written.
 */
-stream_get_bytes_processed :: (using stream: *MeasureStream) -> int {
+stream_get_bytes_processed :: inline (using stream: *MeasureStream) -> int {
     return (bitsWritten + 7) / 8;
 }
 
@@ -783,24 +691,28 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param min The minimum value.
 @param max The maximum value.
 */
-serialize_int :: (stream: *$S, value: *$T, min: s64, max: s64) #expand {
-    assert(size_of(T) <= 4);
+serialize_int :: (stream: *Stream, value: *$T, min: T, max: T) #expand {
+    assert(size_of(T) <= 8);
     assert(min < max);
 
-    s32_value: s32;
+    // .Write or .Measure
     if stream.isWriting {
-        assert(cast(s64) value.* >= min);
-        assert(cast(s64) value.* <= max);
-        s32_value = cast(s32) value.*;
+        assert(value.* >= min);
+        assert(value.* <= max);
     }
-    if !stream_serialize_integer(stream, s32_value, min, max) {
+
+    v := cast(u64) value.* - min;
+    bits := bits_required(cast(u64) min, cast(u64) max);
+    if !stream_serialize_bits(stream, *v, bits) {
         `return false;
     }
+
     if stream.isReading {
-        value.* = cast(T) s32_value;
-        if cast(s64) value.* < min || cast(s64) value.* > max {
+        new_value := cast(T)(v + min);
+        if new_value < min || new_value > max {
             `return false;
         }
+        value.* = new_value;
     }
 }
 
@@ -813,38 +725,15 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param value The unsigned integer value to serialize.
 @param bits The number of bits to serialize in [1,32].
 */
-serialize_bits :: (stream: *$S, value: *$T, bits: int) #expand {
+serialize_bits :: (stream: *Stream, value: *$T, bits: int) #expand {
     assert(size_of(T) <= 8);
-    assert(bits > 0);
-    assert(bits <= 64);
+    assert(bits <= size_of(T) * 8);
 
-    if bits <= 32 {
-        u32_value: u32;
-        if stream.isWriting {
-            u32_value = cast(u32) value.*;
-        }
-        if !stream_serialize_bits(stream, *u32_value, bits) {
-            `return false;
-        }
-        if stream.isReading {
-            value.* = cast(T) u32_value;
-        }
-    } else {
-        hi, lo: u32;
-        if stream.isWriting {
-            lo = cast(u32) ((cast(u64) value.*) & 0xFFFFFFFF);
-            hi = cast(u32) ((cast(u64) value.*) >> 32);
-        }
-        if !stream_serialize_bits(stream, *lo, 32) {
-            `return false;
-        }
-        if !stream_serialize_bits(stream, *hi, bits - 32) {
-            `return false;
-        }
-        if stream.isReading {
-            value.* = cast(T) (((cast(u64) hi) << 32) | lo);
-        }
+    v := cast(u64) value.*;
+    if !stream_serialize_bits(stream, *v, bits) {
+        `return false;
     }
+    value.* = cast(T)v;
 }
 
 /*
@@ -855,16 +744,16 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The boolean value to serialize.
 */
-serialize_bool :: (stream: *$S, value: *bool) #expand {
-    u32_value: u32;
+serialize_bool :: (stream: *Stream, value: *bool) #expand {
+    v: u64;
     if stream.isWriting {
-        u32_value = ifx value.* then 1 else 0;
+        v = ifx value.* then cast(u64) 1 else cast(u64) 0;
     }
-    if !stream_serialize_bits(stream, *u32_value, 1) {
+    if !stream_serialize_bits(stream, *v, 1) {
         `return false;
     }
     if stream.isReading {
-        value.* = ifx u32_value then true else false;
+        value.* = ifx v then true else false;
     }
 }
 
@@ -876,16 +765,20 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The float value to serialize.
 */
-serialize_float :: (stream: *$S, value: *float) #expand {
-    u32_value: u32;
+serialize_float :: (stream: *Stream, value: *float) #expand {
+    v32: u32;
     if stream.isWriting {
-        memcpy(*u32_value, value.*, 4);
+        memcpy(*v32, value.*, 4);
     }
-    if !stream_serialize_bits(stream, *u32_value, 32) {
+
+    v := cast(u64) v32;
+    if !stream_serialize_bits(stream, *v, 32) {
         `return false;
     }
+
     if stream.isReading {
-        memcpy(value.*, *u32_value, 4);
+        v32 := cast(u32) v;
+        memcpy(value.*, *v32, 4);
     }
 }
 
@@ -897,25 +790,24 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The float value to serialize.
 */
-serialize_compressed_float :: (stream: *$S, value: *float, min: float, max: float, res: float) #expand {
+serialize_compressed_float :: (stream: *Stream, value: *float, min: float, max: float, res: float) #expand {
     delta := max - min;
     values := delta / res;
+    maxIntegerValue := cast(u64) Math.ceil(values);
 
-    maxIntegerValue := cast(u32) Math.ceil(values);
-
-    bits := bits_required(0, maxIntegerValue);
-
-    integerValue: u32;
-
+    v: u64;
     if stream.isWriting {
         normalizedValue := clamp((value.* - min) / delta, 0.0, 1.0);
-        integerValue = cast(u32) Math.floor(normalizedValue * maxIntegerValue + 0.5);
+        v = cast(u64) Math.floor(normalizedValue * maxIntegerValue + 0.5);
     }
-    if !stream_serialize_bits(stream, *integerValue, bits) {
+
+    bits := bits_required(0, maxIntegerValue);
+    if !stream_serialize_bits(stream, *v, bits) {
         `return false;
     }
+
     if stream.isReading {
-        normalizedValue := integerValue / cast(float) maxIntegerValue;
+        normalizedValue := v / cast(float) maxIntegerValue;
         value.* = normalizedValue * delta + min;
     }
 }
@@ -928,16 +820,16 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 @param value The double precision floating point value to serialize.
 */
-serialize_float64 :: (stream: *$S, value: *float64) #expand {
-    u64_value: u64;
+serialize_float64 :: (stream: *Stream, value: *float64) #expand {
+    v: u64;
     if stream.isWriting {
-        memcpy(*u64_value, value.*, 8);
+        memcpy(*v, value.*, 8);
     }
-    if !serialize_bits(stream, *u64_value, 64) {
+    if !serialize_bits(stream, *v, 64) {
         `return false;
     }
     if stream.isReading {
-        memcpy(value.*, *u64_value, 8);
+        memcpy(value.*, *v, 8);
     }
 }
 
@@ -947,10 +839,9 @@ This is a helper macro to make unified serialize functions easier.
 Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
 IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
-@param data Pointer to the data to be serialized.
-@param bytes The number of bytes to serialize.
+@param bytes Array of bytes to be written.
 */
-serialize_bytes :: (stream: *$S, bytes: [] u8) #expand {
+serialize_bytes :: (stream: *Stream, bytes: [] u8) #expand {
     if !stream_serialize_bytes(stream, bytes) {
         `return false;
     }
@@ -965,7 +856,7 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param string The string to serialize write/measure. Pointer to buffer to be filled on read.
 @param buffer_size The size of the string buffer. String with terminating null character must fit into this buffer.
 */
-serialize_string :: (stream: *$S, str: *string, max_length: s32) #expand {
+serialize_string :: (stream: *Stream, str: *string, max_length: s32) #expand {
     length: s32;
     if stream.isWriting {
         length = cast(s32) str.count;
@@ -977,7 +868,6 @@ serialize_string :: (stream: *$S, str: *string, max_length: s32) #expand {
         str.count = length;
     }
     serialize_bytes(stream, .{ str.count, str.data });
-    return true;
 }
 
 /*
@@ -987,19 +877,59 @@ Serialize macros returns false on error so we don't need to use exceptions for e
 IMPORTANT: This macro must be called inside a function with a bool return value.
 @param stream The stream object. May be a read, write or measure stream.
 */
-serialize_align :: (stream: *$S) #expand {
+serialize_align :: (stream: *Stream) #expand {
     if !stream_align(stream) {
         `return false;
     }
 }
 
-serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> bool {
+/*
+Serialize a sequence number relative to another (read/write/measure).
+@param stream The stream object. May be a read, write or measure stream.
+@param sequence1 The first sequence number to serialize relative to.
+@param sequence2 The second sequence number to be encoded relative to the first.
+*/
+serialize_sequence_relative :: (stream: *Stream, sequence1: u16, sequence2: *u16) -> bool {
+    if stream.isWriting {
+        a: u32 = sequence1;
+        b: u32 = sequence2.* + ifx sequence1 > sequence2.* then cast(u32) 65536 else cast(u32) 0;
+        serialize_int_relative(stream, a, *b);
+    } else {
+        a: u32 = sequence1;
+        b: u32 = 0;
+        serialize_int_relative(stream, a, *b);
+        if b >= 65536 {
+            b -= 65536;
+        }
+        sequence2.* = cast(u16) b;
+    }
+    return true;
+}
+
+#scope_file
+
+/*
+Serialize an integer value relative to another (read/write/measure).
+This is a helper macro to make writing unified serialize functions easier.
+Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
+IMPORTANT: This macro must be called inside a function with a bool return value.
+@param stream The stream object. May be a read, write or measure stream.
+@param previous The previous integer value.
+@param current The current integer value (must be greater than previous).
+*/
+serialize_int_relative :: (stream: *Stream, previous: $T, current: *T) #expand {
+    if !serialize_int_relative_internal(stream, previous, current) {
+        `return false;
+    }
+}
+
+serialize_int_relative_internal :: (stream: *Stream, previous: $T, current: *T) -> bool {
     assert(size_of(T) <= 4);
 
     difference: u32;
     if stream.isWriting {
-        assert(previous < current);
-        difference = current - previous;
+        assert(previous < current.*);
+        difference = current.* - previous;
     }
 
     oneBit := false;
@@ -1009,7 +939,7 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     serialize_bool(stream, *oneBit);
     if oneBit {
         if stream.isReading {
-            current = previous + 1;
+            current.* = previous + 1;
         }
         return true;
     }
@@ -1022,7 +952,7 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     if twoBits {
         serialize_int(stream, *difference, 2, 6);
         if stream.isReading {
-            current = previous + difference;
+            current.* = previous + difference;
         }
         return true;
     }
@@ -1035,7 +965,7 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     if fourBits {
         serialize_int(stream, *difference, 7, 23);
         if stream.isReading {
-            current = previous + difference;
+            current.* = previous + difference;
         }
         return true;
     }
@@ -1048,7 +978,7 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     if eightBits {
         serialize_int(stream, *difference, 24, 280);
         if stream.isReading {
-            current = previous + difference;
+            current.* = previous + difference;
         }
         return true;
     }
@@ -1061,7 +991,7 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     if twelveBits {
         serialize_int(stream, *difference, 281, 4377);
         if stream.isReading {
-            current = previous + difference;
+            current.* = previous + difference;
         }
         return true;
     }
@@ -1074,58 +1004,19 @@ serialize_int_relative_internal :: (stream: *$S, previous: $T, current: *T) -> b
     if sixteenBits {
         serialize_int(stream, *difference, 4378, 69914);
         if stream.isReading {
-            current = previous + difference;
+            current.* = previous + difference;
         }
         return true;
     }
 
-    value := cast(u32) current;
+    value := cast(u32) current.*;
     serialize_bits(stream, *value, 32);
     if stream.isReading {
-        current = cast(T) value;
+        current.* = cast(T) value;
     }
 
     return true;
 }
-
-/*
-Serialize an integer value relative to another (read/write/measure).
-This is a helper macro to make writing unified serialize functions easier.
-Serialize macros returns false on error so we don't need to use exceptions for error handling on read. This is an important safety measure because packet data comes from the network and may be malicious.
-IMPORTANT: This macro must be called inside a function with a bool return value.
-@param stream The stream object. May be a read, write or measure stream.
-@param previous The previous integer value.
-@param current The current integer value.
-*/
-serialize_int_relative :: (stream: *$S, previous: $T, current: *T) #expand {
-    if !serialize_int_relative_internal(stream, previous, current) {
-        `return false;
-    }
-}
-
-/*
-Serialize a sequence number relative to another (read/write/measure).
-@param stream The stream object. May be a read, write or measure stream.
-@param sequence1 The first sequence number to serialize relative to.
-@param sequence2 The second sequence number to be encoded relative to the first.
-*/
-serialize_sequence_relative :: (stream: *$S, sequence1: u16, sequence2: *u16) -> bool {
-    if stream.IsWriting {
-        a: u32 = sequence1;
-        b: u32 = sequence2.* + ifx sequence1 > sequence2.* then 65536 else 0;
-        serialize_int_relative(stream, a, b);
-    } else {
-        a: u32 = sequence1;
-        b: u32 = 0;
-        serialize_int_relative(stream, a, b);
-        if b >= 65536 {
-            b -= 65536;
-        }
-        sequence2.* = cast(u16) b;
-    }
-}
-
-#scope_file
 
 #import "Basic";
 #import "Bit_Operations";

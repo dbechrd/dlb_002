@@ -21,7 +21,7 @@ Reliable ordered channel constructor.
 channel_init :: (using channel: *UnreliableUnorderedChannel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
     assert(config.type == .UnreliableUnordered);
 
-    channel_init(base, messageFactory, config, channelIndex, time);
+    channel_init(*base, messageFactory, config, channelIndex, time);
     queue_init(*messageSendQueue, config.messageSendQueueSize);
     queue_init(*messageReceiveQueue, config.messageReceiveQueueSize);
     channel_reset(channel);
@@ -57,12 +57,10 @@ channel_can_send_message :: (using channel: *UnreliableUnorderedChannel) -> bool
 }
 
 channel_has_messages_to_send :: (using channel: *UnreliableUnorderedChannel) -> bool {
-    yojimbo_assert( m_messageSendQueue );
     return !queue_empty(*messageSendQueue);
 }
 
-channel_send_message :: (using channel: *UnreliableUnorderedChannel, message: *Message)
-{
+channel_send_message :: (using channel: *UnreliableUnorderedChannel, message: *Message) {
     assert(message != null);
     assert(channel_can_send_message(channel));
 
@@ -114,7 +112,8 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
 
     giveUpBits := 4 * 8;
 
-    messageTypeBits := bits_required(0, messageFactory.messageTypes.count - 1);
+    assert(messageFactory.messages.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count - 1);
 
     usedBits := ConservativeMessageHeaderBits;
     numMessages = 0;

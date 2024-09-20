@@ -184,8 +184,8 @@ test_transmit_packet_function :: (_ctx: *void, id: u64, sequence: u16, packet_da
     }
 }
 
-test_process_packet_function :: (_ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
-    return 1;
+test_process_packet_function :: (_ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool {
+    return true;
 }
 
 TEST_ACKS_NUM_ITERATIONS :: 256;
@@ -345,14 +345,14 @@ validate_packet_data :: (packet_data: [] u8) {
     }
 }
 
-test_process_packet_function_validate :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
+test_process_packet_function_validate :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool {
     assert(packet_data.data != null);
     assert(packet_data.count > 0);
     assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
 
     validate_packet_data(packet_data);
 
-    return 1;
+    return true;
 }
 
 generate_packet_data_large :: (packet_data: [] u8) -> int {
@@ -368,7 +368,7 @@ generate_packet_data_large :: (packet_data: [] u8) -> int {
     return data_bytes + 2;
 }
 
-test_process_packet_function_validate_large :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int {
+test_process_packet_function_validate_large :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool {
     assert(packet_data.data != null);
     assert(packet_data.count >= 2);
     assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
@@ -381,7 +381,7 @@ test_process_packet_function_validate_large :: (ctx: *void, id: u64, sequence: u
         assert(packet_data[it] == cast(u8) (it % 256));
     }
 
-    return 1;
+    return true;
 }
 
 test_packets :: () {

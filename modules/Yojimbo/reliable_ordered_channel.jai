@@ -30,7 +30,7 @@ Reliable ordered channel constructor.
 */
 channel_init :: (using channel: *ReliableOrderedChannel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
     assert(config.type == .ReliableOrdered);
-    channel_init(base, messageFactory, config, channelIndex, time);
+    channel_init(*base, messageFactory, config, channelIndex, time);
 
     assert((65536 % config.sentPacketBufferSize) == 0);
     assert((65536 % config.messageSendQueueSize) == 0);
@@ -169,7 +169,7 @@ channel_advance_time :: (using channel: *ReliableOrderedChannel, _time: Apollo_T
     time = _time;
 }
 
-channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
+channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) -> int {
     if !channel_has_messages_to_send(channel) {
         return 0;
     }
@@ -179,9 +179,9 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
             return 0;
         }
 
-        fragmentData, messageId, fragmentId, fragmentBytes, numFragments, messageType := channel_get_fragment_to_send(channel);
-        if fragmentData != null {
-            fragmentBits := channel_get_fragment_packet_data(channel, packetData, messageId, fragmentId, fragmentData, fragmentBytes, numFragments, messageType);
+        fragmentData, messageId, fragmentId, numFragments, messageType := channel_get_fragment_to_send(channel);
+        if fragmentData.count > 0 {
+            fragmentBits := channel_get_fragment_packet_data(channel, packetData, messageId, fragmentId, fragmentData, numFragments, messageType);
             channel_add_fragment_packet_entry(channel, messageId, fragmentId, packetSequence);
             return fragmentBits;
         }
@@ -189,10 +189,11 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
         numMessageIds := 0;
         messageIds := NewArray(config.maxMessagesPerPacket, u16,, temp);
         numMessageIds, messageBits := channel_get_messages_to_send(channel, messageIds, availableBits);
+        messageIds.count = numMessageIds;
 
         if numMessageIds > 0 {
-            channel_get_message_packet_data(channel, packetData, messageIds, numMessageIds);
-            channel_add_message_packet_entry(channel, messageIds, numMessageIds, packetSequence);
+            channel_get_message_packet_data(channel, packetData, messageIds);
+            channel_add_message_packet_entry(channel, messageIds, packetSequence);
             return messageBits;
         }
     }
@@ -224,7 +225,7 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
 
     numMessageIds := 0;
 
-    budgetedBits = availableBits;
+    budgetedBits := availableBits;
     if config.packetBudget > 0 {
         budgetedBits = min(config.packetBudget * 8, availableBits);
     }
@@ -232,7 +233,8 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
     giveUpBits := 4 * 8;
     giveUpCounter := 0;
 
-    messageTypeBits := bits_required(0, messageFactory.messageTypes.count - 1);
+    assert(messageFactory.messages.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count-1);
 
     messageLimit := min(config.messageSendQueueSize, config.messageReceiveQueueSize);
     previousMessageId: u16 = 0;
@@ -252,7 +254,7 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
             break;
         }
 
-        messageId := oldestUnackedMessageId + it;
+        messageId := oldestUnackedMessageId + cast(u16) it;
         entry := sequence_buffer_find(*messageSendQueue, messageId);
         if entry == null {
             continue;
@@ -272,8 +274,8 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
                 messageBits += 16;
             } else {
                 stream: MeasureStream;
-                serialize_sequence_relative(stream, previousMessageId, messageId);
-                messageBits += stream_get_bits_processed(stream);
+                serialize_sequence_relative(*stream, previousMessageId, *messageId);
+                messageBits += stream_get_bits_processed(*stream);
             }
 
             if usedBits + messageBits > availableBits {
@@ -302,8 +304,7 @@ Messages have references added to them when they are added to the packet. They a
 @see GetMessagesToSend
 */
 channel_get_message_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageIds: [] u16) {
-    packetData.channelIndex = channelIndex;
-    packetData.message.numMessages = messageIds.count;
+    packetData.channelIndex = cast(u16) channelIndex;
 
     if messageIds.count == 0 {
         return;
@@ -312,7 +313,7 @@ channel_get_message_packet_data :: (using channel: *ReliableOrderedChannel, pack
     packetData.message.messages = NewArray(messageIds.count, *Message);
 
     for 0..messageIds.count-1 {
-        entry = sequence_buffer_find(*messageSendQueue, messageIds[it]);
+        entry := sequence_buffer_find(*messageSendQueue, messageIds[it]);
         assert(entry != null);
         assert(entry.message != null);
         packetData.message.messages[it] = entry.message;
@@ -493,7 +494,7 @@ The next block fragment is selected by scanning left to right over the set of fr
 @param messageType The type of message the block is attached to. See MessageFactory.
 @returns Pointer to the fragment data.
 */
-channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> fragmentData: [] u8, messageId: u16, fragmentId: u16, fragmentBytes: int, numFragments: int, messageType: int {
+channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> fragmentData: [] u8, messageId: u16, fragmentId: u16, numFragments: int, messageType: int {
     entry := sequence_buffer_find(*messageSendQueue, oldestUnackedMessageId);
     assert(entry != null);
 
@@ -505,7 +506,7 @@ channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> frag
         sendBlock.active = true;
         sendBlock.blockSize = message.blockData.count;
         sendBlock.blockMessageId = message.id;
-        sendBlock.numFragments = cast(int) ceil(message.blockData.count / cast(float) config.blockFragmentSize);
+        sendBlock.numFragments = cast(int) Math.ceil(message.blockData.count / cast(float) config.blockFragmentSize);
         sendBlock.numAckedFragments = 0;
 
         maxFragmentsPerBlock := channel_config_get_max_fragments_per_block(config);
@@ -530,7 +531,7 @@ channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> frag
     }
 
     if fragmentId == 0xFFFF {
-        return null;
+        return .{}, 0, 0, 0, 0;
     }
 
     // allocate and return a copy of the fragment data
@@ -541,13 +542,13 @@ channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> frag
     }
 
     fragmentData := NewArray(fragmentBytes, u8);
-    if fragmentData != null {
+    if fragmentData.count > 0 {
         memcpy(fragmentData.data, message.blockData.data + fragmentId * config.blockFragmentSize, fragmentBytes);
         sendBlock.fragmentSendTime[fragmentId] = time;
     }
 
     // TODO(dlb): The return value here is absolutely ridiculous.. maybe make a struct?
-    return fragmentData, message.id, fragmentId, fragmentBytes, sendBlock.numFragments, message.type;
+    return fragmentData, message.id, fragmentId, sendBlock.numFragments, message.type;
 }
 
 /*
@@ -562,16 +563,17 @@ This is the payload function that fills the channel packet data while we are sen
 @returns An estimate of the number of bits required to serialize the block message and fragment data (upper bound).
 */
 channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageId: u16, fragmentId: u16, fragmentData: [] u8, numFragments: int, messageType: int) -> int {
-    packetData.channelIndex = channelIndex;
+    packetData.channelIndex = cast(u16) channelIndex;
     packetData.flags |= .BlockMessage;
     packetData.block.fragmentData = fragmentData;
     packetData.block.messageId = messageId;
     packetData.block.fragmentId = fragmentId;
-    packetData.block.numFragments = numFragments;
+    packetData.block.numFragments = cast(u16) numFragments;
     packetData.block.messageType = messageType;
 
-    messageTypeBits := bits_required(0, messageFactory.messageTypes.count-1);
-    fragmentBits := ConservativeFragmentHeaderBits + fragmentSize * 8;
+    assert(messageFactory.messages.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count-1);
+    fragmentBits := ConservativeFragmentHeaderBits + fragmentData.count * 8;
 
     if fragmentId == 0 {
         entry := sequence_buffer_find(*messageSendQueue, packetData.block.messageId);
@@ -603,8 +605,8 @@ channel_add_fragment_packet_entry :: (using channel: *ReliableOrderedChannel, me
         sentPacket.timeSent = time;
         sentPacket.messageIds = null;
         sentPacket.numMessageIds = 0;
-        sentPacket.acked = 0;
-        sentPacket.block = 1;
+        sentPacket.acked = false;
+        sentPacket.block = true;
         sentPacket.blockMessageId = messageId;
         sentPacket.blockFragmentId = fragmentId;
     }
@@ -712,8 +714,8 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
                 assert(entry != null);
                 entry.message = receiveBlock.blockMessage;
 
-                m_receiveBlock.active = false;
-                m_receiveBlock.blockMessage = null;
+                receiveBlock.active = false;
+                receiveBlock.blockMessage = null;
             }
         }
     }

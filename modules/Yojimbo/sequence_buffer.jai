@@ -56,7 +56,7 @@ sequence_buffer_insert :: (using sequenceBuffer: *SequenceBuffer, sequence: u16,
     if guaranteedOrder || yojimbo_sequence_greater_than(sequence + 1, nextSequence) {
         sequence_buffer_remove_entries(sequenceBuffer, nextSequence, sequence);
         nextSequence = sequence + 1;
-    } else if yojimbo_sequence_less_than(sequence, nextSequence - entrySequence.count) {
+    } else if yojimbo_sequence_less_than(sequence, nextSequence - cast(u16) entrySequence.count) {
         return null;
     }
 
@@ -102,8 +102,9 @@ Get the entry corresponding to a sequence number.
 @returns The entry if it exists. NULL if no entry is in the buffer for this sequence number.
 */
 sequence_buffer_find :: (using sequenceBuffer: *SequenceBuffer, sequence: u16) -> *sequenceBuffer.T {
-    if sequence_buffer_exists(sequenceBuffer, sequence) {
-        return entryData[index];
+    index := sequence % entryValid.count;
+    if entryValid[index] && entrySequence[index] == sequence {
+        return *entryData[index];
     } else {
         return null;
     }
@@ -119,7 +120,7 @@ sequence_buffer_get_at_index :: (using sequenceBuffer: *SequenceBuffer, index: i
     assert(index >= 0);
     assert(index < entryValid.count);
 
-    return ifx entryValid[index] then entryData[index] else null;
+    return ifx entryValid[index] then *entryData[index] else null;
 }
 
 /*
@@ -162,7 +163,7 @@ Otherwise, if when entries are added with holes (eg. receive buffer for packets 
 and we are extremely unlucky, we can have old sequence buffer entries from the previous sequence # wrap around still in the buffer, which corrupts our internal connection state.
 This actually happened in the soak test at high packet loss levels (>90%). It took me days to track it down :)
 */
-sequence_buffer_remove_entries :: (sequenceStart: int, sequenceEnd: int) {
+sequence_buffer_remove_entries :: (using sequenceBuffer: *SequenceBuffer, sequenceStart: int, sequenceEnd: int) {
     if sequenceEnd < sequenceStart {
         sequenceEnd += 65535;
     }

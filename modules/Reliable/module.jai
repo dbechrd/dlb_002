@@ -109,7 +109,7 @@ RELIABLE_OK    :: 1;
 RELIABLE_ERROR :: 0;
 
 TransmitPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8);
-ProcessPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
+ProcessPacketFunction :: #type (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool;
 
 reliable_config_t :: struct {
     name                            : string = "Endpoint";    // TODO(dlb): Assert that this has count < 256
@@ -368,7 +368,7 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
 
                     sent_packet_data := cast(*reliable_sent_packet_data_t) reliable_sequence_buffer_find(endpoint.sent_packets, ack_sequence);
 
-                    // TODO(dlb): What happens when endpoint.acks fills up?? Presumably whoever is using Realiable is responsible for
+                    // TODO(dlb): What happens when endpoint.acks fills up?? Presumably whoever is using Reliable is responsible for
                     // reading the acks and clearing them in a timely manner, otherwise we would stop acking packets altogether.
                     if (sent_packet_data && !sent_packet_data.acked && endpoint.num_acks < endpoint.config.ack_buffer_size) {
                         reliable_log(.VERY_VERBOSE_ONLY, "[%] acked packet %\n", endpoint.config.name, ack_sequence);

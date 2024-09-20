@@ -33,7 +33,7 @@ User code should define an enum of all message types:
         InputCommand;
     }
 
-And define a serialize function that can handle any registered message type:
+And define a serialize function (or one per message type) that can handle the serialization logic:
 
     serialize :: (stream: *$S, message: *Message) -> bool {
         if #complete cast(MessageType) message.type == {
@@ -49,35 +49,36 @@ And define a serialize function that can handle any registered message type:
                 serialize_int(stream, msg.primaryAction);
                 serialize_int(stream, msg.secondaryAction);
         }
-        return true;
+        return false;
     }
 
 As well as a router for the various kinds of streams:
 
     // TODO(dlb): Make a macro that makes this part suck less for the user.
-    serialize_router: (stream: *Stream, message: *Message) -> bool {
+    serialize_router :: (msgFactory: *MessageFactory, stream: *Stream, message: *Message) -> bool {
+        m := cast(*msgFactory.messages[message.id]) message;
         if #complete stream.type == {
-            case .Write;   serialize(cast(*WriteStream  ) stream, message);
-            case .Read;    serialize(cast(*ReadStream   ) stream, message);
-            case .Measure; serialize(cast(*MeasureStream) stream, message);
+            case .Write;   return serialize(cast(*WriteStream  ) stream, m);
+            case .Read;    return serialize(cast(*ReadStream   ) stream, m);
+            case .Measure; return serialize(cast(*MeasureStream) stream, m);
         }
     }
 
 Then register those messages types and the router with the MessageFactory:
 
     msgFactory: MessageFactory;
-    msgFactory.messageTypes = .[MsgConnect, MsgLogin, MsgInputCommand];
+    msgFactory.messages = .[MsgConnect, MsgLogin, MsgInputCommand];
     msgFactory.serializeRouter = serialize_router;
 
 */
 MessageFactory :: struct {
     // IMPORTANT: The index of the type in the this array must be the message ID (i.e. it should match your enum).
-    messageTypes: [] Type;
+    messages: [] struct {
+        type      : Type;
+        serialize : (stream: *Stream, message: *Message) -> bool;
+    };
 
-    // Sadly.. this doesn't work:
-    //serialize: (stream: *$S, message: *Message) -> bool;
-    // So the user has to accept a *Stream and do the switch on stream.type themselves:
-    serializeRouter: (stream: *Stream, message: *Message) -> bool;
+    create_message: (messageType: int) -> *Message;
 }
 
 #scope_module
@@ -89,10 +90,9 @@ Create a message by type.
 */
 message_factory_create_message :: (messageFactory: *MessageFactory, messageType: int) -> *void {
     assert(messageType >= 0);
-    assert(messageType < messageFactory.messageTypes.count);
+    assert(messageType < messageFactory.messages.count);
 
-    T := messageFactory.messageTypes[messageType];
-    return New(T);
+    return messageFactory.create_message(messageType);
 }
 
 /*

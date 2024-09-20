@@ -1,10 +1,9 @@
-#scope_module
-
 /*
 Server implementation.
 */
 Server :: struct {
     #as using base: BaseServer;
+    base.disconnectClientFunction = server_disconnect_client;
 
     netServer    : *netcode_server_t;  // netcode server data.
     address      : Address;            // original address passed to ctor
@@ -34,7 +33,7 @@ Server :: struct {
 };
 
 server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
-    server_init(base, _config, _time);
+    server_init(*base, _config, _time);
     assert(KeyBytes == NETCODE_KEY_BYTES);
     array_copy(privateKey, _privateKey);
     address = _address;
@@ -59,7 +58,7 @@ server_start :: (using server: *Server, _maxClients: int) {
         server_stop(server);
     }
 
-    server_start(base, _maxClients);
+    server_start(*base, _maxClients);
 
     addressString := address_to_string(address);
 
@@ -94,7 +93,7 @@ server_stop :: (using server: *Server) {
         netcode_server_destroy(netServer);
         netServer = null;
     }
-    server_stop(base);
+    server_stop(*base);
 }
 
 /*
@@ -102,7 +101,9 @@ Disconnect the client at the specified client index.
 @param clientIndex The index of the client to disconnect in range [0,maxClients-1], where maxClients is the number of client slots allocated in Server::Start.
 @see Server::IsClientConnected
 */
-server_disconnect_client :: (using server: *Server, clientIndex: int) {
+server_disconnect_client :: (_server: *BaseServer, clientIndex: int) {
+    using server := cast(*Server) _server;
+
     assert(netServer != null);
 
     netcode_server_disconnect_client(netServer, clientIndex);
@@ -129,12 +130,11 @@ This function drives the sending of packets that transmit messages to clients.
 server_send_packets :: (using server: *Server) {
     if netServer != null {
         for 0..maxClients-1 {
-            if server_is_client_connected(it) {
-                packetData := packetBuffer;
+            if server_is_client_connected(server, it) {
                 packetBytes: int;
-                packetSequence := reliable_endpoint_next_packet_sequence(clientEndpoint(it));
-                if connection_generate_packet(clientConnection[it], packetSequence, packetData, *packetBytes) {
-                    reliable_endpoint_send_packet(clientEndpoint(it), .{ packetBytes, packetData });
+                packetSequence := reliable_endpoint_next_packet_sequence(clientEndpoint[it]);
+                if connection_generate_packet(clientConnection[it], packetSequence, packetBuffer, *packetBytes) {
+                    reliable_endpoint_send_packet(clientEndpoint[it], .{ packetBytes, packetBuffer.data });
                 }
             }
         }
@@ -149,14 +149,12 @@ server_receive_packets :: (using server: *Server) {
     if netServer != null {
         for 0..maxClients-1 {
             while true {
-                packetBytes: int;
-                packetSequence: u64;
-                packetData := netcode_server_receive_packet(netServer, it, *packetBytes, *packetSequence);
+                packetData, packetSequence := netcode_server_receive_packet(netServer, it);
                 if packetData.count == 0 {
                     break;
                 }
 
-                reliable_endpoint_receive_packet(clientEndpoint[it], .{ packetBytes, packetData });
+                reliable_endpoint_receive_packet(clientEndpoint[it], packetData);
                 netcode_server_free_packet(netServer, packetData);
             }
         }
@@ -171,11 +169,11 @@ server_advance_time :: (using server: *Server, _time: Apollo_Time) {
     if netServer != null {
         netcode_server_update(netServer, _time);
     }
-    server_advance_time(base, _time);
+    server_advance_time(*base, _time);
     if networkSimulator != null && network_simulator_is_active(networkSimulator) {
         packetData := NewArray(config.maxSimulatorPackets, [] u8,, temp);
         to := NewArray(config.maxSimulatorPackets, int);
-        numPackets := network_simulator_receive_packets(networkSimulator, config.maxSimulatorPackets, packetData, to);
+        numPackets := network_simulator_receive_packets(networkSimulator, packetData, to);
         for 0..numPackets-1 {
             netcode_server_send_packet(netServer, to[it], packetData[it]);
             array_free(packetData[it]);
@@ -188,8 +186,8 @@ Is a client connected to a client slot?
 @param clientIndex the index of the client slot in [0,maxClients-1], where maxClients corresponds to the value passed into the last call to Server::Start.
 @returns True if the client is connected.
 */
-server_is_client_connected :: (using server: *Server, clientIndex: int) {
-    return netcode_server_client_connected(netServer, clientIndex) != 0;
+server_is_client_connected :: (using server: *Server, clientIndex: int) -> bool {
+    return netcode_server_client_connected(netServer, clientIndex);
 }
 
 /*
@@ -296,8 +294,9 @@ server_get_network_info :: (using server: *Server, clientIndex: int, info: *Netw
 
 #import "Netcode";
 
-server_transmit_packet_function :: (ctx: *void, clientIndex: int, packetSequence: u16, packetData: [] u8) {
+server_transmit_packet_function :: (ctx: *void, _clientIndex: u64, packetSequence: u16, packetData: [] u8) {
     using server := cast(*Server) ctx;
+    clientIndex := cast(int) _clientIndex;
 
     if networkSimulator != null && network_simulator_is_active(networkSimulator) {
         network_simulator_send_packet(networkSimulator, clientIndex, packetData);
@@ -306,16 +305,20 @@ server_transmit_packet_function :: (ctx: *void, clientIndex: int, packetSequence
     }
 }
 
-server_process_packet_function :: (ctx: *void, clientIndex: int, packetSequence: u16, packetData: [] u8) {
+server_process_packet_function :: (ctx: *void, _clientIndex: u64, packetSequence: u16, packetData: [] u8) -> bool {
     using server := cast(*Server) ctx;
+    clientIndex := cast(int) _clientIndex;
 
-    return cast(int) connection_process_packet(clientConnection[clientIndex], packetSequence, packetData);
+    return connection_process_packet(clientConnection[clientIndex], packetSequence, packetData);
 }
 
-server_connect_disconnect_callback :: (ctx: *void, clientIndex: int, connected: int) {
+server_connect_disconnect_callback :: (ctx: *void, clientIndex: int, connected: bool) {
     using server := cast(*Server) ctx;
 
-    if connected == 0 {
+    if connected {
+        // TODO(dlb): Callback null check?
+        onClientConnected(server, clientIndex);
+    } else {
         // TODO(dlb): Callback null check?
         onClientDisconnected(server, clientIndex);
         reliable_endpoint_reset(clientEndpoint[clientIndex]);
@@ -323,9 +326,6 @@ server_connect_disconnect_callback :: (ctx: *void, clientIndex: int, connected: 
         if networkSimulator != null && network_simulator_is_active(networkSimulator) {
             network_simulator_discard_client_packets(networkSimulator, clientIndex);
         }
-    } else {
-        // TODO(dlb): Callback null check?
-        onClientConnected(server, clientIndex);
     }
 }
 

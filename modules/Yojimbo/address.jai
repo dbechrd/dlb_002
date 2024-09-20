@@ -436,14 +436,14 @@ address_is_loopback :: (address: Address) -> bool {
         && address.ipv4[0] == 127
     ) || (
         address.type == .IPv6
-        && m_address.ipv6[0] == 0
-        && m_address.ipv6[1] == 0
-        && m_address.ipv6[2] == 0
-        && m_address.ipv6[3] == 0
-        && m_address.ipv6[4] == 0
-        && m_address.ipv6[5] == 0
-        && m_address.ipv6[6] == 0
-        && m_address.ipv6[7] == 0x0001
+        && address.ipv6[0] == 0
+        && address.ipv6[1] == 0
+        && address.ipv6[2] == 0
+        && address.ipv6[3] == 0
+        && address.ipv6[4] == 0
+        && address.ipv6[5] == 0
+        && address.ipv6[6] == 0
+        && address.ipv6[7] == 0x0001
     );
 }
 

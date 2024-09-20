@@ -118,9 +118,11 @@ inline void test_bits_required()
     serialize_check( serialize::bits_required( 0, 6 ) == 3 );
     serialize_check( serialize::bits_required( 0, 7 ) == 3 );
     serialize_check( serialize::bits_required( 0, 8 ) == 4 );
-    serialize_check( serialize::bits_required( 0, 255 ) == 8 );
-    serialize_check( serialize::bits_required( 0, 65535 ) == 16 );
-    serialize_check( serialize::bits_required( 0, 4294967295 ) == 32 );
+    serialize_check( serialize::bits_required( 0, 0x_FF ) == 8 );
+    serialize_check( serialize::bits_required( 0, 0x_FFFF ) == 16 );
+    serialize_check( serialize::bits_required( 0, 0x_FFFF_FFFF ) == 32 );
+    serialize_check( serialize::bits_required( 0, 0x_1_0000_0000 ) == 33 );
+    serialize_check( serialize::bits_required( 0, 0x_FFFF_FFFF_FFFF_FFFF ) == 64 );
 }
 
 const int MaxItems = 11;

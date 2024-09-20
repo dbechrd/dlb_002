@@ -31,11 +31,11 @@ connection_packet_allocate_channel_data :: (using connectionPacket: *ConnectionP
     assert(numEntries > 0);
     assert(numEntries <= MaxChannels);
 
-    channelEntries = NewArray(numEntries, channelPacketData);
+    channelEntries = NewArray(numEntries, ChannelPacketData);
 }
 
 connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *$S, messageFactory: *MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
-    serialize_int(stream, channelEntries.count, 0, connectionConfig.numChannels);
+    serialize_int(stream, *channelEntries.count, 0, connectionConfig.numChannels);
     #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
         assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
     }
@@ -47,10 +47,10 @@ connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, strea
                 assert(!(it.flags & .FailedToSerialize));
             }
         }
-        for channelEntries {
+        for * channelEntries {
             assert(!(it.flags & .FailedToSerialize));
             if !channel_packet_data_serialize(it, stream, messageFactory, connectionConfig.channel, connectionConfig.numChannels) {
-                yojimbo_log(.ERROR, "error: failed to serialize channel %\n", i);
+                yojimbo_log(.ERROR, "error: failed to serialize channel %\n", it);
                 return false;
             }
         }
@@ -60,12 +60,12 @@ connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, strea
 
 // ------------------------------------------------------------------------------
 
-connection_init :: (using connection: *Connection, _messageFactory: *MessageFactory, _connectionConfig: *ConnectionConfig, time: Apollo_Time) {
+connection_init :: (using connection: *Connection, _messageFactory: *MessageFactory, _connectionConfig: ConnectionConfig, time: Apollo_Time) {
     assert(_connectionConfig.numChannels >= 1);
     assert(_connectionConfig.numChannels <= MaxChannels);
 
     messageFactory = _messageFactory;
-    connectionConfig = _connectionConfig.*;
+    connectionConfig = _connectionConfig;
 
     for 0..connectionConfig.numChannels-1 {
         if #complete connectionConfig.channel[it].type == {
@@ -148,17 +148,17 @@ connection_generate_packet :: (using connection: *Connection, packetSequence: u1
         availableBits := packetData.count * 8 - ConservativePacketHeaderBits;
 
         for 0..connectionConfig.numChannels-1 {
-            packetDataBits := channel_generate_packet_data(channels[channelIndex], *channelData[channelIndex], packetSequence, availableBits);
+            packetDataBits := channel_generate_packet_data(channels[it], *channelData[it], packetSequence, availableBits);
             if packetDataBits > 0 {
                 availableBits -= ConservativeChannelHeaderBits;
                 availableBits -= packetDataBits;
-                channelHasData[channelIndex] = true;
+                channelHasData[it] = true;
                 numChannelsWithData += 1;
             }
         }
 
         if numChannelsWithData > 0 {
-            connection_packet_allocate_channel_data(packet, numChannelsWithData);
+            connection_packet_allocate_channel_data(*packet, numChannelsWithData);
             entryCount := 0;
             for 0..connectionConfig.numChannels-1 {
                 if channelHasData[it] {
@@ -169,12 +169,12 @@ connection_generate_packet :: (using connection: *Connection, packetSequence: u1
         }
     }
 
-    packetBytes.* = connection_write_packet(connection, packet, packetData);
+    packetBytes.* = connection_write_packet(connection, *packet, packetData);
     return true;
 }
 
 connection_process_packet :: (using connection: *Connection, packetSequence: u16, packetData: [] u8) -> bool {
-     // NOTE(dlb): This was a static function in the C++ version, I'm not sure why. We could probably inline this logic.
+     // NOTE(dlb): This was a static function in the C++ version, I'm not sure why (maybe tests?). We could probably inline this logic.
     connection_read_packet :: (using connection: *Connection, packet: *ConnectionPacket, buffer: [] u8) -> bool {
         stream: ReadStream;
         stream_init(*stream, buffer);
@@ -187,7 +187,7 @@ connection_process_packet :: (using connection: *Connection, packetSequence: u16
     }
 
     if errorLevel != .None {
-        yojimbo_log(.VERBOSE, "failed to read packet because connection is in error state\n");
+        yojimbo_log(.VERBOSE_ONLY, "failed to read packet because connection is in error state\n");
         return false;
     }
 
@@ -201,10 +201,10 @@ connection_process_packet :: (using connection: *Connection, packetSequence: u16
 
     for * packet.channelEntries {
         assert(it.channelIndex >= 0 );
-        assert(it.channelIndex <= m_connectionConfig.numChannels );
+        assert(it.channelIndex <= connectionConfig.numChannels );
         channel_process_packet_data(channels[it.channelIndex], it, packetSequence);
         if channels[it.channelIndex].errorLevel != .None {
-            yojimbo_log(.VERBOSE, "failed to read packet because channel % is in error state\n", it.channelIndex);
+            yojimbo_log(.VERBOSE_ONLY, "failed to read packet because channel % is in error state\n", it.channelIndex);
             return false;
         }
     }

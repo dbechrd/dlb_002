@@ -81,6 +81,7 @@ yojimbo_shutdown :: () {
 #scope_module
 
 #import "Basic";
+Math :: #import "Math";
 #import "dlb";
 
 #load "address.jai";

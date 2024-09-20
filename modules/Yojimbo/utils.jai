@@ -9,7 +9,7 @@ IMPORTANT: This is not a cryptographically secure random. It's used only for tes
 */
 yojimbo_random_int :: inline (a: int, b: int) -> int {
     assert(a < b);
-    result := a + random_get() % (b - a + 1);
+    result := a + (cast(int) random_get()) % (b - a + 1);
     assert(result >= a);
     assert(result <= b);
     return result;

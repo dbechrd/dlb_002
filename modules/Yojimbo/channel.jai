@@ -79,8 +79,15 @@ channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
 // @returns The number of bits of packet data written by the channel.
 // @see ConnectionPacket
 // @see Connection::GeneratePacket
-channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) {
-    assert(false, "Call this on the subtype");
+channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) -> int {
+    if #complete channel.config.type == {
+        case .ReliableOrdered;
+            channel_generate_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence, availableBits);
+        case .UnreliableUnordered;
+            channel_generate_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence, availableBits);
+    }
+    assert(false, "Invalid channel type");
+    return 0;
 }
 
 // Process packet data included in a connection packet.
@@ -89,7 +96,12 @@ channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketDa
 // @see ConnectionPacket
 // @see Connection::ProcessPacket
 channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;
+            channel_process_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence);
+        case .UnreliableUnordered;
+            channel_process_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence);
+    }
 }
 
 // Process a connection packet ack.
@@ -97,8 +109,13 @@ channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketDat
 //     1. Acks messages and block fragments so they stop being included in outgoing connection packets (reliable-ordered channel),
 //     2. Does nothing at all (unreliable-unordered).
 // @param sequence The sequence number of the connection packet that was acked.
-channel_process_ack :: (channel: *Channel, sequence: u16) {
-    assert(false, "Call this on the subtype");
+channel_process_ack :: (channel: *Channel, ack: u16) {
+    if #complete channel.config.type == {
+        case .ReliableOrdered;
+            channel_process_ack(cast(*ReliableOrderedChannel) channel, sequence);
+        case .UnreliableUnordered;
+            channel_process_ack(cast(*UnreliableUnorderedChannel) channel, sequence);
+    }
 }
 
 // Gets the channel index.

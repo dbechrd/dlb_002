@@ -35,11 +35,11 @@ Duplicates: 0%
 @param numPackets The maximum number of packets that can be stored in the simulator at any time.
 @param time The initial time value in seconds.
 */
-network_simulator_init :: (using networkSimulator: *NetworkSimulator, numPackets: int, time: Apollo_Time) {
+network_simulator_init :: (using networkSimulator: *NetworkSimulator, numPackets: int, _time: Apollo_Time) {
     assert(numPackets > 0);
 
     packetEntries = NewArray(numPackets, PacketEntry);
-    time = time;
+    time = _time;
 }
 
 /*
@@ -116,7 +116,7 @@ network_simulator_send_packet :: (using networkSimulator: *NetworkSimulator, to:
     packetEntry := *packetEntries[currentIndex];
 
     if packetEntry.packetData.count > 0 {
-        free(packetEntry.packetData);
+        array_free(packetEntry.packetData);
         packetEntry.* = .{};
     }
 
@@ -161,7 +161,7 @@ network_simulator_receive_packets :: (using networkSimulator: *NetworkSimulator,
     numPackets := 0;
 
     for 0..packetEntries.count-1 {
-        packetEntry := *packetEntries[i];
+        packetEntry := *packetEntries[it];
         if packetEntry.packetData.count == 0 {
             continue;
         }
@@ -201,7 +201,7 @@ This is called when a client disconnects from the server.
 */
 network_simulator_discard_client_packets :: (using networkSimulator: *NetworkSimulator, clientIndex: int) {
     for 0..packetEntries.count-1 {
-        packetEntry := *packetEntries[i];
+        packetEntry := *packetEntries[it];
         if (packetEntry.packetData.count == 0 || packetEntry.to != clientIndex) {
             continue;
         }
@@ -216,8 +216,8 @@ Advance network simulator time.
 You must pump this regularly otherwise the network simulator won't work.
 @param time The current time value. Please make sure you use double values for time so you retain sufficient precision as time increases.
 */
-network_simulator_advance_time :: (using networkSimulator: *NetworkSimulator, time: Apollo_Time) {
-    m_time = time;
+network_simulator_advance_time :: (using networkSimulator: *NetworkSimulator, _time: Apollo_Time) {
+    time = _time;
 }
 
 #scope_file
