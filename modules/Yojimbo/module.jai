@@ -47,16 +47,14 @@ Call this before calling any yojimbo library functions.
 @returns True if the library was successfully initialized, false otherwise.
 */
 yojimbo_init :: () -> bool {
-    // TODO(dlb): Init
-    /*
-    if ( netcode_init() != NETCODE_OK )
+    if netcode_init() != NETCODE_OK {
         return false;
+    }
 
-    if ( reliable_init() != RELIABLE_OK )
-        return false;
+    // Not using this, it was empty
+    //if ( reliable_init() != RELIABLE_OK )
+    //    return false;
 
-    return sodium_init() != -1;
-    */
     return true;
 }
 
@@ -64,11 +62,9 @@ yojimbo_init :: () -> bool {
 Shutdown the yojimbo library.
 */
 yojimbo_shutdown :: () {
-    // TODO(dlb): Shutdown
-    /*
-    reliable_term();
+    // Not using this, it was empty
+    //reliable_term();
     netcode_term();
-    */
 }
 
 #if YOJIMBO_ENABLE_TESTS {

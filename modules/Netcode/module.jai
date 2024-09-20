@@ -87,6 +87,9 @@ netcode_term :: () {
 
     // TODO(dlb): Kill Socket here (though we can't actually do that because
     //            Socket doesn't have a term function that calls WSACleanup).
+    #if OS == .WINDOWS {
+        WSACleanup();
+    }
 
     netcode.initialized = false;
 }

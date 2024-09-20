@@ -18,10 +18,10 @@ Reliable ordered channel constructor.
 @param config The configuration for this channel.
 @param channelIndex The channel index in [0,numChannels-1].
 */
-channel_init :: (using channel: *UnreliableUnorderedChannel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
+channel_init :: (using channel: *UnreliableUnorderedChannel, _messageFactory: MessageFactory, _config: ChannelConfig, _channelIndex: int, _time: Apollo_Time) {
     assert(config.type == .UnreliableUnordered);
 
-    channel_init(*base, messageFactory, config, channelIndex, time);
+    channel_init(*base, _messageFactory, _config, _channelIndex, _time);
     queue_init(*messageSendQueue, config.messageSendQueueSize);
     queue_init(*messageReceiveQueue, config.messageReceiveQueueSize);
     channel_reset(channel);
@@ -96,7 +96,7 @@ channel_receive_message :: (using channel: *UnreliableUnorderedChannel) -> *Mess
     return queue_pop(*messageReceiveQueue);
 }
 
-channel_advance_time :: (using channel: *UnreliableUnorderedChannel, time: Apollo_Time) {
+channel_advance_time :: (using channel: *UnreliableUnorderedChannel, _time: Apollo_Time) {
     // intentionally does nothing for unreliable channels
 }
 
@@ -112,11 +112,11 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
 
     giveUpBits := 4 * 8;
 
-    assert(messageFactory.messages.count > 0);
-    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count - 1);
+    assert(messageFactory.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.count - 1);
 
     usedBits := ConservativeMessageHeaderBits;
-    numMessages = 0;
+    numMessages := 0;
     messages := NewArray(config.maxMessagesPerPacket, *Message,, temp);
 
     while true {
@@ -134,10 +134,10 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
         assert(message != null);
 
         measureStream: MeasureStream;
-        messageFactory.serializeRouter(measureStream, message);
-        serialize_message_block(measureStream, message, config.maxBlockSize);
+        messageFactory[message.type].serialize(*measureStream, message);
+        serialize_message_block(*measureStream, message, config.maxBlockSize);
 
-        messageBits := messageTypeBits + stream_get_bits_processed(measureStream);
+        messageBits := messageTypeBits + stream_get_bits_processed(*measureStream);
 
         if usedBits + messageBits > budgetedBits {
             free(message);
@@ -156,8 +156,7 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
         return 0;
     }
 
-    packetData.channelIndex = channelIndex;
-    packetData.message.numMessages = numMessages;
+    packetData.channelIndex = cast(u16) channelIndex;
     packetData.message.messages = NewArray(numMessages, *Message);
     for 0..numMessages-1 {
         packetData.message.messages[it] = messages[it];

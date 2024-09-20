@@ -25,11 +25,11 @@ Channel :: struct {
     channelIndex   : int;                         // The channel index in [0,numChannels-1].
     time           : Apollo_Time;                 // The current time.
     errorLevel     : ChannelErrorLevel;           // The channel error level.
-    messageFactory : *MessageFactory;             // Message factory for creating and destroying messages.
+    messageFactory : MessageFactory;              // Message factory for creating and destroying messages.
     counters       : [ChannelCounter.Count] u64;  // Counters for unit testing, stats etc.
 };
 
-channel_init :: (channel: *Channel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
+channel_init :: (channel: *Channel, messageFactory: MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
     assert(channelIndex >= 0);
     assert(channelIndex < MaxChannels);
 
@@ -40,36 +40,66 @@ channel_init :: (channel: *Channel, messageFactory: *MessageFactory, config: Cha
 }
 
 channel_destroy :: (channel: *Channel) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      channel_destroy(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  channel_destroy(cast(*UnreliableUnorderedChannel) channel);
+        case; assert(false, "Invalid channel type");
+    }
 }
 
 channel_reset :: (channel: *Channel) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      channel_reset(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  channel_reset(cast(*UnreliableUnorderedChannel) channel);
+        case; assert(false, "Invalid channel type");
+    }
 }
 
 channel_can_send_message :: (channel: *Channel) -> bool {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      return channel_can_send_message(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  return channel_can_send_message(cast(*UnreliableUnorderedChannel) channel);
+        case; assert(false, "Invalid channel type");
+    }
+    return false;
 }
 
 channel_has_messages_to_send :: (channel: *Channel) -> bool {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      return channel_has_messages_to_send(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  return channel_has_messages_to_send(cast(*UnreliableUnorderedChannel) channel);
+        case; assert(false, "Invalid channel type");
+    }
+    return false;
 }
 
 // Queue a message for send
 channel_send_message :: (channel: *Channel, message: *Message) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      channel_send_message(cast(*ReliableOrderedChannel) channel, message);
+        case .UnreliableUnordered;  channel_send_message(cast(*UnreliableUnorderedChannel) channel, message);
+        case; assert(false, "Invalid channel type");
+    }
 }
 
 // Pops the next message off the receive queue if one is available.
 // @returns A pointer to the received message, NULL if there are no messages to receive. The caller owns the message object returned by this function and is responsible for releasing it via Message::Release.
 channel_receive_message :: (channel: *Channel) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      channel_receive_message(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  channel_receive_message(cast(*UnreliableUnorderedChannel) channel);
+        case; assert(false, "Invalid channel type");
+    }
 }
 
 // Advance channel time
 // Called by connection_advance_time for each channel configured on the connection.
 channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
-    assert(false, "Call this on the subtype");
+    if #complete channel.config.type == {
+        case .ReliableOrdered;      channel_advance_time(cast(*ReliableOrderedChannel) channel, time);
+        case .UnreliableUnordered;  channel_advance_time(cast(*UnreliableUnorderedChannel) channel, time);
+        case; assert(false, "Invalid channel type");
+    }
 }
 
 // Get channel packet data for this channel.
@@ -81,12 +111,10 @@ channel_advance_time :: (channel: *Channel, time: Apollo_Time) {
 // @see Connection::GeneratePacket
 channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16, availableBits: int) -> int {
     if #complete channel.config.type == {
-        case .ReliableOrdered;
-            channel_generate_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence, availableBits);
-        case .UnreliableUnordered;
-            channel_generate_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence, availableBits);
+        case .ReliableOrdered;      return channel_generate_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence, availableBits);
+        case .UnreliableUnordered;  return channel_generate_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence, availableBits);
+        case; assert(false, "Invalid channel type");
     }
-    assert(false, "Invalid channel type");
     return 0;
 }
 
@@ -97,10 +125,9 @@ channel_generate_packet_data :: (channel: *Channel, packetData: *ChannelPacketDa
 // @see Connection::ProcessPacket
 channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketData, packetSequence: u16) {
     if #complete channel.config.type == {
-        case .ReliableOrdered;
-            channel_process_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence);
-        case .UnreliableUnordered;
-            channel_process_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence);
+        case .ReliableOrdered;      channel_process_packet_data(cast(*ReliableOrderedChannel) channel, packetData, packetSequence);
+        case .UnreliableUnordered;  channel_process_packet_data(cast(*UnreliableUnorderedChannel) channel, packetData, packetSequence);
+        case; assert(false, "Invalid channel type");
     }
 }
 
@@ -111,10 +138,9 @@ channel_process_packet_data :: (channel: *Channel, packetData: *ChannelPacketDat
 // @param sequence The sequence number of the connection packet that was acked.
 channel_process_ack :: (channel: *Channel, ack: u16) {
     if #complete channel.config.type == {
-        case .ReliableOrdered;
-            channel_process_ack(cast(*ReliableOrderedChannel) channel, sequence);
-        case .UnreliableUnordered;
-            channel_process_ack(cast(*UnreliableUnorderedChannel) channel, sequence);
+        case .ReliableOrdered;      channel_process_ack(cast(*ReliableOrderedChannel) channel, ack);
+        case .UnreliableUnordered;  channel_process_ack(cast(*UnreliableUnorderedChannel) channel, ack);
+        case; assert(false, "Invalid channel type");
     }
 }
 

@@ -241,7 +241,7 @@ Call this once after you've finished writing bits to flush the last dword of scr
 bit_writer_flush_bits :: (using writer: *BitWriter) {
     if scratchBits != 0 {
         assert(scratchBits <= 32);
-        assert(wordIndex < numWords);
+        assert(wordIndex < data.count);
 
         data[wordIndex] = host_to_le_32(cast(u32) (scratch & 0xFFFFFFFF));
         scratch >>= 32;

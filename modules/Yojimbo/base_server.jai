@@ -4,15 +4,15 @@
 Common functionality across all server implementations.
 */
 BaseServer :: struct {
-    config               : ClientServerConfig;                 // Base client/server config.
-    time                 : Apollo_Time;                        // Current server time in seconds.
-    maxClients           : int;                                // Maximum number of clients supported.
-    running              : bool;                               // True if server is currently running, eg. after "Start" is called, before "Stop".
-    clientMessageFactory : [MaxClients] *MessageFactory;       // Array of per-client message factories. This silos message allocations per-client slot.
-    clientConnection     : [MaxClients] *Connection;           // Array of per-client connection classes. This is how messages are exchanged with clients.
-    clientEndpoint       : [MaxClients] *reliable_endpoint_t;  // Array of per-client reliable endpoints.
-    networkSimulator     : *NetworkSimulator;                  // The network simulator used to simulate packet loss, latency, jitter etc. Optional.
-    packetBuffer         : [] u8;                              // Buffer used when writing packets.
+    config           : ClientServerConfig;                 // Base client/server config.
+    time             : Apollo_Time;                        // Current server time in seconds.
+    maxClients       : int;                                // Maximum number of clients supported.
+    running          : bool;                               // True if server is currently running, eg. after "Start" is called, before "Stop".
+    messageFactory   : MessageFactory;                     // Message factory.
+    clientConnection : [MaxClients] *Connection;           // Array of per-client connection classes. This is how messages are exchanged with clients.
+    clientEndpoint   : [MaxClients] *reliable_endpoint_t;  // Array of per-client reliable endpoints.
+    networkSimulator : *NetworkSimulator;                  // The network simulator used to simulate packet loss, latency, jitter etc. Optional.
+    packetBuffer     : [] u8;                              // Buffer used when writing packets.
 
     // callbacks for packet read/write
     transmitPacketFunction : TransmitPacketFunction;
@@ -41,9 +41,8 @@ server_start :: (using server: *BaseServer, _maxClients: int) {
         network_simulator_init(networkSimulator, config.maxSimulatorPackets, time);
     }
     for 0..maxClients-1 {
-        clientMessageFactory[it] = New(MessageFactory);
         clientConnection[it] = New(Connection);
-        connection_init(clientConnection[it], clientMessageFactory[it], config, time);
+        connection_init(clientConnection[it], messageFactory, config, time);
 
         reliable_config: reliable_config_t;
         reliable_config.name = "server endpoint";
@@ -80,7 +79,6 @@ server_stop :: (using server: *BaseServer) {
         clientEndpoint[it] = null;
 
         free(clientConnection[it]);
-        free(clientMessageFactory[it]);
     }
     maxClients = 0;
     running = false;
@@ -117,9 +115,8 @@ Create a message of the specified type for a specific client.
 server_create_message :: (using server: *BaseServer, clientIndex: int, type: int) -> *Message {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
-    assert(clientMessageFactory[clientIndex] != null);
 
-    return message_factory_create_message(clientMessageFactory[clientIndex], type);
+    return messageFactory[type].create();
 }
 
 // TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.

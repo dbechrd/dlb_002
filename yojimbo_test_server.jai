@@ -46,7 +46,7 @@ main :: () {
         log("error: failed to initialize Yojimbo!\n");
     }
 
-    yojimbo_log_level(YOJIMBO_LOG_LEVEL_INFO);
+    //yojimbo_log_level(YOJIMBO_LOG_LEVEL_INFO);
     //random_seed(current_time_monotonic());
     server_main();
 

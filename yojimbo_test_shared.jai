@@ -1,3 +1,4 @@
+#import "Basic";
 #import "Yojimbo";
 #import "Serialize";
 
@@ -26,23 +27,28 @@ TestMessage :: struct {
 
     sequence: u16;
 
-    serialize :: (stream: *Stream, message: *Message) -> bool {
-        m := cast(*TestMessage) message;
-        serialize_bits(stream, *m.sequence, 16);
+    #as serializer := MessageSerializer.{
+        create = () -> *Message {
+            return New(TestMessage);
+        },
+        serialize = (stream: *Stream, message: *Message) -> bool {
+            m := cast(*TestMessage) message;
+            serialize_bits(stream, *m.sequence, 16);
 
-        numBits := GetNumBitsForMessage(m.sequence);
-        numWords := numBits / 32;
-        dummy: u32;
-        for 0..numWords-1 {
-            serialize_bits(stream, *dummy, 32);
-        }
-        numRemainderBits := numBits - numWords * 32;
-        if numRemainderBits > 0 {
-            serialize_bits(stream, *dummy, numRemainderBits);
-        }
+            numBits := GetNumBitsForMessage(m.sequence);
+            numWords := numBits / 32;
+            dummy: u32;
+            for 0..numWords-1 {
+                serialize_bits(stream, *dummy, 32);
+            }
+            numRemainderBits := numBits - numWords * 32;
+            if numRemainderBits > 0 {
+                serialize_bits(stream, *dummy, numRemainderBits);
+            }
 
-        return true;
-    }
+            return true;
+        }
+    };
 }
 
 TestBlockMessage :: struct {
@@ -51,82 +57,81 @@ TestBlockMessage :: struct {
 
     sequence: u16;
 
-    serialize :: (stream: *Stream, message: *Message) -> bool {
-        m := cast(*TestBlockMessage) message;
-        serialize_bits(stream, *m.sequence, 16);
-        return true;
-    }
+    #as serializer := MessageSerializer.{
+        create = () -> *Message {
+            return New(TestBlockMessage);
+        },
+        serialize = (stream: *Stream, message: *Message) -> bool {
+            m := cast(*TestBlockMessage) message;
+            serialize_bits(stream, *m.sequence, 16);
+            return true;
+        }
+    };
 }
 
 TestSerializeFailOnReadMessage :: struct {
     using #as base: Message;
     base.type = cast(u16) TestMessageType.TEST_SERIALIZE_FAIL_ON_READ_MESSAGE;
 
-    serialize :: (stream: *Stream, message: *Message) -> bool {
-        return !stream.isReading;
-    }
+    #as serializer := MessageSerializer.{
+        create = () -> *Message {
+            return New(TestSerializeFailOnReadMessage);
+        },
+        serialize = (stream: *Stream, message: *Message) -> bool {
+            return !stream.isReading;
+        }
+    };
 }
 
 TestExhaustStreamAllocatorOnReadMessage :: struct {
     using #as base: Message;
     base.type = cast(u16) TestMessageType.TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE;
 
-    serialize :: (stream: *Stream, message: *Message) -> bool {
-        if stream.isReading {
-            NumBuffers :: 100;
+    #as serializer := MessageSerializer.{
+        create = () -> *Message {
+            return New(TestExhaustStreamAllocatorOnReadMessage);
+        },
+        serialize = (stream: *Stream, message: *Message) -> bool {
+            if stream.isReading {
+                NumBuffers :: 100;
 
-            buffers: [NumBuffers] [] u8;
+                buffers: [NumBuffers] [] u8;
 
-            for * buffers {
-                it.* = NewArray(1024 * 1024, u8);
+                for * buffers {
+                    it.* = NewArray(1024 * 1024, u8);
+                }
+
+                for * buffers {
+                    array_free(it.*);
+                }
             }
 
-            for * buffers {
-                array_free(it.*);
-            }
+            return true;
         }
-
-        return true;
-    }
+    };
 }
 
-TestMessageFactory :: MessageFactory.{
-    messages = .[
-        .{ TestMessage,                             TestMessage.serialize                             },
-        .{ TestBlockMessage,                        TestBlockMessage.serialize                        },
-        .{ TestSerializeFailOnReadMessage,          TestSerializeFailOnReadMessage.serialize          },
-        .{ TestExhaustStreamAllocatorOnReadMessage, TestExhaustStreamAllocatorOnReadMessage.serialize }
-    ]
-};
-
-// Ensure the factory has all of the messages in the correct type_id slots
-#run {
-    for TestMessageFactory.messages {
-        log("%\n", type_of(it));
-        //m := New(it.type);
-        //assert(m.type == it);
-        //free(m);
-    }
-}
+TestMessageFactory: MessageFactory : #run MessageSerializer.[
+    TestMessage.{},
+    TestBlockMessage.{},
+    TestSerializeFailOnReadMessage.{},
+    TestExhaustStreamAllocatorOnReadMessage.{}
+];
 
 SingleTestMessageType :: enum u16 {
     SINGLE_TEST_MESSAGE;
     NUM_SINGLE_TEST_MESSAGE_TYPES;
 }
 
-SingleTestMessageFactory :: MessageFactory.{
-    messages = .[
-        .{ TestMessage, TestMessage.serialize }
-    ]
-};
+SingleTestMessageFactory: MessageFactory : #run MessageSerializer.[
+    TestMessage.{}
+];
 
 SingleBlockTestMessageType :: enum u16 {
     SINGLE_BLOCK_TEST_MESSAGE;
     NUM_SINGLE_BLOCK_TEST_MESSAGE_TYPES;
 }
 
-SingleBlockTestMessageFactory :: MessageFactory.{
-    messages = .[
-        .{ TestBlockMessage, TestBlockMessage.serialize }
-    ],
-};
+SingleBlockTestMessageFactory: MessageFactory : #run MessageSerializer.[
+    TestBlockMessage.{}
+];

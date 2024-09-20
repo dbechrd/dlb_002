@@ -24,10 +24,10 @@ IMPORTANT: This is not a cryptographically secure random. It's used only for tes
 */
 yojimbo_random_float :: inline (a: float, b: float) -> float {
     assert(a < b);
-    result := a + random_get_zero_to_one_new() * (b - a);
+    result := a + random_get_zero_to_one() * (b - a);
     assert(result >= a);
     assert(result <= b);
-    return a + r;
+    return result;
 }
 
 /*

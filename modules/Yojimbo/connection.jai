@@ -10,7 +10,7 @@ ConnectionErrorLevel :: enum {
 Sends and receives messages across a set of user defined channels.
 */
 Connection :: struct {
-    messageFactory   : *MessageFactory;         // Message factory for creating and destroying messages.
+    messageFactory   : MessageFactory;         // Message factory for creating and destroying messages.
     connectionConfig : ConnectionConfig;        // Connection configuration.
     errorLevel       : ConnectionErrorLevel;    // The connection error level.
     channels         : [MaxChannels] *Channel;  // Array of connection channels. Effective array size is connectionConfig.numChannels.
@@ -34,7 +34,7 @@ connection_packet_allocate_channel_data :: (using connectionPacket: *ConnectionP
     channelEntries = NewArray(numEntries, ChannelPacketData);
 }
 
-connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *$S, messageFactory: *MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
+connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *Stream, messageFactory: MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
     serialize_int(stream, *channelEntries.count, 0, connectionConfig.numChannels);
     #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
         assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
@@ -60,7 +60,7 @@ connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, strea
 
 // ------------------------------------------------------------------------------
 
-connection_init :: (using connection: *Connection, _messageFactory: *MessageFactory, _connectionConfig: ConnectionConfig, time: Apollo_Time) {
+connection_init :: (using connection: *Connection, _messageFactory: MessageFactory, _connectionConfig: ConnectionConfig, time: Apollo_Time) {
     assert(_connectionConfig.numChannels >= 1);
     assert(_connectionConfig.numChannels <= MaxChannels);
 
@@ -70,11 +70,13 @@ connection_init :: (using connection: *Connection, _messageFactory: *MessageFact
     for 0..connectionConfig.numChannels-1 {
         if #complete connectionConfig.channel[it].type == {
             case .ReliableOrdered;
-                channels[it] = New(ReliableOrderedChannel);
-                reliable_ordered_channel_init(channels[it], messageFactory, connectionConfig.channel[it], it, time);
+                channel := New(ReliableOrderedChannel);
+                channel_init(channel, messageFactory, connectionConfig.channel[it], it, time);
+                channels[it] = channel;
             case .UnreliableUnordered;
-                channels[it] = New(UnreliableUnorderedChannel);
-                unreliable_unordered_channel_init(channels[it], messageFactory, connectionConfig.channel[it], it, time);
+                channel := New(UnreliableUnorderedChannel);
+                channel_init(channel, messageFactory, connectionConfig.channel[it], it, time);
+                channels[it] = channel;
         }
     }
 }

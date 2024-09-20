@@ -27,8 +27,8 @@ The client constructor.
 @param config The client/server configuration.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (client: *Client, _address: Address, _config: ClientServerConfig, _time: Apollo_Time) {
-    client_init(*base, _config, _time);
+client_init :: (client: *Client, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+    client_init(*base, _config, _messageFactory, _time);
     address = _address;
     boundAddress = address;
     transmitPacketFunction = client_transmit_packet_function;

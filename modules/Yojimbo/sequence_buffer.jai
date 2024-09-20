@@ -22,7 +22,7 @@ sequence_buffer_init :: (using sequenceBuffer: *SequenceBuffer, capacity: int) {
     assert(capacity > 0);
 
     init_bit_array(*entryValid, capacity);
-    entrySequence = NewArray(capacity, u32);
+    entrySequence = NewArray(capacity, u16);
     entryData = NewArray(capacity, sequenceBuffer.T);
     sequence_buffer_reset(sequenceBuffer);
 }
@@ -148,7 +148,7 @@ sequence_buffer_get_index :: (using sequenceBuffer: *SequenceBuffer, sequence: u
 Get the capacity of the sequence buffer.
 @returns The capacity of the sequence buffer (number of entries).
 */
-sequence_buffer_get_capacity :: () -> int {
+sequence_buffer_get_capacity :: (using sequenceBuffer: *SequenceBuffer) -> int {
     return entryValid.count;
 }
 
@@ -171,7 +171,7 @@ sequence_buffer_remove_entries :: (using sequenceBuffer: *SequenceBuffer, sequen
 
     if sequenceEnd - sequenceStart < entryValid.count {
         for sequenceStart..sequenceEnd {
-            entryValid[sequence % entryValid.count] = false;
+            entryValid[it % entryValid.count] = false;
         }
     } else {
         sequence_buffer_reset(sequenceBuffer);

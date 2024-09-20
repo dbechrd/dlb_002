@@ -47,7 +47,7 @@ channel_packet_data_free :: (packetData: *ChannelPacketData) {
     }
 }
 
-channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *Stream, messageFactory: *MessageFactory, channelConfigs: [MaxChannels] ChannelConfig, numChannels: int) -> bool {
+channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *Stream, messageFactory: MessageFactory, channelConfigs: [MaxChannels] ChannelConfig, numChannels: int) -> bool {
     #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
         startBits := stream_get_bits_processed(stream);
     }
@@ -101,14 +101,14 @@ serialize_ordered_messages :: #bake_arguments serialize_messages(ordered = true,
 serialize_unordered_messages :: #bake_arguments serialize_messages(ordered = false);
 
 // NOTE: maxBlockSize is unused for ordered messages
-serialize_messages :: (stream: *Stream, messageFactory: *MessageFactory, messages: *[] *Message, maxMessagesPerPacket: int, maxBlockSize: int, $ordered: bool) -> bool {
+serialize_messages :: (stream: *Stream, messageFactory: MessageFactory, messages: *[] *Message, maxMessagesPerPacket: int, maxBlockSize: int, $ordered: bool) -> bool {
     hasMessages := stream.isWriting && messages.count > 0;
-    serialize_bool(stream, hasMessages);
+    serialize_bool(stream, *hasMessages);
     if !hasMessages {
         return true;
     }
 
-    serialize_int(stream, messages.count, 1, maxMessagesPerPacket);
+    serialize_int(stream, *messages.count, 1, maxMessagesPerPacket);
     if stream.isReading {
         messages.* = NewArray(messages.count, *Message);
     }
@@ -121,25 +121,25 @@ serialize_messages :: (stream: *Stream, messageFactory: *MessageFactory, message
     if stream.isWriting {
         for 0..messages.count-1 {
             assert(messages.*[it] != null);
-            messageTypes[it] = messages[it].type;
+            messageTypes[it] = messages.*[it].type;
             #if ordered {
-                messageIds[it] = messages[it].id;
+                messageIds[it] = messages.*[it].id;
             }
         }
     }
 
     #if ordered {
-        serialize_bits(stream, messageIds[0], 16);
+        serialize_bits(stream, *messageIds[0], 16);
         for 1..messages.count-1 {
-            serialize_sequence_relative(stream, messageIds[it-1], messageIds[it]);
+            serialize_sequence_relative(stream, messageIds[it-1], *messageIds[it]);
         }
     }
 
     for 0..messages.count-1 {
-        serialize_int(stream, messageTypes[it], 0, messageFactory.messages.count-1);
+        serialize_int(stream, *messageTypes[it], 0, messageFactory.count-1);
 
         if stream.isReading {
-            messages.*[it] = message_factory_create_message(messageFactory, messageTypes[it]);
+            messages.*[it] = messageFactory[messageTypes[it]].create();
 
             if messages.*[it] == null {
                 yojimbo_log(.ERROR, "error: failed to create message of type % (serialize_messages[ordered = %]\n", messageTypes[it], ordered);
@@ -153,21 +153,23 @@ serialize_messages :: (stream: *Stream, messageFactory: *MessageFactory, message
 
         assert(messages.*[it] != null);
 
-        if !messageFactory.messages[messageTypes[it]].serialize(stream, messages.*[it]) {
+        if !messageFactory[messageTypes[it]].serialize(stream, messages.*[it]) {
             yojimbo_log(.ERROR, "error: failed to serialize message of type % (serialize_messages[ordered = %])\n", messageTypes[it], ordered);
             return false;
         }
 
         #if !ordered {
-            if !serialize_message_block(stream, messageFactory, messages.*[it], maxBlockSize) {
+            if !serialize_message_block(stream, messages.*[it], maxBlockSize) {
                 yojimbo_log(.ERROR, "error: failed to serialize unordered block message (serialize_messages)\n");
                 return false;
             }
         }
     }
+
+    return true;
 }
 
-serialize_block_fragment :: (stream: *Stream, messageFactory: *MessageFactory, block: *ChannelPacketData.BlockData, channelConfig: ChannelConfig) -> bool {
+serialize_block_fragment :: (stream: *Stream, messageFactory: MessageFactory, block: *ChannelPacketData.BlockData, channelConfig: ChannelConfig) -> bool {
     if stream.isReading {
         block.message = null;
         array_free(block.fragmentData);
@@ -204,16 +206,16 @@ serialize_block_fragment :: (stream: *Stream, messageFactory: *MessageFactory, b
     if block.fragmentId == 0 {
         // block message
 
-        maxMessageType := messageFactory.messages.count - 1;
+        maxMessageType := messageFactory.count - 1;
         serialize_int(stream, *block.messageType, 0, maxMessageType);
 
         if stream.isReading {
-            block.message = message_factory_create_message(messageFactory, block.messageType);
+            block.message = messageFactory[block.messageType].create();
         }
 
         assert(block.message != null);
 
-        if !messageFactory.messages[block.messageType].serialize(stream, block.message) {
+        if !messageFactory[block.messageType].serialize(stream, block.message) {
             yojimbo_log(.ERROR, "error: failed to serialize block message of type % (serialize_block_fragment)\n", block.messageType);
             return false;
         }

@@ -28,9 +28,9 @@ Reliable ordered channel constructor.
 @param config The configuration for this channel.
 @param channelIndex The channel index in [0,numChannels-1].
 */
-channel_init :: (using channel: *ReliableOrderedChannel, messageFactory: *MessageFactory, config: ChannelConfig, channelIndex: int, time: Apollo_Time) {
+channel_init :: (using channel: *ReliableOrderedChannel, _messageFactory: MessageFactory, _config: ChannelConfig, _channelIndex: int, _time: Apollo_Time) {
     assert(config.type == .ReliableOrdered);
-    channel_init(*base, messageFactory, config, channelIndex, time);
+    channel_init(*base, _messageFactory, _config, _channelIndex, _time);
 
     assert((65536 % config.sentPacketBufferSize) == 0);
     assert((65536 % config.messageSendQueueSize) == 0);
@@ -80,14 +80,14 @@ channel_reset :: (using channel: *ReliableOrderedChannel) {
     oldestUnackedMessageId = 0;
 
     for 0..sequence_buffer_get_capacity(*messageSendQueue)-1 {
-        entry = sequence_buffer_get_at_index(*messageSendQueue, it);
+        entry := sequence_buffer_get_at_index(*messageSendQueue, it);
         if entry != null && entry.message != null {
             free(entry.message);
         }
     }
 
     for 0..sequence_buffer_get_capacity(*messageReceiveQueue)-1 {
-        entry = sequence_buffer_get_at_index(*messageReceiveQueue, it);
+        entry := sequence_buffer_get_at_index(*messageReceiveQueue, it);
         if entry != null && entry.message != null {
             free(entry.message);
         }
@@ -139,7 +139,7 @@ channel_send_message :: (using channel: *ReliableOrderedChannel, message: *Messa
     assert(message.blockData.count <= config.maxBlockSize);
 
     measureStream: MeasureStream;
-    messageFactory.serializeRouter(measureStream, message);
+    messageFactory[message.type].serialize(*measureStream, message);
     entry.measuredBits = stream_get_bits_processed(*measureStream);
     counters[ChannelCounter.MessagesSent] += 1;
     sendMessageId += 1;
@@ -186,7 +186,6 @@ channel_generate_packet_data :: (using channel: *ReliableOrderedChannel, packetD
             return fragmentBits;
         }
     } else {
-        numMessageIds := 0;
         messageIds := NewArray(config.maxMessagesPerPacket, u16,, temp);
         numMessageIds, messageBits := channel_get_messages_to_send(channel, messageIds, availableBits);
         messageIds.count = numMessageIds;
@@ -233,8 +232,8 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
     giveUpBits := 4 * 8;
     giveUpCounter := 0;
 
-    assert(messageFactory.messages.count > 0);
-    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count-1);
+    assert(messageFactory.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.count-1);
 
     messageLimit := min(config.messageSendQueueSize, config.messageReceiveQueueSize);
     previousMessageId: u16 = 0;
@@ -328,15 +327,15 @@ This lets us look up the set of messages that were included in that packet later
 @param sequence The sequence number of the connection packet the messages were included in.
 */
 channel_add_message_packet_entry :: (using channel: *ReliableOrderedChannel, messageIds: [] u16, sequence: u16) {
-    sentPacket = sequence_buffer_insert(*sentPackets, sequence, guaranteedOrder = true);
+    sentPacket := sequence_buffer_insert(*sentPackets, sequence, guaranteedOrder = true);
     assert(sentPacket != null);
     if sentPacket != null {
         sentPacket.acked = false;
         sentPacket.block = false;
         sentPacket.timeSent = time;
         sentPacket.messageIds = *sentPacketMessageIds[(sequence % config.sentPacketBufferSize) * config.maxMessagesPerPacket];
-        sentPacket.numMessageIds = numMessageIds;
-        for 0..numMessageIds-1 {
+        sentPacket.numMessageIds = messageIds.count;
+        for 0..messageIds.count-1 {
             sentPacket.messageIds[it] = messageIds[it];
         }
     }
@@ -351,8 +350,8 @@ channel_process_packet_messages :: (using channel: *ReliableOrderedChannel, mess
     minMessageId := receiveMessageId;
     maxMessageId := receiveMessageId + cast(u16) config.messageReceiveQueueSize - 1;
 
-    for messages {
-        assert(it != null);
+    for message: messages {
+        assert(message != null);
 
         if yojimbo_sequence_less_than(message.id, minMessageId) {
             continue;
@@ -395,23 +394,22 @@ channel_process_packet_data :: (using channel: *ReliableOrderedChannel, packetDa
 
     if packetData.flags & .BlockMessage {
         // TODO(dlb): Wtf is this shit? Just pass the block, bro. -_-
-        process_packet_fragment(
+        channel_process_packet_fragment(
             channel,
             packetData.block.messageType,
             packetData.block.messageId,
             packetData.block.numFragments,
             packetData.block.fragmentId,
             packetData.block.fragmentData,
-            packetData.block.fragmentSize,
             packetData.block.message
         );
     } else {
-        process_packet_messages(channel, packetData.message.messages);
+        channel_process_packet_messages(channel, packetData.message.messages);
     }
 }
 
 channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
-    sentPacketEntry = sequence_buffer_find(*sentPackets, ack);
+    sentPacketEntry := sequence_buffer_find(*sentPackets, ack);
     if sentPacketEntry == null {
         return;
     }
@@ -436,11 +434,14 @@ channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
         if !sendBlock.ackedFragment[fragmentId] {
             sendBlock.ackedFragment[fragmentId] = true;
             sendBlock.numAckedFragments += 1;
+
             if sendBlock.numAckedFragments == sendBlock.numFragments {
-                sendBlock.active = false;
+                send_block_data_reset(sendBlock);
+
                 sendQueueEntry := sequence_buffer_find(*messageSendQueue, messageId);
                 assert(sendQueueEntry != null);
                 sequence_buffer_remove(*messageSendQueue, messageId);
+
                 channel_update_oldest_unacked_message_id(channel);
             }
         }
@@ -455,7 +456,7 @@ This lets us know our starting point for considering messages to include in the 
 @see GetMessagesToSend
 */
 channel_update_oldest_unacked_message_id :: (using channel: *ReliableOrderedChannel) {
-    stopMessageId = messageSendQueue.nextSequence;
+    stopMessageId := messageSendQueue.nextSequence;
 
     while true {
         if oldestUnackedMessageId == stopMessageId || sequence_buffer_exists(*messageSendQueue, oldestUnackedMessageId) {
@@ -507,18 +508,10 @@ channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> frag
         sendBlock.blockSize = message.blockData.count;
         sendBlock.blockMessageId = message.id;
         sendBlock.numFragments = cast(int) Math.ceil(message.blockData.count / cast(float) config.blockFragmentSize);
-        sendBlock.numAckedFragments = 0;
 
         maxFragmentsPerBlock := channel_config_get_max_fragments_per_block(config);
-
         assert(sendBlock.numFragments > 0);
         assert(sendBlock.numFragments <= maxFragmentsPerBlock);
-
-        clear_all_bits(*sendBlock.ackedFragment);
-
-        for 0..maxFragmentsPerBlock-1 {
-            sendBlock.fragmentSendTime[it] = .{};
-        }
     }
 
     // find the next fragment to send (there may not be one)
@@ -571,8 +564,8 @@ channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, pac
     packetData.block.numFragments = cast(u16) numFragments;
     packetData.block.messageType = messageType;
 
-    assert(messageFactory.messages.count > 0);
-    messageTypeBits := bits_required(0, cast(u64) messageFactory.messages.count-1);
+    assert(messageFactory.count > 0);
+    messageTypeBits := bits_required(0, cast(u64) messageFactory.count-1);
     fragmentBits := ConservativeFragmentHeaderBits + fragmentData.count * 8;
 
     if fragmentId == 0 {
@@ -627,7 +620,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
     assert(!config.disableBlocks);
 
     if fragmentData.count > 0 {
-        expectedMessageId = messageReceiveQueue.nextSequence;
+        expectedMessageId := messageReceiveQueue.nextSequence;
         if messageId != expectedMessageId {
             return;
         }
@@ -640,10 +633,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
 
             receiveBlock.active = true;
             receiveBlock.numFragments = numFragments;
-            receiveBlock.numReceivedFragments = 0;
             receiveBlock.messageId = messageId;
-            receiveBlock.blockSize = 0;
-            clear_all_bits(*receiveBlock.receivedFragment);
         }
 
         // validate fragment
@@ -663,7 +653,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
         if !receiveBlock.receivedFragment[fragmentId] {
             receiveBlock.receivedFragment[fragmentId] = true;
 
-            memcpy(receiveBlock.blockData.data + fragmentId * config.blockFragmentSize, fragmentData.data, fragmentBytes);
+            memcpy(receiveBlock.blockData.data + fragmentId * config.blockFragmentSize, fragmentData.data, fragmentData.count);
 
             // first fragment
             if fragmentId == 0 {
@@ -672,9 +662,9 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
 
             // last fragment
             if fragmentId == receiveBlock.numFragments-1 {
-                receiveBlock.blockSize = (receiveBlock.numFragments-1) * config.blockFragmentSize + fragmentBytes;
+                receiveBlock.blockSize = (receiveBlock.numFragments-1) * config.blockFragmentSize + fragmentData.count;
 
-                if receiveBlock.blockSize > cast(u32) config.maxBlockSize {
+                if receiveBlock.blockSize > config.maxBlockSize {
                     // The block size is outside range
                     errorLevel = .Desync;
                     return;
@@ -698,13 +688,12 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
 
                 assert(receiveBlock.blockMessage != null);
 
-                blockData = NewArray(receiveBlock.blockSize, u8);
-                if blockData == null {
+                blockData := NewArray(receiveBlock.blockSize, u8);
+                if blockData.count == 0 {
                     // Not enough memory to allocate block data
                     errorLevel = .OutOfMemory;
                     return;
                 }
-
                 memcpy(blockData.data, receiveBlock.blockData.data, receiveBlock.blockSize);
 
                 receiveBlock.blockMessage.id = messageId;
@@ -714,8 +703,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
                 assert(entry != null);
                 entry.message = receiveBlock.blockMessage;
 
-                receiveBlock.active = false;
-                receiveBlock.blockMessage = null;
+                receive_block_data_reset(receiveBlock);
             }
         }
     }
@@ -748,7 +736,7 @@ Maps packet level acks to messages and fragments for the reliable-ordered channe
 SentPacketEntry :: struct {
     timeSent        : Apollo_Time;  // The time the packet was sent. Used to estimate round trip time.
     messageIds      : *u16;         // Pointer to sub-array of ReliableOrderedChannel.sentPacketMessageIds (do not alloc/free this here!). Dynamically allocated because the user can configure the maximum number of messages in a packet per-channel with ChannelConfig::maxMessagesPerPacket.
-    numMessageIds   : u16;          // The number of message ids in the array.
+    numMessageIds   : int;          // The number of message ids in the array.
     acked           : bool;         // true if this packet has been acked.
     block           : bool;         // true if this packet contains a fragment of a block message.
     blockMessageId  : u16;          // The block message id. Valid only if "block" is true.
@@ -786,10 +774,8 @@ send_block_data_reset :: (using sendBlockData: *SendBlockData) {
     numFragments = 0;
     numAckedFragments = 0;
     blockMessageId = 0;
-
-    // Original code doesn't clear these, maybe it's not necessary? Should we do it anyway to make debugging easier?
-    //clear_all_bits(*ackedFragment);
-    //array_zero(fragmentSendTime);
+    clear_all_bits(*ackedFragment);
+    array_zero(fragmentSendTime);
 }
 
 /*
@@ -803,7 +789,7 @@ ReceiveBlockData :: struct {
     numReceivedFragments : int;        // The number of fragments received.
     messageId            : u16;        // The message id corresponding to the block.
     messageType          : int;        // Message type of the block being received.
-    blockSize            : u32;        // Block size in bytes.
+    blockSize            : int;        // Block size in bytes (we re-use the blockData buffer)
     receivedFragment     : Bit_Array;  // Has fragment n been received?
     blockData            : [] u8;      // Block data for receive.
     blockMessage         : *Message;   // Block message (sent with fragment 0).
@@ -826,13 +812,7 @@ receive_block_data_reset :: (using receiveBlockData: *ReceiveBlockData) {
     messageId = 0;
     messageType = 0;
     blockSize = 0;
-
-    // Original code doesn't clear these, maybe it's not necessary? Should we do it anyway to make debugging easier?
-    //clear_all_bits(*receivedFragment);
-    //array_zero(blockData);
-
-    if blockMessage != null{
-        free(blockMessage);
-        blockMessage = null;
-    }
+    clear_all_bits(*receivedFragment);
+    array_zero(blockData);
+    blockMessage = null;
 }

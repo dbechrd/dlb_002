@@ -15,7 +15,7 @@ BaseClient :: struct {
     time             : Apollo_Time;           // The current client time. See ClientInterface::AdvanceTime
     clientIndex      : int;                   // The client slot index on the server [0,maxClients-1]. -1 if not connected.
     clientState      : ClientState;           // The current client state. See ClientInterface::GetClientState
-    messageFactory   : *MessageFactory;       // The client message factory. Created and destroyed on each connection attempt.
+    messageFactory   : MessageFactory;        // The client message factory. Created and destroyed on each connection attempt.
     connection       : *Connection;           // The client connection for exchanging messages with the server.
     endpoint         : *reliable_endpoint_t;  // reliable endpoint.
     networkSimulator : *NetworkSimulator;     // The network simulator used to simulate packet loss, latency, jitter etc. Optional.
@@ -31,8 +31,9 @@ Base client constructor.
 @param config The base client/server configuration.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (client: *BaseClient, _config: *ClientServerConfig, _time: Apollo_Time) {
+client_init :: (client: *BaseClient, _config: *ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
     config = _config.*;
+    messageFactory = _messageFactory;
     time = _time;
     clientIndex = -1;
     packetBuffer = NewArray(config.maxPacketSize, u8);
@@ -134,8 +135,7 @@ Create a message of the specified type.
 @param type The type of the message to create. The message types correspond to the message factory set on this client.
 */
 client_create_message :: (using client: *BaseClient, type: int) -> *Message {
-    assert(messageFactory != null);
-    return message_factory_create_message(messageFactory, type);
+    return messageFactory[type].create();
 }
 
 /*
@@ -259,14 +259,12 @@ client_process_loopback_packet :: (using client: *BaseClient, packetData: [] u8,
 
 
 client_create_internal :: (using client: *BaseClient) {
-    assert(messageFactory == null);
     assert(transmitPacketFunction != null);
     assert(processPacketFunction != null);
 
     // TODO(dlb): We could probably combine some of these allocs? The logic is a bit weird right now because the
     // original code frees and reallocs these when the connection is dropped. I'm not sure what state would have
     // to be reset or re-init()ed if you wanted to re-use the memory.
-    messageFactory = New(MessageFactory);
     connection = New(Connection);
     connection_init(connection, messageFactory, config.*, time);
     if config.networkSimulator {
@@ -300,7 +298,6 @@ client_destroy_internal :: (using client: *BaseClient) {
 
     free(networkSimulator);
     free(connection);
-    free(messageFactory);
 }
 
 client_reset :: (using client: *BaseClient) {

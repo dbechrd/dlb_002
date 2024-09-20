@@ -71,47 +71,33 @@ Then register those messages types and the router with the MessageFactory:
     msgFactory.serializeRouter = serialize_router;
 
 */
-MessageFactory :: struct {
-    // IMPORTANT: The index of the type in the this array must be the message ID (i.e. it should match your enum).
-    messages: [] struct {
-        type      : Type;
-        serialize : (stream: *Stream, message: *Message) -> bool;
-    };
-
-    create_message: (messageType: int) -> *Message;
+MessageSerializer :: struct {
+    create    : () -> *Message;
+    serialize : (stream: *Stream, message: *Message) -> bool;
 }
+
+// IMPORTANT: The index of the type in the this array must be the message ID (i.e. it should match your enum).
+MessageFactory :: #type,isa [] MessageSerializer;
 
 #scope_module
 
 /*
-Create a message by type.
-@param typeId The message type in [0,numTypes-1].
-@returns The allocated message.
-*/
-message_factory_create_message :: (messageFactory: *MessageFactory, messageType: int) -> *void {
-    assert(messageType >= 0);
-    assert(messageType < messageFactory.messages.count);
-
-    return messageFactory.create_message(messageType);
-}
-
-/*
 Helper function to serialize a block attached to a message. Used by channel implementations.
  */
-serialize_message_block :: (stream: *$S, message: *Message, maxBlockSize: int) -> bool {
+serialize_message_block :: (stream: *Stream, message: *Message, maxBlockSize: int) -> bool {
     isBlockMessage := stream.isWriting && message.blockData.count > 0;
-    serialize_bool(stream, isBlockMessage);
+    serialize_bool(stream, *isBlockMessage);
     if !isBlockMessage {
         return true;
     }
 
     blockSize: int = ifx stream.isWriting then cast(int) message.blockData.count else 0;
-    serialize_int(stream, blockSize, 1, maxBlockSize);
+    serialize_int(stream, *blockSize, 1, maxBlockSize);
 
     if stream.isReading {
         message.blockData = NewArray(blockSize, u8);
     }
-    serialize_bytes(stream, blockData);
+    serialize_bytes(stream, message.blockData);
 
     return true;
 }
