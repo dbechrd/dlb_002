@@ -6,9 +6,7 @@ netcode_test :: () {
     RUN_TEST(test_sequence);
 
     // Prevent the IPAddress module from logging a bunch of errors when testing error cases.
-    address_tests_running = true;
     RUN_TEST(test_address);
-    address_tests_running = false;
 
     RUN_TEST(test_connect_token);
     RUN_TEST(test_challenge_token);

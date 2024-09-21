@@ -989,77 +989,31 @@ netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #c
 
 // ----------------------------------------------------------------
 
-// TODO(dlb): Move the vast majority of this auto-detect and port parsing logic into IPAddress module.
 // This accepts an IPv4 address *or* an IPv6 address in string form. See the comments on the `address_init_v4`
 // and `address_init_v6` methods to learn about valid formats.
 netcode_parse_address :: (address_string_in: string, address: *netcode_address_t) -> int {
-    // TODO(dlb): Remove this after the bracket logic is moved to the real ipv6 parser.
     if address_string_in.count == 0 {
         return NETCODE_ERROR;
     }
 
-    ipv4_error: string;
+    addr, remainder := address_init_auto_detect(address_string_in);
 
-    {
-        // HACK(dlb): When auto-detecting address type, we parse as IPv4 first, then IPv6 if IPv4 fails. In this case,
-        // we don't want the IPv4 parser to log errors, unless the IPv6 parse also fails, which we don't yet know. As
-        // such, we use the "tests_running" flag to tell IPAddress module not to log errors, then capture the error
-        // in a string, so that we can maybe log it later (if IPv6 also fails). This way, if the address is neither
-        // a valid IPv4 nor a valid IPv6 address, we can log both parse errors and let the user figure out what they
-        // were trying to do.
-        prev_tests_running := address_tests_running;
-        address_tests_running = true;
-        ip, ip_remainder := address_init_v4(address_string_in);
-        address_tests_running = prev_tests_running;
+    // We don't expect any remainder when parsing address strings here. They are proxied through Yojimbo.
+    if remainder.count > 0 {
+        return NETCODE_ERROR;
+    }
 
-        if ip.type == .IPv4 {
+    if addr.type == {
+        case .IPv4;
             address.type = NETCODE_ADDRESS_IPV4;
-            array_copy(address.data.ipv4, ip.data.v4);
-
-            if ip_remainder.count > 1 && ip_remainder[0] == #char ":" {
-                advance(*ip_remainder, 1);
-                port, success := to_integer(ip_remainder);
-                if success && port > 0 && port <= 0xffff {
-                    address.port = cast(u16) port;
-                }
-            }
-
+            address.port = addr.port;
+            array_copy(address.data.ipv4, addr.data.v4);
             return NETCODE_OK;
-        }
-
-        // Capture the parse error in case IPv6 parsing also fails.
-        ipv4_error = address_last_log_message;
-    }
-
-    {
-        bracketed := false;
-        if address_string_in[0] == #char "[" {
-            advance(*address_string_in, 1);
-            bracketed = true;
-        }
-
-        ip, ip_remainder := address_init_v6(address_string_in);
-        if ip.type == .IPv6 {
+        case .IPv6;
             address.type = NETCODE_ADDRESS_IPV6;
-            array_copy(address.data.ipv6, ip.data.v6);
-
-            if bracketed && ip_remainder.count > 2 && ip_remainder[0] == #char "]" && ip_remainder[1] == #char ":" {
-                advance(*ip_remainder, 2);
-                port, success := to_integer(ip_remainder);
-                if success && port > 0 && port <= 0xffff {
-                    address.port = cast(u16) port;
-                }
-            }
-
+            address.port = addr.port;
+            array_copy(address.data.ipv6, addr.data.v6);
             return NETCODE_OK;
-        }
-    }
-
-    if !address_tests_running {
-        // If both IPv4 parse and IPv6 parse failed, and we're not in test mode, log the IPv4 error
-        // (the IPv6 failure was already logged, but we had to defer logging the IPv4 error because we
-        // weren't yet sure if the string was a valid IPv6 address).
-        netcode_log(.ERROR, "%", ipv4_error);
     }
 
     return NETCODE_ERROR;
