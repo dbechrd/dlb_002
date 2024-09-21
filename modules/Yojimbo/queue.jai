@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 A simple queue.
 This is a FIFO queue. First entry in, first entry out.
