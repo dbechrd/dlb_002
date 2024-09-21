@@ -247,6 +247,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
         memcpy(transmit_packet_data.data + packet_header_bytes, packet_data.data, packet_data.count);
 
         transmit_packet_data.count = packet_header_bytes + packet_data.count;
+        assert(endpoint.config.transmit_packet_function != null);
         endpoint.config.transmit_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, transmit_packet_data);
     } else {
         // fragmented packet
@@ -291,6 +292,7 @@ reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [
             src += bytes_to_copy;
 
             fragment_packet_data.count = pointer_diff(dst, fragment_packet_data.data);
+            assert(endpoint.config.transmit_packet_function != null);
             endpoint.config.transmit_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, fragment_packet_data);
 
             endpoint.counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_SENT] += 1;
@@ -351,6 +353,8 @@ reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data
         packet_body := packet_data;
         packet_body.data += packet_header_bytes;
         packet_body.count -= packet_header_bytes;
+
+        assert(endpoint.config.process_packet_function != null);
         if endpoint.config.process_packet_function(endpoint.config.ctx, endpoint.config.id, sequence, packet_body) {
             reliable_log(.VERY_VERBOSE_ONLY, "[%] process packet % successful\n", endpoint.config.name, sequence);
 

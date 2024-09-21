@@ -69,7 +69,7 @@ ClientServerConfig :: struct {
     #as using base: ConnectionConfig;
 
     protocolId                 : u64         = 0;                        // Clients can only connect to servers with the same protocol id. Use this for versioning.
-    timeout                    : Apollo_Time = YOJIMBO_DEFAULT_TIMEOUT;  // Timeout value in seconds. Set to negative value to disable timeouts (for debugging only).
+    timeout                    : Apollo_Time = #run seconds_to_apollo(YOJIMBO_DEFAULT_TIMEOUT);  // Timeout value in seconds. Set to negative value to disable timeouts (for debugging only).
     clientMemory               : int         = 10 * 1024 * 1024;         // Memory allocated inside Client for packets, messages and stream allocations (bytes)
     serverGlobalMemory         : int         = 10 * 1024 * 1024;         // Memory allocated inside Server for global connection request and challenge response packets (bytes)
     serverPerClientMemory      : int         = 10 * 1024 * 1024;         // Memory allocated inside Server for packets, messages and stream allocations per-client (bytes)

@@ -305,7 +305,3 @@ client_reset :: (using client: *BaseClient) {
         connection_reset(connection);
     }
 }
-
-#scope_file
-
-#import "Reliable";

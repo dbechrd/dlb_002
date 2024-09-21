@@ -41,8 +41,8 @@ log_cpu_info :: () {
 #import "dlb";
 #import "IPAddress"; //(ENABLE_LOGGING=true);
 #import "Reliable"; //(ENABLE_LOGGING=true);
+#import "Netcode"; //, NETCODE_ENABLE_LOGGING=true);
 #import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_ENABLE_TESTS=true);
-#import "Netcode"(NETCODE_DISABLE_SECURITY=true); //, NETCODE_ENABLE_LOGGING=true);
 #import "Socket";
 
 logger :: (message: string, data: *void, info: Log_Info) {

@@ -32,7 +32,7 @@ https://github.com/mas-bandwidth/yojimbo/commit/c6c02dfec105b36b9cbefd82f86f11f8
 #module_parameters(
     YOJIMBO_ENABLE_LOGGING       := false,
     YOJIMBO_ENABLE_TESTS         := false,
-    YOJIMBO_DEFAULT_TIMEOUT      := #run seconds_to_apollo(10),
+    YOJIMBO_DEFAULT_TIMEOUT      := 10,
     YOJIMBO_DEBUG_MESSAGE_BUDGET := false,
     YOJIMBO_SERIALIZE_CHECKS     := false
 );
@@ -78,9 +78,11 @@ yojimbo_shutdown :: () {
 
 #import "Basic";
 Math :: #import "Math";
+#import "IPAddress"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
+#import "Reliable"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
+#import "Netcode"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
 #import "dlb";
 
-#load "address.jai";
 #load "base_client.jai";
 #load "base_server.jai";
 #load "channel.jai";

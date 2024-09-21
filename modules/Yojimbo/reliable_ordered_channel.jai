@@ -816,3 +816,7 @@ receive_block_data_reset :: (using receiveBlockData: *ReceiveBlockData) {
     array_zero(blockData);
     blockMessage = null;
 }
+
+#scope_file
+
+Math :: #import "Math";

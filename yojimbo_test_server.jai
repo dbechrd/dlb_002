@@ -11,7 +11,7 @@ server_main :: () {
 
     privateKey: [KeyBytes] u8;
 
-    server_address := address_create_ipv4("127.0.0.1", ServerPort);
+    server_address := address_init_v4("127.0.0.1", ServerPort);
     server := New(Server);
     server_init(server, privateKey, server_address, config, TestMessageFactory, time);
 
@@ -19,7 +19,7 @@ server_main :: () {
 
     log("server address is %\n", address_to_string(server_address));
 
-    deltaTime := milliseconds_to_apollo(100);
+    deltaTime := milliseconds_to_apollo(500);
 
     while !quit {
         server_send_packets(server);
@@ -41,6 +41,9 @@ server_main :: () {
 }
 
 main :: () {
+    context.logger = logger;
+    context.log_level = .VERY_VERBOSE;
+
     if !yojimbo_init() {
         log("error: failed to initialize Yojimbo!\n");
         return;

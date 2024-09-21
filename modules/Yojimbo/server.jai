@@ -6,8 +6,8 @@ Server :: struct {
     base.disconnectClientFunction = server_disconnect_client;
 
     netServer    : *netcode_server_t;  // netcode server data.
-    address      : Address;            // original address passed to ctor
-    boundAddress : Address;            // address after socket bind, eg. valid port
+    address      : IPAddress;          // original address passed to ctor
+    boundAddress : IPAddress;          // address after socket bind, eg. valid port
     privateKey   : [KeyBytes] u8;      // server-side private key for encryption
 
     /*
@@ -32,7 +32,7 @@ Server :: struct {
 
 };
 
-server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: IPAddress, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
     server_init(*base, _config, _messageFactory, _time);
     assert(KeyBytes == NETCODE_KEY_BYTES);
     array_copy(privateKey, _privateKey);
@@ -292,8 +292,6 @@ server_get_network_info :: (using server: *Server, clientIndex: int, info: *Netw
 
 #scope_file
 
-#import "Netcode";
-
 server_transmit_packet_function :: (ctx: *void, _clientIndex: u64, packetSequence: u16, packetData: [] u8) {
     using server := cast(*Server) ctx;
     clientIndex := cast(int) _clientIndex;
@@ -316,11 +314,13 @@ server_connect_disconnect_callback :: (ctx: *void, clientIndex: int, connected: 
     using server := cast(*Server) ctx;
 
     if connected {
-        // TODO(dlb): Callback null check?
-        onClientConnected(server, clientIndex);
+        if onClientConnected != null {
+            onClientConnected(server, clientIndex);
+        }
     } else {
-        // TODO(dlb): Callback null check?
-        onClientDisconnected(server, clientIndex);
+        if onClientDisconnected != null {
+            onClientDisconnected(server, clientIndex);
+        }
         reliable_endpoint_reset(clientEndpoint[clientIndex]);
         connection_reset(clientConnection[clientIndex]);
         if networkSimulator != null && network_simulator_is_active(networkSimulator) {
@@ -332,6 +332,7 @@ server_connect_disconnect_callback :: (ctx: *void, clientIndex: int, connected: 
 server_send_loopback_packet_callback :: (ctx: *void, clientIndex: int, packetData: [] u8, packetSequence: u64) {
     using server := cast(*Server) ctx;
 
-    // TODO(dlb): Callback null check?
-    onServerSendLoopbackPacket(server, clientIndex, packetData, packetSequence);
+    if onServerSendLoopbackPacket != null {
+        onServerSendLoopbackPacket(server, clientIndex, packetData, packetSequence);
+    }
 }

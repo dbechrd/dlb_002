@@ -1,6 +1,7 @@
 #import "Basic";
 #import "Random";
-#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true, YOJIMBO_DEFAULT_TIMEOUT=#run seconds_to_apollo(100));
+#import "IPAddress"(ENABLE_LOGGING=true);
+#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true); //, YOJIMBO_DEFAULT_TIMEOUT=100);
 #import "Serialize";
 
 ProtocolId :: cast(u64) 0x11223344556677;
@@ -136,3 +137,22 @@ SingleBlockTestMessageType :: enum u16 {
 SingleBlockTestMessageFactory: MessageFactory : MessageSerializer.[
     TestBlockMessage.serializer
 ];
+
+logger :: (message: string, data: *void, info: Log_Info) {
+    if !message then return;
+
+    if info.common_flags & .VERY_VERBOSE_ONLY && context.log_level < .VERY_VERBOSE {
+        return;
+    }
+    if info.common_flags & .VERBOSE_ONLY && context.log_level < .VERBOSE {
+        return;
+    }
+
+    to_standard_error := false; //(info.common_flags & .ERROR) != 0;
+
+    if message[message.count-1] != #char "\n" {
+        write_strings(message, "\n", to_standard_error = to_standard_error);
+    } else {
+        write_string(message, to_standard_error = to_standard_error);
+    }
+}

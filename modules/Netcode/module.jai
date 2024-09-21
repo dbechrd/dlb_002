@@ -31,8 +31,7 @@ https://github.com/mas-bandwidth/netcode/commit/3ffe69ad33416789bfb651bf687fdc61
 */
 
 #module_parameters(
-    NETCODE_ENABLE_LOGGING := false,
-    NETCODE_DISABLE_SECURITY := false
+    ENABLE_LOGGING := false
 );
 
 #load "tests.jai";
@@ -268,6 +267,7 @@ netcode_client_send_packet :: (using client: *netcode_client_t, packet_data: [] 
 
         netcode_client_send_packet_to_server_internal(client, packet);
     } else {
+        assert(config.send_loopback_packet_callback != null);
         config.send_loopback_packet_callback(config.callback_context, client_index, packet_data, sequence);
         sequence += 1;
     }
@@ -698,7 +698,6 @@ netcode_server_send_packet :: (using server: *netcode_server_t, client_index: in
         netcode_server_send_client_packet(server, packet, client_index);
     } else {
         assert(config.send_loopback_packet_callback != null);
-
         config.send_loopback_packet_callback(config.callback_context, client_index, packet_data, client_sequence[client_index]);
 
         client_sequence[client_index] += 1;
@@ -924,6 +923,10 @@ netcode_network_simulator_t :: struct {
 
 #scope_module
 
+encrypt_security_warning_shown := false;
+decrypt_security_warning_shown := false;
+fake_mac_security_warning_shown := false;
+
 #import "Basic";
 #import "Socket";
 #import "Random";
@@ -979,7 +982,7 @@ netcode_t :: struct {
 netcode: netcode_t;
 
 netcode_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    #if NETCODE_ENABLE_LOGGING {
+    #if ENABLE_LOGGING {
         log(format_string, ..args, loc, flags,, temp);
     }
 }
@@ -1427,8 +1430,9 @@ crypto_aead_xchacha20poly1305_ietf_encrypt :: (
     npub   : *u8,   // [in] public nonce
     k      : *u8    // [in] key
 ) -> int {
-    #if !NETCODE_DISABLE_SECURITY {
+    if !encrypt_security_warning_shown {
         print("CRITICAL: FAKE ENCRYPTION ENABLED. YOUR DATA IS NOT SAFE!\n");
+        encrypt_security_warning_shown = true;
     }
     clen_p.* = mlen + NETCODE_MAC_BYTES;
     return 0;
@@ -1445,8 +1449,9 @@ crypto_aead_xchacha20poly1305_ietf_decrypt :: (
     npub   : *u8,   // [in] public nonce
     k      : *u8    // [in] key
 ) -> int {
-    #if !NETCODE_DISABLE_SECURITY {
-        print("CRITICAL: FAKE ENCRYPTION ENABLED. YOUR DATA IS NOT SAFE!\n");
+    if !decrypt_security_warning_shown {
+        print("CRITICAL: FAKE DECRYPTION ENABLED. YOUR DATA IS NOT SAFE!\n");
+        decrypt_security_warning_shown = true;
     }
     mlen_p.* = clen - NETCODE_MAC_BYTES;
     return 0;
@@ -1491,8 +1496,9 @@ netcode_encrypt_aead_bignonce :: (message: [] u8, header: [] u8, nonce: BigNonce
     /////////////////////////////////////////////////////////////////////////////////////////////////////////
     // HACK(dlb): Put random nonsense in the MAC to make the test pass without importing libsodium
     /////////////////////////////////////////////////////////////////////////////////////////////////////////
-    #if !NETCODE_DISABLE_SECURITY {
+    if !fake_mac_security_warning_shown {
         print("CRITICAL: FAKE MAC AUTH ENABLED. YOUR DATA IS NOT SAFE!\n");
+        fake_mac_security_warning_shown = true;
     }
     mac := message.data + NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES;
     hash := netcode_hash_data(message) ^ netcode_hash_data(header) ^ netcode_hash_data(nonce);
@@ -2892,6 +2898,7 @@ netcode_client_receive_packets :: (using client: *netcode_client_t) {
             packet_bytes := 0;
 
             if config.override_send_and_receive {
+                assert(config.receive_packet_override != null);
                 packet_bytes = config.receive_packet_override(config.callback_context, *from, packet_buf);
             } else if server_address.type == NETCODE_ADDRESS_IPV4 {
                 packet_bytes = netcode_socket_receive_packet(socket_holder.ipv4, *from, packet_buf);
@@ -2974,6 +2981,7 @@ netcode_client_send_packet_to_server_internal :: (using client: *netcode_client_
         netcode_network_simulator_send_packet(config.network_simulator, address, server_address, packet_data);
     } else {
         if config.override_send_and_receive {
+            assert(config.send_packet_override != null);
             config.send_packet_override(config.callback_context, server_address, packet_data);
         } else if server_address.type == NETCODE_ADDRESS_IPV4 {
             netcode_socket_send_packet(socket_holder.ipv4, server_address, packet_data);
@@ -3597,6 +3605,7 @@ netcode_server_send_global_packet :: (using server: *netcode_server_t, packet: *
         netcode_network_simulator_send_packet(config.network_simulator, address, to, packet_data);
     } else {
         if config.override_send_and_receive {
+            assert(config.send_packet_override != null);
             config.send_packet_override(config.callback_context, to, packet_data);
         } else if to.type == NETCODE_ADDRESS_IPV4 {
             netcode_socket_send_packet(socket_holder.ipv4, to, packet_data);
@@ -3632,6 +3641,7 @@ netcode_server_send_client_packet :: (using server: *netcode_server_t, packet: *
         netcode_network_simulator_send_packet(config.network_simulator, address, client_address[client_index], packet_data);
     } else {
         if config.override_send_and_receive {
+            assert(config.send_packet_override != null);
             config.send_packet_override(config.callback_context, client_address[client_index], packet_data);
         } else {
             if client_address[client_index].type == NETCODE_ADDRESS_IPV4 {
@@ -4008,6 +4018,7 @@ netcode_server_receive_packets :: (using server: *netcode_server_t) {
             packet_bytes := 0;
 
             if config.override_send_and_receive {
+                assert(config.receive_packet_override != null);
                 packet_bytes = config.receive_packet_override(config.callback_context, *from, packet_data);
             } else {
                 if socket_holder.ipv4.handle != INVALID_SOCKET {

@@ -5,8 +5,8 @@ Client :: struct {
     #as using base: BaseClient;
 
     netClient    : *netcode_client_t;  // netcode client data.
-    address      : Address;            // Original address passed to ctor.
-    boundAddress : Address;            // Address after socket bind, eg. with valid port
+    address      : IPAddress;          // Original address passed to ctor.
+    boundAddress : IPAddress;          // Address after socket bind, eg. with valid port
     clientId     : u64;                // The globally unique client id (set on each call to connect)
 
     /*
@@ -25,7 +25,7 @@ The client constructor.
 @param config The client/server configuration.
 @param time The current time in seconds. See ClientInterface::AdvanceTime
 */
-client_init :: (using client: *Client, _address: Address, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
+client_init :: (using client: *Client, _address: IPAddress, _config: ClientServerConfig, _messageFactory: MessageFactory, _time: Apollo_Time) {
     client_init(*base, _config, _messageFactory, _time);
     address = _address;
     boundAddress = address;
@@ -38,11 +38,11 @@ client_free :: (using client: *Client) {
     assert(netClient == null);
 }
 
-client_insecure_connect :: (client: *Client, privateKey: [KeyBytes] u8, clientId: u64, address: Address) {
+client_insecure_connect :: (client: *Client, privateKey: [KeyBytes] u8, clientId: u64, address: IPAddress) {
     client_insecure_connect(client, privateKey, clientId, .{ 1, *address });
 }
 
-client_insecure_connect :: (using client: *Client, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] Address) {
+client_insecure_connect :: (using client: *Client, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] IPAddress) {
     assert(serverAddresses.count > 0);
     assert(serverAddresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
@@ -65,7 +65,7 @@ client_insecure_connect :: (using client: *Client, privateKey: [KeyBytes] u8, _c
     clientState = .Connecting;
 }
 
-client_generate_insecure_connect_token :: (using client: *Client, connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] Address) -> bool {
+client_generate_insecure_connect_token :: (using client: *Client, connectToken: [NETCODE_CONNECT_TOKEN_BYTES] u8, privateKey: [KeyBytes] u8, _clientId: u64, serverAddresses: [] IPAddress) -> bool {
     assert(serverAddresses.count <= NETCODE_MAX_SERVERS_PER_CONNECT);
 
     serverAddressStrings := NewArray(serverAddresses.count, string,, temp);
@@ -204,9 +204,7 @@ client_process_loopback_packet :: (using client: *Client, packetData: [] u8, pac
 
 #scope_file
 
-#import "Netcode";
-
-client_create_net_client :: (using client: *Client, _address: Address) {
+client_create_net_client :: (using client: *Client, _address: IPAddress) {
     client_destroy_net_client(client);
 
     // TODO(dlb): Could we maybe.. *not* convert our addresses back to strings just to call into another library? :/
