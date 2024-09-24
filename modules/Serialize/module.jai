@@ -29,9 +29,7 @@ https://github.com/mas-bandwidth/serialize/commit/cc75300b1bce50246374709bf1d29b
 ---------------------------------------------------------------------------------------------------------------------
 */
 
-#module_parameters(
-    ENABLE_LOGGING := false
-);
+#module_parameters () (ENABLE_LOGGING := false);
 
 #load "tests.jai";
 
@@ -407,6 +405,15 @@ bit_reader_get_align_bits :: (using reader: *BitReader) -> int {
     return (8 - bitsRead % 8) % 8;
 }
 
+/*
+The number of bytes read from memory.
+The returned value is not always a multiple of 4, even though we read dwords from memory.
+This is conservative, and will round up when less than 8 bits have been read from the current byte.
+*/
+bit_reader_get_bytes_read :: (using reader: *BitReader) -> int {
+    return (bitsRead + 7) / 8;
+}
+
 StreamType :: enum {
     Write;
     Read;
@@ -430,7 +437,7 @@ stream_serialize_bits :: (stream: *Stream, value: *u64, bits: int) -> bool {
         hi = cast(u32) (value.* >> 32);
     }
 
-    if stream.type == {
+    if #complete stream.type == {
         case .Write;
             s := cast(*WriteStream) stream;
             bit_writer_write_bits(*s.writer, lo, 32);
@@ -459,7 +466,7 @@ stream_serialize_bits :: (stream: *Stream, value: *u64, bits: int) -> bool {
 stream_serialize_bytes :: (stream: *Stream, bytes: [] u8) -> bool {
     assert(bytes.count > 0);
 
-    if stream.type == {
+    if #complete stream.type == {
         case .Write;
             s := cast(*WriteStream) stream;
             stream_align(s);
@@ -479,13 +486,12 @@ stream_serialize_bytes :: (stream: *Stream, bytes: [] u8) -> bool {
             stream_align(s);
             s.bitsWritten += bytes.count * 8;
     }
-
     return true;
 }
 
 // NOTE: You probably want to call serialize_align() macro rather than this directly.
 stream_align :: (stream: *Stream) -> bool {
-    if stream.type == {
+    if #complete stream.type == {
         case .Write;
             s := cast(*WriteStream) stream;
             bit_writer_align(*s.writer);
@@ -504,6 +510,41 @@ stream_align :: (stream: *Stream) -> bool {
             s.bitsWritten += alignBits;
     }
     return true;
+}
+
+/*
+Get number of bits written/read/measured so far.
+*/
+stream_get_bits_processed :: inline (using stream: *Stream) -> int {
+    if #complete stream.type == {
+        case .Write;
+            s := cast(*WriteStream) stream;
+            return s.writer.bitsWritten;
+        case .Read;
+            s := cast(*ReadStream) stream;
+            return s.reader.bitsRead;
+        case .Measure;
+            s := cast(*MeasureStream) stream;
+            return s.bitsWritten;
+    }
+}
+
+/*
+Get number of bytes written/read/measured so far.
+*/
+stream_get_bytes_processed :: inline (using stream: *Stream) -> int {
+    if #complete stream.type == {
+        case .Write;
+            s := cast(*WriteStream) stream;
+            return bit_writer_get_bytes_written(*s.writer);
+        case .Read;
+            s := cast(*ReadStream) stream;
+            return bit_reader_get_bytes_read(*s.reader);
+        case .Measure;
+            s := cast(*MeasureStream) stream;
+            // conservative; rounds up to the next byte
+            return (s.bitsWritten + 7) / 8;
+    }
 }
 
 /*
@@ -558,22 +599,6 @@ stream_get_data :: inline (using stream: *WriteStream) -> [] u8 {
     return writer.data;
 }
 
-/*
-How many bytes have been written so far?
-@returns Number of bytes written. This is effectively the packet size.
-*/
-stream_get_bytes_processed :: inline (using stream: *WriteStream) -> int {
-    return bit_writer_get_bytes_written(*writer);
-}
-
-/*
-Get number of bits written so far.
-@returns Number of bits written.
-*/
-stream_get_bits_processed :: inline (using stream: *WriteStream) -> int {
-    return writer.bitsWritten;
-}
-
 /**
 Stream class for reading bitpacked data.
 This class is a wrapper around the bit reader class. Its purpose is to provide unified interface for reading and writing.
@@ -607,22 +632,6 @@ If we were to read an align right now, how many bits would we need to read?
 */
 stream_get_align_bits :: inline (using stream: *ReadStream) -> int {
     return bit_reader_get_align_bits(reader);
-}
-
-/*
-Get number of bits read so far.
-@returns Number of bits read.
-*/
-stream_get_bits_processed :: inline (using stream: *ReadStream) -> int {
-    return reader.bitsRead;
-}
-
-/*
-How many bytes have been read so far?
-@returns Number of bytes read. Effectively this is the number of bits read, rounded up to the next byte where necessary.
-*/
-stream_get_bytes_processed :: inline (using stream: *ReadStream) -> int {
-    return (reader.bitsRead + 7) / 8;
 }
 
 /*
@@ -664,22 +673,6 @@ stream_get_align_bits :: inline (using stream: *MeasureStream) -> int {
 //       return true;
 //   }
 //
-
-/*
-Get number of bits written so far.
-@returns Number of bits written.
-*/
-stream_get_bits_processed :: inline (using stream: *MeasureStream) -> int {
-    return bitsWritten;
-}
-
-/*
-How many bytes have been written so far?
-@returns Number of bytes written.
-*/
-stream_get_bytes_processed :: inline (using stream: *MeasureStream) -> int {
-    return (bitsWritten + 7) / 8;
-}
 
 /*
 Serialize integer value (read/write/measure).

@@ -36,9 +36,8 @@ connection_packet_allocate_channel_data :: (using connectionPacket: *ConnectionP
 
 connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *Stream, messageFactory: MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
     serialize_int(stream, *channelEntries.count, 0, connectionConfig.numChannels);
-    #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
-        assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
-    }
+    assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
+
     if channelEntries.count > 0 {
         if stream.isReading {
             connection_packet_allocate_channel_data(connectionPacket, channelEntries.count);

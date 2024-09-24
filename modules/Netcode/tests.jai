@@ -2883,9 +2883,7 @@ test_address_map :: () {
 }
 
 // This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
-RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
-    assert(type_info(T).info.type == .PROCEDURE);
-
+RUN_TEST :: (test: (), $call := #caller_code, loc := #caller_location) {
     arg0_name :: #run -> string {
         Compiler :: #import "Compiler";
         root := Compiler.compiler_get_nodes(call);
@@ -2900,10 +2898,10 @@ RUN_TEST :: (test: $T, $call := #caller_code, loc := #caller_location) {
     for 0..spaces-1 {
         append(*builder, #char " ");
     }
-    /*
-    log("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-    log("│ [Test] %0%│\n", arg0_name, builder_to_string(*builder));
-    log("└──────────────────────────────────────────────────────────────────────────────┘\n");
-    */
+    #if ENABLE_LOGGING {
+        log("┌──────────────────────────────────────────────────────────────────────────────┐\n");
+        log("│ [Test] %0%│\n", arg0_name, builder_to_string(*builder));
+        log("└──────────────────────────────────────────────────────────────────────────────┘\n");
+    }
     test();
 }

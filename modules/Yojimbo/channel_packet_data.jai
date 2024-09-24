@@ -48,9 +48,7 @@ channel_packet_data_free :: (packetData: *ChannelPacketData) {
 }
 
 channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *Stream, messageFactory: MessageFactory, channelConfigs: [MaxChannels] ChannelConfig, numChannels: int) -> bool {
-    #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
-        startBits := stream_get_bits_processed(stream);
-    }
+    startBits := stream_get_bits_processed(stream);
 
     if numChannels > 1 {
         serialize_int(stream, *packetData.channelIndex, cast(u16) 0, cast(u16) numChannels - 1);
@@ -85,10 +83,8 @@ channel_packet_data_serialize :: (packetData: *ChannelPacketData, stream: *Strea
                 }
         }
 
-        #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
-            if channelConfig.packetBudget > 0 {
-                assert(stream_get_bits_processed(stream) - startBits <= channelConfig.packetBudget * 8);
-            }
+        if channelConfig.packetBudget > 0 {
+            assert(stream_get_bits_processed(stream) - startBits <= channelConfig.packetBudget * 8);
         }
     }
 

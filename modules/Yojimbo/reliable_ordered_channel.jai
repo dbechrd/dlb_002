@@ -238,9 +238,7 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
     messageLimit := min(config.messageSendQueueSize, config.messageReceiveQueueSize);
     previousMessageId: u16 = 0;
     usedBits := ConservativeMessageHeaderBits;
-    #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
-        maxBits := availableBits;
-    }
+    maxBits := availableBits;
 
     for 0..messageLimit-1 {
         if availableBits - usedBits < giveUpBits {
@@ -262,9 +260,7 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
             break;
         }
 
-        #if YOJIMBO_DEBUG_MESSAGE_BUDGET {
-            assert(entry.measuredBits <= cast(u32) maxBits, "Increase your max packet size!");
-        }
+        assert(entry.measuredBits <= cast(u32) maxBits, "Increase your max packet size!");
 
         if entry.timeLastSent + config.messageResendTime <= time && availableBits >= cast(int) entry.measuredBits {
             messageBits: int = entry.measuredBits + messageTypeBits;

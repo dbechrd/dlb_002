@@ -1,7 +1,7 @@
 #import "Basic";
 #import "Random";
-#import "IPAddress"(ENABLE_LOGGING=true);
-#import "Yojimbo"(YOJIMBO_ENABLE_LOGGING=true); //, YOJIMBO_DEFAULT_TIMEOUT=100);
+#import "IPAddress"()(ENABLE_LOGGING=true);
+#import "Yojimbo"()(ENABLE_LOGGING=true);
 #import "Serialize";
 
 ProtocolId :: cast(u64) 0x11223344556677;

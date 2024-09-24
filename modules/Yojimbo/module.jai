@@ -29,13 +29,7 @@ https://github.com/mas-bandwidth/yojimbo/commit/c6c02dfec105b36b9cbefd82f86f11f8
 ---------------------------------------------------------------------------------------------------------------------
 */
 
-#module_parameters(
-    YOJIMBO_ENABLE_LOGGING       := false,
-    YOJIMBO_ENABLE_TESTS         := false,
-    YOJIMBO_DEFAULT_TIMEOUT      := 10,
-    YOJIMBO_DEBUG_MESSAGE_BUDGET := false,
-    YOJIMBO_SERIALIZE_CHECKS     := false
-);
+#module_parameters () (ENABLE_LOGGING := false);
 
 YOJIMBO_MAJOR_VERSION :: 1;
 YOJIMBO_MINOR_VERSION :: 0;
@@ -67,20 +61,18 @@ yojimbo_shutdown :: () {
     netcode_term();
 }
 
-#if YOJIMBO_ENABLE_TESTS {
-    yojimbo_tests :: () {
-        address_tests();
-        // TODO(dlb): The rest of the tests..
-    }
+yojimbo_tests :: () {
+    address_tests();
+    // TODO(dlb): The rest of the tests..
 }
 
 #scope_module
 
 #import "Basic";
 Math :: #import "Math";
-#import "IPAddress"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
-#import "Reliable"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
-#import "Netcode"(ENABLE_LOGGING=YOJIMBO_ENABLE_LOGGING);
+#import "IPAddress";
+#import "Reliable";
+#import "Netcode";
 #import "dlb";
 
 #load "base_client.jai";
@@ -102,7 +94,7 @@ Math :: #import "Math";
 #load "utils.jai";
 
 yojimbo_log :: (flags: Log_Flags, format_string: string, args: .. Any, loc := #caller_location) {
-    #if YOJIMBO_ENABLE_LOGGING {
+    #if ENABLE_LOGGING {
         log(format_string, ..args, loc, flags,, temp);
     }
 }

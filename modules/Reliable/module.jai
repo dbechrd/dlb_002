@@ -82,9 +82,7 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
 -----------------------------------------------------------------------------------------------------------------------
 */
 
-#module_parameters(
-    ENABLE_LOGGING := false
-);
+#module_parameters () (ENABLE_LOGGING := false);
 
 #load "tests.jai";
 

@@ -30,9 +30,7 @@ https://github.com/mas-bandwidth/netcode/commit/3ffe69ad33416789bfb651bf687fdc61
 -----------------------------------------------------------------------------------------------------------------------
 */
 
-#module_parameters(
-    ENABLE_LOGGING := false
-);
+#module_parameters () (ENABLE_LOGGING := false);
 
 #load "tests.jai";
 
@@ -1659,7 +1657,7 @@ netcode_read_connect_token_private :: (token_data_buffer: ConnectTokenPrivateDat
     return NETCODE_OK;
 }
 
-// -----------------------------------------------
+// ----------------------------------------------------------------
 
 netcode_challenge_token_t :: struct {
     client_id: u64;
@@ -2457,6 +2455,21 @@ netcode_packet_queue_pop :: (using queue: *netcode_packet_queue_t) -> packet: *n
 NETCODE_NETWORK_SIMULATOR_NUM_PACKET_ENTRIES          :: NETCODE_MAX_CLIENTS * 256;
 NETCODE_NETWORK_SIMULATOR_NUM_PENDING_RECEIVE_PACKETS :: NETCODE_MAX_CLIENTS * 64;
 
+/*
+Generate a random float between a and b.
+IMPORTANT: This is not a cryptographically secure random. It's used only for test functions and in the network simulator.
+@param a The minimum integer value to generate.
+@param b The maximum integer value to generate.
+@returns A pseudo random float value in [a,b].
+*/
+netcode_random_float :: inline (a: float, b: float) -> float {
+    assert(a < b);
+    result := a + random_get_zero_to_one_new() * (b - a);
+    assert(result >= a);
+    assert(result <= b);
+    return cast(float) result;
+}
+
 netcode_network_simulator_packet_entry_t :: struct {
     from          : netcode_address_t;
     to            : netcode_address_t;
@@ -2487,21 +2500,6 @@ netcode_network_simulator_destroy :: (network_simulator: *netcode_network_simula
 
     netcode_network_simulator_reset(network_simulator);
     free(network_simulator);
-}
-
-/*
-Generate a random float between a and b.
-IMPORTANT: This is not a cryptographically secure random. It's used only for test functions and in the network simulator.
-@param a The minimum integer value to generate.
-@param b The maximum integer value to generate.
-@returns A pseudo random float value in [a,b].
-*/
-netcode_random_float :: inline (a: float, b: float) -> float {
-    assert(a < b);
-    result := a + random_get_zero_to_one_new() * (b - a);
-    assert(result >= a);
-    assert(result <= b);
-    return cast(float) result;
 }
 
 netcode_network_simulator_queue_packet :: (using network_simulator: *netcode_network_simulator_t, from: netcode_address_t, to: netcode_address_t, packet_data: [] u8, delay: Apollo_Time) {

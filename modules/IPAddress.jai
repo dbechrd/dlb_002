@@ -7,9 +7,7 @@ https://github.com/mas-bandwidth/yojimbo/blob/c6c02dfec105b36b9cbefd82f86f11f894
 It has been completely rewritten from scratch, with many features added, including significant validation improvements.
 */
 
-#module_parameters(
-    ENABLE_LOGGING := false
-);
+#module_parameters () (ENABLE_LOGGING := false);
 
 IPType :: enum u8 {
     None;  // Not an address. Set by the default constructor.
@@ -457,7 +455,9 @@ address_init_v6 :: (str: string, port: u16) -> result: IPAddress, remainder: str
 
 /*
 Create an IPv6 address.
-IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network order for you.
+
+IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network
+order for you.
 
 @param address Array of 8 16 bit address fields for the IPv6 address (host byte order).
 @param port The IPv6 port (host byte order).
@@ -473,7 +473,9 @@ address_init_v6 :: (ipv6: [8] u16, port: u16 = 0) -> IPAddress {
 
 /*
 Create an IPv6 address.
-IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network order for you.
+
+IMPORTANT: Pass in address fields and the port in host byte order. The address class handles the conversion to network
+order for you.
 
 @param a First field of the IPv6 address (host byte order).
 @param b Second field of the IPv6 address (host byte order).
@@ -502,43 +504,56 @@ address_init_v6 :: (a: u16, b: u16, c: u16, d: u16, e: u16, f: u16, g: u16, h: u
 }
 
 /*
-Converts an IPv4 address to its corresponding IPv4-mapped IPv6 address.
+Converts an address to its corresponding IPv6 address (if not already an IPv6 address).
 
-For example, the string "127.0.0.1" can be converted to an IPv4 address by calling `address_init_v4`.
-After checking for success, the resulting address can be passed into this function to convert it to an IPv6
-address that is equivalent to the result of calling `address_init_v6("::FFFF:7F00:1")`, where 7F00:0001
-is the hexademical representation of 127.0.0.1, and the preceding FFFF denotes an IPv4-mapped IPv6 address as
-described in RFC 4291 Section 2.5.5.2 (https://datatracker.ietf.org/doc/html/rfc4291#section-2.5.5.2).
+For IPv4 address, this convert the addres to an IPv4-mapped IPv6 address. For example, the string "127.0.0.1" can be
+converted to an IPv4 address by calling `address_init_v4`. After checking for success, the resulting address can be
+passed into this function to convert it to an IPv6 address that is equivalent to the result of calling
+`address_init_v6("::FFFF:7F00:1")`, where 7F00:0001 is the hexademical representation of 127.0.0.1, and the preceding
+FFFF denotes an IPv4-mapped IPv6 address as described in RFC 4291 Section 2.5.5.2
+(https://datatracker.ietf.org/doc/html/rfc4291#section-2.5.5.2).
 */
-address_init_v6 :: (ipv4: IPAddress) -> IPAddress {
-    assert(ipv4.type == .IPv4);
-
-    if (ipv4.type != .IPv4) {
-        return .{};
+address_init_v6 :: (address: IPAddress) -> IPAddress {
+    if #complete address.type == {
+        case .None;
+            return .{};
+        case .IPv4;
+            ipv6: IPAddress;
+            ipv6.type = .IPv6;
+            ipv6.port = ipv4.port;
+            ipv6.data.v6[5] = 0xFFFF;
+            ipv6.data.v6[6] = (cast(u16) ipv4.data.v4[0]) << 8 | ipv4.data.v4[1];
+            ipv6.data.v6[7] = (cast(u16) ipv4.data.v4[2]) << 8 | ipv4.data.v4[3];
+            return ipv6;
+        case .IPv6;
+            assert(false, "Why are you converting IPv6 to IPv6 again? Silly boi");
+            return address;
     }
-
-    ipv6: IPAddress;
-    ipv6.type = .IPv6;
-    ipv6.port = ipv4.port;
-    ipv6.data.v6[5] = 0xFFFF;
-    ipv6.data.v6[6] = (cast(u16) ipv4.data.v4[0]) << 8 | ipv4.data.v4[1];
-    ipv6.data.v6[7] = (cast(u16) ipv4.data.v4[2]) << 8 | ipv4.data.v4[3];
-    return ipv6;
 }
 
 /*
 Converts an IPv4 *or* IPv6 string to an IPAddress, by auto-detecting which type it is. Auto-detection
-is essentially free for IPv4 addresses, but a bit more expensive for IPv6 addresses, because the parser
-will first attempt to parse the string as IPv4, then parse IPv6 if the IPv4 parse fails. If you know
-that your address string is always an IPv6 address, use address_init_v6() instead.
+is based on the string containing a colon (:) in the first 6 characters. "[ffff:" is the longest valid
+IPv6 string prefix before the colon appears. This is shorter than "1.1.1.1:", which is the shortest valid
+IPv4 string prefix before the port separator colon appears. If a colon is not found, the string is assumed
+to be an IPv6 address, and we will not attempt to parse it as IPv4 or log any errors about bad IPv4 formatting.
 */
 address_init_auto_detect :: (str: string) -> address: IPAddress, remainder: string {
-    address, remainder := address_init_v4(str);
-    if address.type == .IPv4 {
-        return address, remainder;
+    v6: bool = false;
+    for 0..min(5, str.count-1) {
+        if str[it] == #char ":" {
+            v6 = true;
+            break;
+        }
     }
-    address, remainder = address_init_v6(str);
-    return address, remainder;
+
+    if v6 {
+        a, r := address_init_v6(str);
+        return a, r;
+    } else {
+        a, r := address_init_v4(str);
+        return a, r;
+    }
 }
 
 /*

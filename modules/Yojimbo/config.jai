@@ -68,19 +68,19 @@ Please make sure that the message configuration is identical between client and 
 ClientServerConfig :: struct {
     #as using base: ConnectionConfig;
 
-    protocolId                 : u64         = 0;                        // Clients can only connect to servers with the same protocol id. Use this for versioning.
-    timeout                    : Apollo_Time = #run seconds_to_apollo(YOJIMBO_DEFAULT_TIMEOUT);  // Timeout value in seconds. Set to negative value to disable timeouts (for debugging only).
-    clientMemory               : int         = 10 * 1024 * 1024;         // Memory allocated inside Client for packets, messages and stream allocations (bytes)
-    serverGlobalMemory         : int         = 10 * 1024 * 1024;         // Memory allocated inside Server for global connection request and challenge response packets (bytes)
-    serverPerClientMemory      : int         = 10 * 1024 * 1024;         // Memory allocated inside Server for packets, messages and stream allocations per-client (bytes)
-    networkSimulator           : bool        = true;                     // If true then a network simulator is created for simulating latency, jitter, packet loss and duplicates.
-    maxSimulatorPackets        : int         = 4 * 1024;                 // Maximum number of packets that can be stored in the network simulator. Additional packets are dropped.
-    fragmentPacketsAbove       : int         = 1024;                     // Packets above this size (bytes) are split apart into fragments and reassembled on the other side.
-    packetFragmentSize         : int         = 1024;                     // Size of each packet fragment (bytes).
-    packetReassemblyBufferSize : int         = 64;                       // Number of packet entries in the fragmentation reassembly buffer.
-    ackedPacketsBufferSize     : int         = 256;                      // Number of packet entries in the acked packet buffer. Consider your packet send rate and aim to have at least a few seconds worth of entries.
-    receivedPacketsBufferSize  : int         = 256;                      // Number of packet entries in the received packet sequence buffer. Consider your packet send rate and aim to have at least a few seconds worth of entries.
-    rttSmoothingFactor         : float       = 0.0025;                   // Round-Trip Time (RTT) smoothing factor over time.
+    protocolId                 : u64         = 0;                           // Clients can only connect to servers with the same protocol id. Use this for versioning.
+    timeout                    : Apollo_Time = #run seconds_to_apollo(10);  // Timeout value in seconds. Set to negative value to disable timeouts (for debugging only).
+    clientMemory               : int         = 10 * 1024 * 1024;            // Memory allocated inside Client for packets, messages and stream allocations (bytes)
+    serverGlobalMemory         : int         = 10 * 1024 * 1024;            // Memory allocated inside Server for global connection request and challenge response packets (bytes)
+    serverPerClientMemory      : int         = 10 * 1024 * 1024;            // Memory allocated inside Server for packets, messages and stream allocations per-client (bytes)
+    networkSimulator           : bool        = true;                        // If true then a network simulator is created for simulating latency, jitter, packet loss and duplicates.
+    maxSimulatorPackets        : int         = 4 * 1024;                    // Maximum number of packets that can be stored in the network simulator. Additional packets are dropped.
+    fragmentPacketsAbove       : int         = 1024;                        // Packets above this size (bytes) are split apart into fragments and reassembled on the other side.
+    packetFragmentSize         : int         = 1024;                        // Size of each packet fragment (bytes).
+    packetReassemblyBufferSize : int         = 64;                          // Number of packet entries in the fragmentation reassembly buffer.
+    ackedPacketsBufferSize     : int         = 256;                         // Number of packet entries in the acked packet buffer. Consider your packet send rate and aim to have at least a few seconds worth of entries.
+    receivedPacketsBufferSize  : int         = 256;                         // Number of packet entries in the received packet sequence buffer. Consider your packet send rate and aim to have at least a few seconds worth of entries.
+    rttSmoothingFactor         : float       = 0.0025;                      // Round-Trip Time (RTT) smoothing factor over time.
 }
 
 // Maximum number of fragments a packet can be split up into.
