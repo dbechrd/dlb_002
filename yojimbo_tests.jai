@@ -3,7 +3,16 @@
 
 #load "yojimbo_test_shared.jai"
 
+// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
 check :: assert;
+
+run_test :: (test: (), call := #caller_code) #expand {
+    #if ENABLE_LOGGING {
+        dlb_run_test(test, call);
+    } else {
+        test();
+    }
+}
 
 test_queue :: () {
     QueueSize :: 1024;

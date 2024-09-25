@@ -66,14 +66,8 @@ Convert an integer value from host byte order to "network byte order".
 @returns The input value converted to "network byte order".
 */
 host_to_le_32 :: inline (value: u32) -> u32 {
-    // This is an endian-independent way to convert an integer to little-endian. See:
-    // https://commandcenter.blogspot.com/2012/04/byte-order-fallacy.html
-    result: u32;
-    for 0..3 {
-        result |= (value & 0xFF);
-        result << 8;
-    }
-    return result;
+    // We don't support big endian
+    return value;
 }
 
 /*
@@ -83,11 +77,8 @@ Convert an integer value from "network byte order" to host byte order.
 @returns The input value converted to host byte order.
 */
 le_to_host_32 :: inline (value: u32) -> u32 {
-    // This is an endian-independent way to convert little-endian data to an integer. See:
-    // https://commandcenter.blogspot.com/2012/04/byte-order-fallacy.html
-    bytes := cast([4] u8) *value;
-    result: u32 = (bytes[0] << 0) | (bytes[1] << 8) | (bytes[2] << 16) | (bytes[3] << 24);
-    return result;
+    // We don't support big endian
+    return value;
 }
 
 // Not using these right now, but could be useful. Keeps # of bits low for signed values near zero.
@@ -138,7 +129,7 @@ bit_writer_init :: (using writer: *BitWriter, buffer: [] u8) {
     assert(buffer.count % 4 == 0);
 
     data = .{ buffer.count / 4, cast(*u32) buffer.data };
-    numBits = buffer.count * 32;
+    numBits = buffer.count * 8;
 }
 
 /*
@@ -290,7 +281,7 @@ bit_reader_init :: (using reader: *BitReader, buffer: [] u8) {
     assert(buffer.count % 4 == 0);
 
     data = .{ buffer.count / 4, cast(*u32) buffer.data };
-    numBits = buffer.count * 32;
+    numBits = buffer.count * 8;
 }
 
 /**
@@ -449,11 +440,11 @@ stream_serialize_bits :: (stream: *Stream, value: *u64, bits: int) -> bool {
             if bit_reader_would_read_past_end(*s.reader, bits) {
                 return false;
             }
-            lo := bit_reader_read_bits(*s.reader, 32);
+            lo = bit_reader_read_bits(*s.reader, 32);
             if bits > 32 {
-                hi := bit_reader_read_bits(*s.reader, bits - 32);
+                hi = bit_reader_read_bits(*s.reader, bits - 32);
             }
-            value.* = cast(u64) ((hi << 32) | lo);
+            value.* = ((cast(u64) hi) << 32) | lo;
         case .Measure;
             s := cast(*MeasureStream) stream;
             s.bitsWritten += bits;
@@ -694,14 +685,14 @@ serialize_int :: (stream: *Stream, value: *$T, min: T, max: T) #expand {
         assert(value.* <= max);
     }
 
-    v := cast(u64) value.* - min;
+    v := cast,no_check(u64) (value.* - min);
     bits := bits_required(cast(u64) min, cast(u64) max);
     if !stream_serialize_bits(stream, *v, bits) {
         `return false;
     }
 
     if stream.isReading {
-        new_value := cast(T)(v + min);
+        new_value := cast,no_check(T)(v) + min;
         if new_value < min || new_value > max {
             `return false;
         }
@@ -761,7 +752,7 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 serialize_float :: (stream: *Stream, value: *float) #expand {
     v32: u32;
     if stream.isWriting {
-        memcpy(*v32, value.*, 4);
+        memcpy(*v32, value, 4);
     }
 
     v := cast(u64) v32;
@@ -771,7 +762,7 @@ serialize_float :: (stream: *Stream, value: *float) #expand {
 
     if stream.isReading {
         v32 := cast(u32) v;
-        memcpy(value.*, *v32, 4);
+        memcpy(value, *v32, 4);
     }
 }
 
@@ -816,13 +807,13 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 serialize_float64 :: (stream: *Stream, value: *float64) #expand {
     v: u64;
     if stream.isWriting {
-        memcpy(*v, value.*, 8);
+        memcpy(*v, value, 8);
     }
-    if !serialize_bits(stream, *v, 64) {
+    if !stream_serialize_bits(stream, *v, 64) {
         `return false;
     }
     if stream.isReading {
-        memcpy(value.*, *v, 8);
+        memcpy(value, *v, 8);
     }
 }
 
@@ -857,8 +848,7 @@ serialize_string :: (stream: *Stream, str: *string, max_length: s32) #expand {
     }
     serialize_int(stream, *length, 0, max_length);
     if stream.isReading {
-        str.data = NewArray(length, u8);
-        str.count = length;
+        str.* = alloc_string(length);
     }
     serialize_bytes(stream, .{ str.count, str.data });
 }
@@ -886,11 +876,11 @@ serialize_sequence_relative :: (stream: *Stream, sequence1: u16, sequence2: *u16
     if stream.isWriting {
         a: u32 = sequence1;
         b: u32 = sequence2.* + ifx sequence1 > sequence2.* then cast(u32) 65536 else cast(u32) 0;
-        serialize_int_relative(stream, a, *b);
+        serialize_int32_relative(stream, a, *b);
     } else {
         a: u32 = sequence1;
         b: u32 = 0;
-        serialize_int_relative(stream, a, *b);
+        serialize_int32_relative(stream, a, *b);
         if b >= 65536 {
             b -= 65536;
         }
@@ -898,8 +888,6 @@ serialize_sequence_relative :: (stream: *Stream, sequence1: u16, sequence2: *u16
     }
     return true;
 }
-
-#scope_file
 
 /*
 Serialize an integer value relative to another (read/write/measure).
@@ -910,16 +898,18 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 @param previous The previous integer value.
 @param current The current integer value (must be greater than previous).
 */
-serialize_int_relative :: (stream: *Stream, previous: $T, current: *T) #expand {
-    if !serialize_int_relative_internal(stream, previous, current) {
+serialize_int32_relative :: (stream: *Stream, previous: $T, current: *T) #expand {
+    if !stream_serialize_int32_relative_internal(stream, previous, current) {
         `return false;
     }
 }
 
-serialize_int_relative_internal :: (stream: *Stream, previous: $T, current: *T) -> bool {
+#scope_file
+
+stream_serialize_int32_relative_internal :: (stream: *Stream, previous: $T, current: *T) -> bool {
     assert(size_of(T) <= 4);
 
-    difference: u32;
+    difference: T;
     if stream.isWriting {
         assert(previous < current.*);
         difference = current.* - previous;

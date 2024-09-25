@@ -5,11 +5,13 @@ main :: () {
     context.log_level = .VERY_VERBOSE;
     context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
+    context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
 
-    // log_cpu_info();
-    // address_test();
-    // reliable_test();
-    // netcode_test();
+    log_cpu_info();
+    address_test();
+    serialize_test();
+    reliable_test();
+    netcode_test();
     // yojimbo_init();
     // yojimbo_tests();
 
@@ -42,6 +44,7 @@ log_cpu_info :: () {
 
 #import "dlb";
 #import "IPAddress";//()(ENABLE_LOGGING=true);
+#import "Serialize";//()(ENABLE_LOGGING=true);
 #import "Reliable";//()(ENABLE_LOGGING=true);
 #import "Netcode";//()(ENABLE_LOGGING=true);
 #import "Yojimbo";//()(ENABLE_LOGGING=true);

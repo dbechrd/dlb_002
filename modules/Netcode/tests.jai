@@ -2,44 +2,43 @@ netcode_test :: () {
     log("\n--- Netcode --------------------------------------------------------------------\n");
     log("Running tests...\n");
     netcode_init();
-    RUN_TEST(test_queue);
-    RUN_TEST(test_sequence);
 
-    // Prevent the IPAddress module from logging a bunch of errors when testing error cases.
-    RUN_TEST(test_address);
+    run_test(test_queue);
+    run_test(test_sequence);
+    run_test(test_address);
+    run_test(test_connect_token);
+    run_test(test_challenge_token);
+    run_test(test_connection_request_packet);
+    run_test(test_connection_denied_packet);
+    run_test(test_connection_challenge_packet);
+    run_test(test_connection_response_packet);
+    run_test(test_connection_keep_alive_packet);
+    run_test(test_connection_payload_packet);
+    run_test(test_connection_disconnect_packet);
+    run_test(test_connect_token_public);
+    run_test(test_encryption_manager);
+    run_test(test_replay_protection);
+    run_test(test_client_create);
+    run_test(test_server_create);
+    run_test(test_client_server_connect);
+    run_test(test_client_server_ipv4_socket_connect);
+    run_test(test_client_server_ipv6_socket_connect);
+    run_test(test_client_server_keep_alive);
+    run_test(test_client_server_multiple_clients);
+    run_test(test_client_server_multiple_servers);
+    run_test(test_client_error_connect_token_expired);
+    run_test(test_client_error_invalid_connect_token);
+    run_test(test_client_error_connection_timed_out);
+    run_test(test_client_error_connection_response_timeout);
+    run_test(test_client_error_connection_request_timeout);
+    run_test(test_client_error_connection_denied);
+    run_test(test_client_side_disconnect);
+    run_test(test_server_side_disconnect);
+    run_test(test_client_reconnect);
+    run_test(test_disable_timeout);
+    run_test(test_loopback);
+    run_test(test_address_map);
 
-    RUN_TEST(test_connect_token);
-    RUN_TEST(test_challenge_token);
-    RUN_TEST(test_connection_request_packet);
-    RUN_TEST(test_connection_denied_packet);
-    RUN_TEST(test_connection_challenge_packet);
-    RUN_TEST(test_connection_response_packet);
-    RUN_TEST(test_connection_keep_alive_packet);
-    RUN_TEST(test_connection_payload_packet);
-    RUN_TEST(test_connection_disconnect_packet);
-    RUN_TEST(test_connect_token_public);
-    RUN_TEST(test_encryption_manager);
-    RUN_TEST(test_replay_protection);
-    RUN_TEST(test_client_create);
-    RUN_TEST(test_server_create);
-    RUN_TEST(test_client_server_connect);
-    RUN_TEST(test_client_server_ipv4_socket_connect);
-    RUN_TEST(test_client_server_ipv6_socket_connect);
-    RUN_TEST(test_client_server_keep_alive);
-    RUN_TEST(test_client_server_multiple_clients);
-    RUN_TEST(test_client_server_multiple_servers);
-    RUN_TEST(test_client_error_connect_token_expired);
-    RUN_TEST(test_client_error_invalid_connect_token);
-    RUN_TEST(test_client_error_connection_timed_out);
-    RUN_TEST(test_client_error_connection_response_timeout);
-    RUN_TEST(test_client_error_connection_request_timeout);
-    RUN_TEST(test_client_error_connection_denied);
-    RUN_TEST(test_client_side_disconnect);
-    RUN_TEST(test_server_side_disconnect);
-    RUN_TEST(test_client_reconnect);
-    RUN_TEST(test_disable_timeout);
-    RUN_TEST(test_loopback);
-    RUN_TEST(test_address_map);
     netcode_term();
     log("Passed!\n");
 }
@@ -50,6 +49,14 @@ netcode_test :: () {
 
 // Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
 check :: assert;
+
+run_test :: (test: (), call := #caller_code) #expand {
+    #if ENABLE_LOGGING {
+        dlb_run_test(test, call);
+    } else {
+        test();
+    }
+}
 
 // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
 current_time_ms :: () -> Apollo_Time {
@@ -2880,28 +2887,4 @@ test_address_map :: () {
     check (netcode_address_map_delete(map, address_delete) == false);
 
     netcode_address_map_destroy(map);
-}
-
-// This seems cool in theory, but is the complexity actually worth the aesthetic? Meh.
-RUN_TEST :: (test: (), $call := #caller_code, loc := #caller_location) {
-    arg0_name :: #run -> string {
-        Compiler :: #import "Compiler";
-        root := Compiler.compiler_get_nodes(call);
-        assert(root.kind == .PROCEDURE_CALL);
-        run_test_call := cast(*Compiler.Code_Procedure_Call) root;
-        arg0 := cast(*Compiler.Code_Ident) run_test_call.arguments_sorted[0];
-        return arg0.name;
-    };
-
-    spaces := (80 - arg0_name.count - 10);
-    builder: String_Builder;
-    for 0..spaces-1 {
-        append(*builder, #char " ");
-    }
-    #if ENABLE_LOGGING {
-        log("┌──────────────────────────────────────────────────────────────────────────────┐\n");
-        log("│ [Test] %0%│\n", arg0_name, builder_to_string(*builder));
-        log("└──────────────────────────────────────────────────────────────────────────────┘\n");
-    }
-    test();
 }

@@ -1,4 +1,30 @@
+reliable_test :: () {
+    log("\n--- Reliable -------------------------------------------------------------------\n");
+    log("Running tests...\n");
+    run_test(test_sequence_buffer);
+    run_test(test_generate_ack_bits);
+    run_test(test_packet_header);
+    run_test(test_acks);
+    run_test(test_acks_packet_loss);
+    run_test(test_packets);
+    run_test(test_large_packets);
+    run_test(test_sequence_buffer_rollover);
+    run_test(test_fragment_cleanup);
+    log("Passed!\n");
+}
+
 #scope_file
+
+// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
+check :: assert;
+
+run_test :: (test: (), call := #caller_code) #expand {
+    #if ENABLE_LOGGING {
+        dlb_run_test(test, call);
+    } else {
+        test();
+    }
+}
 
 test_sequence_data_t :: struct {
     sequence: u16;
@@ -636,21 +662,4 @@ test_fragment_cleanup :: () {
     for tracking_alloc_context.active_allocations {
         assert(it == null);
     }
-}
-
-#scope_export
-
-reliable_test :: () {
-    log("\n--- Reliable -------------------------------------------------------------------\n");
-    log("Running tests...\n");
-    test_sequence_buffer();
-    test_generate_ack_bits();
-    test_packet_header();
-    test_acks();
-    test_acks_packet_loss();
-    test_packets();
-    test_large_packets();
-    test_sequence_buffer_rollover();
-    test_fragment_cleanup();
-    log("Passed!\n");
 }
