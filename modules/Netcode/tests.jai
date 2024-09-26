@@ -2,43 +2,41 @@ netcode_test :: () {
     log("\n--- Netcode --------------------------------------------------------------------\n");
     log("Running tests...\n");
     netcode_init();
-
-    run_test(test_queue);
-    run_test(test_sequence);
-    run_test(test_address);
-    run_test(test_connect_token);
-    run_test(test_challenge_token);
-    run_test(test_connection_request_packet);
-    run_test(test_connection_denied_packet);
-    run_test(test_connection_challenge_packet);
-    run_test(test_connection_response_packet);
-    run_test(test_connection_keep_alive_packet);
-    run_test(test_connection_payload_packet);
-    run_test(test_connection_disconnect_packet);
-    run_test(test_connect_token_public);
-    run_test(test_encryption_manager);
-    run_test(test_replay_protection);
-    run_test(test_client_create);
-    run_test(test_server_create);
-    run_test(test_client_server_connect);
-    run_test(test_client_server_ipv4_socket_connect);
-    run_test(test_client_server_ipv6_socket_connect);
-    run_test(test_client_server_keep_alive);
-    run_test(test_client_server_multiple_clients);
-    run_test(test_client_server_multiple_servers);
-    run_test(test_client_error_connect_token_expired);
-    run_test(test_client_error_invalid_connect_token);
-    run_test(test_client_error_connection_timed_out);
-    run_test(test_client_error_connection_response_timeout);
-    run_test(test_client_error_connection_request_timeout);
-    run_test(test_client_error_connection_denied);
-    run_test(test_client_side_disconnect);
-    run_test(test_server_side_disconnect);
-    run_test(test_client_reconnect);
-    run_test(test_disable_timeout);
-    run_test(test_loopback);
-    run_test(test_address_map);
-
+    TEST(test_queue);
+    TEST(test_sequence);
+    TEST(test_address);
+    TEST(test_connect_token);
+    TEST(test_challenge_token);
+    TEST(test_connection_request_packet);
+    TEST(test_connection_denied_packet);
+    TEST(test_connection_challenge_packet);
+    TEST(test_connection_response_packet);
+    TEST(test_connection_keep_alive_packet);
+    TEST(test_connection_payload_packet);
+    TEST(test_connection_disconnect_packet);
+    TEST(test_connect_token_public);
+    TEST(test_encryption_manager);
+    TEST(test_replay_protection);
+    TEST(test_client_create);
+    TEST(test_server_create);
+    TEST(test_client_server_connect);
+    TEST(test_client_server_ipv4_socket_connect);
+    TEST(test_client_server_ipv6_socket_connect);
+    TEST(test_client_server_keep_alive);
+    TEST(test_client_server_multiple_clients);
+    TEST(test_client_server_multiple_servers);
+    TEST(test_client_error_connect_token_expired);
+    TEST(test_client_error_invalid_connect_token);
+    TEST(test_client_error_connection_timed_out);
+    TEST(test_client_error_connection_response_timeout);
+    TEST(test_client_error_connection_request_timeout);
+    TEST(test_client_error_connection_denied);
+    TEST(test_client_side_disconnect);
+    TEST(test_server_side_disconnect);
+    TEST(test_client_reconnect);
+    TEST(test_disable_timeout);
+    TEST(test_loopback);
+    TEST(test_address_map);
     netcode_term();
     log("Passed!\n");
 }
@@ -46,16 +44,10 @@ netcode_test :: () {
 #scope_file
 
 #import "Random";
+#import "Assertive";
 
-// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
-check :: assert;
-
-run_test :: (test: (), call := #caller_code) #expand {
-    #if ENABLE_LOGGING {
-        dlb_run_test(test, call);
-    } else {
-        test();
-    }
+TEST :: (test: (), call := #caller_code) #expand {
+    assert_test(test, ENABLE_LOGGING, call);
 }
 
 // NOTE(dlb): Timestamps get truncated to the nearest millisecond when being sent over the wire
@@ -66,12 +58,12 @@ current_time_ms :: () -> Apollo_Time {
 test_queue :: () {
     queue: netcode_packet_queue_t;
 
-    check(queue.num_packets == 0);
-    check(queue.start_index == 0);
+    assert_equal(queue.num_packets, 0);
+    assert_equal(queue.start_index, 0);
 
     // attempting to pop a packet off an empty queue should return null
 
-    check(netcode_packet_queue_pop(*queue) == null);
+    assert_null(netcode_packet_queue_pop(*queue));
 
     // add some packets to the queue and make sure they pop off in the correct order
     {
@@ -82,24 +74,24 @@ test_queue :: () {
         for 0..NUM_PACKETS-1 {
             // NOTE(dlb): Huh? Why the weird malloc sizes?
             packets[it] = New(netcode_connection_packet_t);
-            check(netcode_packet_queue_push(*queue, packets[it], cast(u64) it) == true);
+            assert_true(netcode_packet_queue_push(*queue, packets[it], cast(u64) it));
         }
 
-        check(queue.num_packets == NUM_PACKETS);
+        assert_equal(queue.num_packets, NUM_PACKETS);
 
         for 0..NUM_PACKETS-1 {
             packet, sequence := netcode_packet_queue_pop(*queue);
-            check(sequence == cast(u64) it) ;
-            check(packet == packets[it]);
+            assert_equal(sequence, cast(u64) it);
+            assert_equal(packet, packets[it]);
             free(packet);
         }
     }
 
     // after all entries are popped off, the queue is empty, so calls to pop should return null
 
-    check(queue.num_packets == 0);
+    assert_equal(queue.num_packets, 0);
 
-    check(netcode_packet_queue_pop(*queue) == null);
+    assert_null(netcode_packet_queue_pop(*queue));
 
     // test that the packet queue can be filled to max capacity
 
@@ -107,22 +99,22 @@ test_queue :: () {
 
     for 0..NETCODE_PACKET_QUEUE_SIZE-1 {
         packets[it] = New(netcode_connection_packet_t);
-        check(netcode_packet_queue_push(*queue, packets[it], cast(u64) it) == true);
+        assert_true(netcode_packet_queue_push(*queue, packets[it], cast(u64) it));
     }
 
-    check(queue.num_packets == NETCODE_PACKET_QUEUE_SIZE);
+    assert_equal(queue.num_packets, NETCODE_PACKET_QUEUE_SIZE);
 
     // when the queue is full, attempting to push a packet should fail and return 0
 
     another_packet := New(netcode_connection_packet_t);
-    check(netcode_packet_queue_push(*queue, another_packet, 0) == false);
+    assert_false(netcode_packet_queue_push(*queue, another_packet, 0));
 
     // make sure all packets pop off in the correct order
 
     for 0..NETCODE_PACKET_QUEUE_SIZE-1 {
         packet, sequence := netcode_packet_queue_pop(*queue);
-        check(sequence == cast(u64) it);
-        check(packet == packets[it]);
+        assert_equal(sequence, cast(u64) it);
+        assert_equal(packet, packets[it]);
         free(packet);
     }
 
@@ -130,186 +122,186 @@ test_queue :: () {
 
     for 0..NETCODE_PACKET_QUEUE_SIZE-1 {
         packets[it] = New(netcode_connection_packet_t);
-        check(netcode_packet_queue_push(*queue, packets[it], cast(u64) it) == true);
+        assert_true(netcode_packet_queue_push(*queue, packets[it], cast(u64) it));
     }
 
     // clear the queue and make sure that all packets are freed
 
     netcode_packet_queue_clear(*queue);
 
-    check(queue.start_index == 0);
-    check(queue.num_packets == 0);
+    assert_equal(queue.start_index, 0);
+    assert_equal(queue.num_packets, 0);
     for 0..NETCODE_PACKET_QUEUE_SIZE-1 {
-        check(queue.packet_data[it] == null);
+        assert_null(queue.packet_data[it]);
     }
 }
 
 test_sequence :: () {
-    check(netcode_sequence_number_bytes_required(0) == 1);
-    check(netcode_sequence_number_bytes_required(0x11) == 1);
-    check(netcode_sequence_number_bytes_required(0x1122) == 2);
-    check(netcode_sequence_number_bytes_required(0x112233) == 3);
-    check(netcode_sequence_number_bytes_required(0x11223344) == 4);
-    check(netcode_sequence_number_bytes_required(0x1122334455) == 5);
-    check(netcode_sequence_number_bytes_required(0x112233445566) == 6);
-    check(netcode_sequence_number_bytes_required(0x11223344556677) == 7);
-    check(netcode_sequence_number_bytes_required(0x1122334455667788) == 8);
+    assert_equal(netcode_sequence_number_bytes_required(0), 1);
+    assert_equal(netcode_sequence_number_bytes_required(0x11), 1);
+    assert_equal(netcode_sequence_number_bytes_required(0x1122), 2);
+    assert_equal(netcode_sequence_number_bytes_required(0x112233), 3);
+    assert_equal(netcode_sequence_number_bytes_required(0x11223344), 4);
+    assert_equal(netcode_sequence_number_bytes_required(0x1122334455), 5);
+    assert_equal(netcode_sequence_number_bytes_required(0x112233445566), 6);
+    assert_equal(netcode_sequence_number_bytes_required(0x11223344556677), 7);
+    assert_equal(netcode_sequence_number_bytes_required(0x1122334455667788), 8);
 }
 
 test_address :: () {
     {
         address: netcode_address_t;
-        check(netcode_parse_address("", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("[", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("[]", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("[]:", *address) == NETCODE_ERROR);
-        check(netcode_parse_address(":", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("1", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("12", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("123", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("1234", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("1234.0.12313.0000", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("1234.0.12313.0000.0.0.0.0.0", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131", *address) == NETCODE_ERROR);
-        check(netcode_parse_address(".", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("..", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("...", *address) == NETCODE_ERROR);
-        check(netcode_parse_address("....", *address) == NETCODE_ERROR);
-        check(netcode_parse_address(".....", *address) == NETCODE_ERROR);
+        assert_equal(netcode_parse_address("", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("[", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("[]", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("[]:", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address(":", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("1", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("12", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("123", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("1234", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("1234.0.12313.0000", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("1234.0.12313.0000.0.0.0.0.0", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131:1312313:123131", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address(".", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("..", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("...", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address("....", *address), NETCODE_ERROR);
+        assert_equal(netcode_parse_address(".....", *address), NETCODE_ERROR);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("107.77.207.77", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV4);
-        check(address.port == 0);
-        check(address.data.ipv4[0] == 107);
-        check(address.data.ipv4[1] == 77);
-        check(address.data.ipv4[2] == 207);
-        check(address.data.ipv4[3] == 77);
+        assert_equal(netcode_parse_address("107.77.207.77", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV4);
+        assert_equal(address.port, 0);
+        assert_equal(address.data.ipv4[0], 107);
+        assert_equal(address.data.ipv4[1], 77);
+        assert_equal(address.data.ipv4[2], 207);
+        assert_equal(address.data.ipv4[3], 77);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("127.0.0.1", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV4);
-        check(address.port == 0);
-        check(address.data.ipv4[0] == 127);
-        check(address.data.ipv4[1] == 0);
-        check(address.data.ipv4[2] == 0);
-        check(address.data.ipv4[3] == 1);
+        assert_equal(netcode_parse_address("127.0.0.1", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV4);
+        assert_equal(address.port, 0);
+        assert_equal(address.data.ipv4[0], 127);
+        assert_equal(address.data.ipv4[1], 0);
+        assert_equal(address.data.ipv4[2], 0);
+        assert_equal(address.data.ipv4[3], 1);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("107.77.207.77:40000", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV4);
-        check(address.port == 40000);
-        check(address.data.ipv4[0] == 107);
-        check(address.data.ipv4[1] == 77);
-        check(address.data.ipv4[2] == 207);
-        check(address.data.ipv4[3] == 77);
+        assert_equal(netcode_parse_address("107.77.207.77:40000", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV4);
+        assert_equal(address.port, 40000);
+        assert_equal(address.data.ipv4[0], 107);
+        assert_equal(address.data.ipv4[1], 77);
+        assert_equal(address.data.ipv4[2], 207);
+        assert_equal(address.data.ipv4[3], 77);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("127.0.0.1:40000", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV4);
-        check(address.port == 40000);
-        check(address.data.ipv4[0] == 127);
-        check(address.data.ipv4[1] == 0);
-        check(address.data.ipv4[2] == 0);
-        check(address.data.ipv4[3] == 1);
+        assert_equal(netcode_parse_address("127.0.0.1:40000", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV4);
+        assert_equal(address.port, 40000);
+        assert_equal(address.data.ipv4[0], 127);
+        assert_equal(address.data.ipv4[1], 0);
+        assert_equal(address.data.ipv4[2], 0);
+        assert_equal(address.data.ipv4[3], 1);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("fe80::202:b3ff:fe1e:8329", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 0);
-        check(address.data.ipv6[0] == 0xfe80);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0202);
-        check(address.data.ipv6[5] == 0xb3ff);
-        check(address.data.ipv6[6] == 0xfe1e);
-        check(address.data.ipv6[7] == 0x8329);
+        assert_equal(netcode_parse_address("fe80::202:b3ff:fe1e:8329", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 0);
+        assert_equal(address.data.ipv6[0], 0xfe80);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0202);
+        assert_equal(address.data.ipv6[5], 0xb3ff);
+        assert_equal(address.data.ipv6[6], 0xfe1e);
+        assert_equal(address.data.ipv6[7], 0x8329);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("::", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 0);
-        check(address.data.ipv6[0] == 0x0000);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0000);
-        check(address.data.ipv6[5] == 0x0000);
-        check(address.data.ipv6[6] == 0x0000);
-        check(address.data.ipv6[7] == 0x0000);
+        assert_equal(netcode_parse_address("::", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 0);
+        assert_equal(address.data.ipv6[0], 0x0000);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0000);
+        assert_equal(address.data.ipv6[5], 0x0000);
+        assert_equal(address.data.ipv6[6], 0x0000);
+        assert_equal(address.data.ipv6[7], 0x0000);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("::1", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 0);
-        check(address.data.ipv6[0] == 0x0000);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0000);
-        check(address.data.ipv6[5] == 0x0000);
-        check(address.data.ipv6[6] == 0x0000);
-        check(address.data.ipv6[7] == 0x0001);
+        assert_equal(netcode_parse_address("::1", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 0);
+        assert_equal(address.data.ipv6[0], 0x0000);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0000);
+        assert_equal(address.data.ipv6[5], 0x0000);
+        assert_equal(address.data.ipv6[6], 0x0000);
+        assert_equal(address.data.ipv6[7], 0x0001);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("[fe80::202:b3ff:fe1e:8329]:40000", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 40000);
-        check(address.data.ipv6[0] == 0xfe80);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0202);
-        check(address.data.ipv6[5] == 0xb3ff);
-        check(address.data.ipv6[6] == 0xfe1e);
-        check(address.data.ipv6[7] == 0x8329);
+        assert_equal(netcode_parse_address("[fe80::202:b3ff:fe1e:8329]:40000", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 40000);
+        assert_equal(address.data.ipv6[0], 0xfe80);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0202);
+        assert_equal(address.data.ipv6[5], 0xb3ff);
+        assert_equal(address.data.ipv6[6], 0xfe1e);
+        assert_equal(address.data.ipv6[7], 0x8329);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("[::]:40000", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 40000);
-        check(address.data.ipv6[0] == 0x0000);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0000);
-        check(address.data.ipv6[5] == 0x0000);
-        check(address.data.ipv6[6] == 0x0000);
-        check(address.data.ipv6[7] == 0x0000);
+        assert_equal(netcode_parse_address("[::]:40000", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 40000);
+        assert_equal(address.data.ipv6[0], 0x0000);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0000);
+        assert_equal(address.data.ipv6[5], 0x0000);
+        assert_equal(address.data.ipv6[6], 0x0000);
+        assert_equal(address.data.ipv6[7], 0x0000);
     }
 
     {
         address: netcode_address_t;
-        check(netcode_parse_address("[::1]:40000", *address) == NETCODE_OK);
-        check(address.type == NETCODE_ADDRESS_IPV6);
-        check(address.port == 40000);
-        check(address.data.ipv6[0] == 0x0000);
-        check(address.data.ipv6[1] == 0x0000);
-        check(address.data.ipv6[2] == 0x0000);
-        check(address.data.ipv6[3] == 0x0000);
-        check(address.data.ipv6[4] == 0x0000);
-        check(address.data.ipv6[5] == 0x0000);
-        check(address.data.ipv6[6] == 0x0000);
-        check(address.data.ipv6[7] == 0x0001);
+        assert_equal(netcode_parse_address("[::1]:40000", *address), NETCODE_OK);
+        assert_equal(address.type, NETCODE_ADDRESS_IPV6);
+        assert_equal(address.port, 40000);
+        assert_equal(address.data.ipv6[0], 0x0000);
+        assert_equal(address.data.ipv6[1], 0x0000);
+        assert_equal(address.data.ipv6[2], 0x0000);
+        assert_equal(address.data.ipv6[3], 0x0000);
+        assert_equal(address.data.ipv6[4], 0x0000);
+        assert_equal(address.data.ipv6[5], 0x0000);
+        assert_equal(address.data.ipv6[6], 0x0000);
+        assert_equal(address.data.ipv6[7], 0x0001);
     }
 }
 
@@ -337,10 +329,10 @@ test_connect_token :: () {
 
     netcode_generate_connect_token_private(*input_token, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
 
-    check(input_token.client_id == TEST_CLIENT_ID);
-    check(input_token.num_server_addresses == 1);
-    check(array_equal(input_token.user_data, user_data) == true);
-    check(netcode_address_equal(input_token.server_addresses[0], server_address));
+    assert_equal(input_token.client_id, TEST_CLIENT_ID);
+    assert_equal(input_token.num_server_addresses, 1);
+    assert_true(array_equal(input_token.user_data, user_data));
+    assert_true(netcode_address_equal(input_token.server_addresses[0], server_address));
 
     // write it to a buffer
 
@@ -355,27 +347,27 @@ test_connect_token :: () {
     key: EncryptionKeyBuf;
     netcode_generate_key(key);
 
-    check(netcode_encrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key) == NETCODE_OK);
+    assert_equal(netcode_encrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key), NETCODE_OK);
 
     // decrypt the buffer
 
-    check(netcode_decrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key) == NETCODE_OK);
+    assert_equal(netcode_decrypt_connect_token_private(buffer, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID, expire_timestamp, nonce, key), NETCODE_OK);
 
     // read the connect token back in
 
     output_token: netcode_connect_token_private_t;
 
-    check(netcode_read_connect_token_private(buffer, *output_token) == NETCODE_OK);
+    assert_equal(netcode_read_connect_token_private(buffer, *output_token), NETCODE_OK);
 
     // make sure that everything matches the original connect token
 
-    check(output_token.client_id == input_token.client_id);
-    check(output_token.timeout_seconds == input_token.timeout_seconds);
-    check(output_token.num_server_addresses == input_token.num_server_addresses);
-    check(netcode_address_equal(output_token.server_addresses[0], input_token.server_addresses[0]));
-    check(array_equal(output_token.client_to_server_key, input_token.client_to_server_key) == true);
-    check(array_equal(output_token.server_to_client_key, input_token.server_to_client_key) == true);
-    check(array_equal(output_token.user_data, input_token.user_data) == true);
+    assert_equal(output_token.client_id, input_token.client_id);
+    assert_equal(output_token.timeout_seconds, input_token.timeout_seconds);
+    assert_equal(output_token.num_server_addresses, input_token.num_server_addresses);
+    assert_true(netcode_address_equal(output_token.server_addresses[0], input_token.server_addresses[0]));
+    assert_true(array_equal(output_token.client_to_server_key, input_token.client_to_server_key));
+    assert_true(array_equal(output_token.server_to_client_key, input_token.server_to_client_key));
+    assert_true(array_equal(output_token.user_data, input_token.user_data));
 }
 
 test_challenge_token :: () {
@@ -398,22 +390,22 @@ test_challenge_token :: () {
     key: EncryptionKeyBuf;
     netcode_generate_key(key);
 
-    check(netcode_encrypt_challenge_token(buffer, sequence, key) == NETCODE_OK);
+    assert_equal(netcode_encrypt_challenge_token(buffer, sequence, key), NETCODE_OK);
 
     // decrypt the buffer
 
-    check(netcode_decrypt_challenge_token(buffer, sequence, key) == NETCODE_OK);
+    assert_equal(netcode_decrypt_challenge_token(buffer, sequence, key), NETCODE_OK);
 
     // read the challenge token back in
 
     output_token: netcode_challenge_token_t;
 
-    check(netcode_read_challenge_token(buffer, *output_token) == NETCODE_OK);
+    assert_equal(netcode_read_challenge_token(buffer, *output_token), NETCODE_OK);
 
     // make sure that everything matches the original challenge token
 
-    check(output_token.client_id == input_token.client_id);
-    check(array_equal(output_token.user_data, input_token.user_data) == true);
+    assert_equal(output_token.client_id, input_token.client_id);
+    assert_true(array_equal(output_token.user_data, input_token.user_data));
 }
 
 test_connection_request_packet :: () {
@@ -434,10 +426,10 @@ test_connection_request_packet :: () {
 
     netcode_generate_connect_token_private(*input_token, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
 
-    check(input_token.client_id == TEST_CLIENT_ID);
-    check(input_token.num_server_addresses == 1);
-    check(array_equal(input_token.user_data, user_data) == true);
-    check(netcode_address_equal(input_token.server_addresses[0], server_address));
+    assert_equal(input_token.client_id, TEST_CLIENT_ID);
+    assert_equal(input_token.num_server_addresses, 1);
+    assert_true(array_equal(input_token.user_data, user_data));
+    assert_true(netcode_address_equal(input_token.server_addresses[0], server_address));
 
     // write the conect token to a buffer (non-encrypted)
 
@@ -455,14 +447,14 @@ test_connection_request_packet :: () {
     connect_token_key: EncryptionKeyBuf;
     netcode_generate_key(connect_token_key);
 
-    check(netcode_encrypt_connect_token_private(encrypted_connect_token_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
-        connect_token_expire_timestamp, connect_token_nonce, connect_token_key) == NETCODE_OK);
+    assert_equal(netcode_encrypt_connect_token_private(encrypted_connect_token_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
+        connect_token_expire_timestamp, connect_token_nonce, connect_token_key), NETCODE_OK);
 
     // setup a connection request packet wrapping the encrypted connect token
 
     input_packet: netcode_connection_request_packet_t;
+    assert_equal(input_packet.type, NETCODE_CONNECTION_REQUEST_PACKET);
 
-    assert(input_packet.type == NETCODE_CONNECTION_REQUEST_PACKET);
     array_copy(input_packet.version_info, NETCODE_VERSION_INFO);
     input_packet.protocol_id = TEST_PROTOCOL_ID;
     input_packet.connect_token_expire_timestamp = connect_token_expire_timestamp;
@@ -476,7 +468,7 @@ test_connection_request_packet :: () {
     netcode_generate_key(packet_key);
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the connection request packet back in from the buffer (the connect token data is decrypted as part of the read packet validation)
 
@@ -485,17 +477,17 @@ test_connection_request_packet :: () {
 
     output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), *connect_token_key, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_REQUEST_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_REQUEST_PACKET);
     p := cast(*netcode_connection_request_packet_t) output_packet;
-    check(array_equal(p.version_info, input_packet.version_info) == true);
-    check(p.protocol_id == input_packet.protocol_id);
-    check(p.connect_token_expire_timestamp == input_packet.connect_token_expire_timestamp);
-    check(array_equal(p.connect_token_nonce, input_packet.connect_token_nonce) == true);
-    check(memcmp(p.connect_token_data.data, connect_token_data.data, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES) == 0);
+    assert_true(array_equal(p.version_info, input_packet.version_info));
+    assert_equal(p.protocol_id, input_packet.protocol_id);
+    assert_equal(p.connect_token_expire_timestamp, input_packet.connect_token_expire_timestamp);
+    assert_true(array_equal(p.connect_token_nonce, input_packet.connect_token_nonce));
+    assert_equal(memcmp(p.connect_token_data.data, connect_token_data.data, NETCODE_CONNECT_TOKEN_PRIVATE_BYTES - NETCODE_MAC_BYTES), 0);
 
     free(output_packet);
 }
@@ -504,7 +496,7 @@ test_connection_denied_packet :: () {
     // setup a connection denied packet
 
     input_packet: netcode_connection_denied_packet_t;
-    assert(input_packet.type == NETCODE_CONNECTION_DENIED_PACKET);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_DENIED_PACKET);
 
     // write the packet to a buffer
 
@@ -516,7 +508,7 @@ test_connection_denied_packet :: () {
 
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -525,11 +517,11 @@ test_connection_denied_packet :: () {
 
     output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_DENIED_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_DENIED_PACKET);
 
     free(output_packet);
 }
@@ -538,7 +530,7 @@ test_connection_challenge_packet :: () {
     // setup a connection challenge packet
 
     input_packet: netcode_connection_challenge_packet_t;
-    assert(input_packet.type == NETCODE_CONNECTION_CHALLENGE_PACKET);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_CHALLENGE_PACKET);
     input_packet.challenge_token_sequence = 0;
     netcode_random_bytes(input_packet.challenge_token_data);
 
@@ -552,7 +544,7 @@ test_connection_challenge_packet :: () {
 
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -561,14 +553,14 @@ test_connection_challenge_packet :: () {
 
     output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_CHALLENGE_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_CHALLENGE_PACKET);
     p := cast(*netcode_connection_challenge_packet_t) output_packet;
-    check(p.challenge_token_sequence == input_packet.challenge_token_sequence);
-    check(array_equal(p.challenge_token_data, input_packet.challenge_token_data) == true);
+    assert_equal(p.challenge_token_sequence, input_packet.challenge_token_sequence);
+    assert_true(array_equal(p.challenge_token_data, input_packet.challenge_token_data));
 
     free(output_packet);
 }
@@ -577,7 +569,7 @@ test_connection_response_packet :: () {
     // setup a connection response packet
 
     input_packet: netcode_connection_response_packet_t;
-    assert(input_packet.type == NETCODE_CONNECTION_RESPONSE_PACKET);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_RESPONSE_PACKET);
     input_packet.challenge_token_sequence = 0;
     netcode_random_bytes(input_packet.challenge_token_data);
 
@@ -590,7 +582,7 @@ test_connection_response_packet :: () {
 
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -599,14 +591,14 @@ test_connection_response_packet :: () {
 
     output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_RESPONSE_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_RESPONSE_PACKET);
     p := cast(*netcode_connection_response_packet_t) output_packet;
-    check(p.challenge_token_sequence == input_packet.challenge_token_sequence);
-    check(array_equal(p.challenge_token_data, input_packet.challenge_token_data) == true);
+    assert_equal(p.challenge_token_sequence, input_packet.challenge_token_sequence);
+    assert_true(array_equal(p.challenge_token_data, input_packet.challenge_token_data));
 
     free(output_packet);
 }
@@ -615,7 +607,7 @@ test_connection_keep_alive_packet :: () {
     // setup a connection keep alive packet
 
     input_packet: netcode_connection_keep_alive_packet_t;
-    assert(input_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
     input_packet.client_index = 10;
     input_packet.max_clients = 16;
 
@@ -628,7 +620,7 @@ test_connection_keep_alive_packet :: () {
 
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -637,14 +629,14 @@ test_connection_keep_alive_packet :: () {
 
     output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
     p := cast(*netcode_connection_keep_alive_packet_t) output_packet;
-    check(p.client_index == input_packet.client_index);
-    check(p.max_clients == input_packet.max_clients);
+    assert_equal(p.client_index, input_packet.client_index);
+    assert_equal(p.max_clients, input_packet.max_clients);
 
     free(output_packet);
 }
@@ -654,8 +646,8 @@ test_connection_payload_packet :: () {
 
     input_packet := netcode_create_payload_packet(NETCODE_MAX_PAYLOAD_BYTES);
 
-    check(input_packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
-    check(input_packet.payload_data.count == NETCODE_MAX_PAYLOAD_BYTES);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_PAYLOAD_PACKET);
+    assert_equal(input_packet.payload_data.count, NETCODE_MAX_PAYLOAD_BYTES);
 
     netcode_random_bytes(input_packet.payload_data);
 
@@ -668,7 +660,7 @@ test_connection_payload_packet :: () {
 
     bytes_written := netcode_write_packet(input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -677,14 +669,14 @@ test_connection_payload_packet :: () {
 
     output_packet, sequence :=  netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_PAYLOAD_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_PAYLOAD_PACKET);
     p := cast(*netcode_connection_payload_packet_t) output_packet;
-    check(p.payload_data.count == input_packet.payload_data.count);
-    check(memcmp(p.payload_data.data, input_packet.payload_data.data, input_packet.payload_data.count) == 0);
+    assert_equal(p.payload_data.count, input_packet.payload_data.count);
+    assert_equal(memcmp(p.payload_data.data, input_packet.payload_data.data, input_packet.payload_data.count), 0);
 
     free(input_packet);
     free(output_packet);
@@ -694,7 +686,7 @@ test_connection_disconnect_packet :: () {
     // setup a connection disconnect packet
 
     input_packet: netcode_connection_disconnect_packet_t;
-    assert(input_packet.type == NETCODE_CONNECTION_DISCONNECT_PACKET);
+    assert_equal(input_packet.type, NETCODE_CONNECTION_DISCONNECT_PACKET);
 
     // write the packet to a buffer
 
@@ -705,7 +697,7 @@ test_connection_disconnect_packet :: () {
 
     bytes_written := netcode_write_packet(*input_packet, buffer, 1000, packet_key, TEST_PROTOCOL_ID);
 
-    check(bytes_written > 0);
+    assert_true(bytes_written > 0);
 
     // read the packet back in from the buffer
 
@@ -714,11 +706,11 @@ test_connection_disconnect_packet :: () {
 
     output_packet, sequence := netcode_read_packet(.{ bytes_written, buffer.data }, packet_key, TEST_PROTOCOL_ID, current_time_monotonic(), null, allowed_packet_types, null);
 
-    check(output_packet != null);
+    assert_not_null(output_packet);
 
     // make sure the read packet matches what was written
 
-    check(output_packet.type == NETCODE_CONNECTION_DISCONNECT_PACKET);
+    assert_equal(output_packet.type, NETCODE_CONNECTION_DISCONNECT_PACKET);
 
     free(output_packet);
 }
@@ -740,10 +732,10 @@ test_connect_token_public :: () {
     connect_token_private: netcode_connect_token_private_t;
     netcode_generate_connect_token_private(*connect_token_private, TEST_CLIENT_ID, TEST_TIMEOUT_SECONDS, .[ server_address ], user_data);
 
-    check(connect_token_private.client_id == TEST_CLIENT_ID);
-    check(connect_token_private.num_server_addresses == 1);
-    check(array_equal(connect_token_private.user_data, user_data) == true);
-    check(netcode_address_equal(connect_token_private.server_addresses[0], server_address));
+    assert_equal(connect_token_private.client_id, TEST_CLIENT_ID);
+    assert_equal(connect_token_private.num_server_addresses, 1);
+    assert_true(array_equal(connect_token_private.user_data, user_data));
+    assert_true(netcode_address_equal(connect_token_private.server_addresses[0], server_address));
 
     // write it to a buffer
 
@@ -759,8 +751,8 @@ test_connect_token_public :: () {
     netcode_generate_nonce(connect_token_nonce);
     key: EncryptionKeyBuf;
     netcode_generate_key(key);
-    check(netcode_encrypt_connect_token_private(connect_token_private_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
-        expire_timestamp, connect_token_nonce, key) == NETCODE_OK);
+    assert_equal(netcode_encrypt_connect_token_private(connect_token_private_data, NETCODE_VERSION_INFO, TEST_PROTOCOL_ID,
+        expire_timestamp, connect_token_nonce, key), NETCODE_OK);
 
     // wrap a public connect token around the private connect token data
 
@@ -785,21 +777,21 @@ test_connect_token_public :: () {
     // read the buffer back in
 
     output_connect_token: netcode_connect_token_t;
-    check(netcode_read_connect_token(buffer, *output_connect_token) == NETCODE_OK);
+    assert_equal(netcode_read_connect_token(buffer, *output_connect_token), NETCODE_OK);
 
     // make sure the public connect token matches what was written
 
-    check(array_equal(output_connect_token.version_info, input_connect_token.version_info) == true);
-    check(output_connect_token.protocol_id == input_connect_token.protocol_id);
-    check(output_connect_token.create_timestamp == input_connect_token.create_timestamp);
-    check(output_connect_token.expire_timestamp == input_connect_token.expire_timestamp);
-    check(array_equal(output_connect_token.nonce, input_connect_token.nonce) == true);
-    check(array_equal(output_connect_token.private_data, input_connect_token.private_data) == true);
-    check(output_connect_token.num_server_addresses == input_connect_token.num_server_addresses);
-    check(netcode_address_equal(output_connect_token.server_addresses[0], input_connect_token.server_addresses[0]));
-    check(array_equal(output_connect_token.client_to_server_key, input_connect_token.client_to_server_key) == true);
-    check(array_equal(output_connect_token.server_to_client_key, input_connect_token.server_to_client_key) == true);
-    check(output_connect_token.timeout_seconds == input_connect_token.timeout_seconds);
+    assert_true(array_equal(output_connect_token.version_info, input_connect_token.version_info));
+    assert_equal(output_connect_token.protocol_id, input_connect_token.protocol_id);
+    assert_equal(output_connect_token.create_timestamp, input_connect_token.create_timestamp);
+    assert_equal(output_connect_token.expire_timestamp, input_connect_token.expire_timestamp);
+    assert_true(array_equal(output_connect_token.nonce, input_connect_token.nonce));
+    assert_true(array_equal(output_connect_token.private_data, input_connect_token.private_data));
+    assert_equal(output_connect_token.num_server_addresses, input_connect_token.num_server_addresses);
+    assert_true(netcode_address_equal(output_connect_token.server_addresses[0], input_connect_token.server_addresses[0]));
+    assert_true(array_equal(output_connect_token.client_to_server_key, input_connect_token.client_to_server_key));
+    assert_true(array_equal(output_connect_token.server_to_client_key, input_connect_token.server_to_client_key));
+    assert_equal(output_connect_token.timeout_seconds, input_connect_token.timeout_seconds);
 }
 
 test_encryption_manager :: () {
@@ -834,23 +826,23 @@ test_encryption_manager :: () {
     for * encryption_mapping {
         encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
 
-        check(encryption_index == -1);
+        assert_equal(encryption_index, -1);
 
-        check(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index) == null);
-        check(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index) == null);
+        assert_null(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index));
+        assert_null(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index));
 
-        check(netcode_encryption_manager_add_encryption_mapping(*encryption_manager, it.address, it.send_key, it.receive_key, time, seconds_to_apollo(-1), TEST_TIMEOUT_SECONDS));
+        assert_true(netcode_encryption_manager_add_encryption_mapping(*encryption_manager, it.address, it.send_key, it.receive_key, time, seconds_to_apollo(-1), TEST_TIMEOUT_SECONDS));
 
         encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
 
         send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
-        check(send_key != null);
-        check(receive_key != null);
+        assert_not_null(send_key);
+        assert_not_null(receive_key);
 
-        check(array_equal(send_key.*, it.send_key) == true);
-        check(array_equal(receive_key.*, it.receive_key) == true);
+        assert_true(array_equal(send_key.*, it.send_key));
+        assert_true(array_equal(receive_key.*, it.receive_key));
     }
 
     // removing an encryption mapping that doesn't exist should return 0
@@ -860,14 +852,14 @@ test_encryption_manager :: () {
         address.data.ipv6[7] = 1;
         address.port = 50000;
 
-        check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, address, time) == false);
+        assert_false(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, address, time));
     }
 
     // remove the first and last encryption mappings
 
-    check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time) == true);
+    assert_true(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time));
 
-    check(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].address, time) == true);
+    assert_true(netcode_encryption_manager_remove_encryption_mapping(*encryption_manager, encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].address, time));
 
     // make sure the encryption mappings that were removed can no longer be looked up by address
 
@@ -878,37 +870,37 @@ test_encryption_manager :: () {
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
         if it_index > 0 && it_index < NUM_ENCRYPTION_MAPPINGS - 1 {
-            check(send_key != null);
-            check(receive_key != null);
+            assert_not_null(send_key);
+            assert_not_null(receive_key);
 
-            check(array_equal(send_key.*, it.send_key) == true);
-            check(array_equal(receive_key.*, it.receive_key) == true);
+            assert_true(array_equal(send_key.*, it.send_key));
+            assert_true(array_equal(receive_key.*, it.receive_key));
         } else {
-            check(send_key == null);
-            check(receive_key == null);
+            assert_null(send_key);
+            assert_null(receive_key);
         }
     }
 
     // add the encryption mappings back in
 
-    check(netcode_encryption_manager_add_encryption_mapping(
+    assert_true(netcode_encryption_manager_add_encryption_mapping(
         *encryption_manager,
         encryption_mapping[0].address,
         encryption_mapping[0].send_key,
         encryption_mapping[0].receive_key,
         time,
         seconds_to_apollo(-1),
-        TEST_TIMEOUT_SECONDS) == true
+        TEST_TIMEOUT_SECONDS)
     );
 
-    check(netcode_encryption_manager_add_encryption_mapping(
+    assert_true(netcode_encryption_manager_add_encryption_mapping(
         *encryption_manager,
         encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].address,
         encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].send_key,
         encryption_mapping[NUM_ENCRYPTION_MAPPINGS-1].receive_key,
         time,
         seconds_to_apollo(-1),
-        TEST_TIMEOUT_SECONDS) == true
+        TEST_TIMEOUT_SECONDS)
     );
 
     // all encryption mappings should be able to be looked up by address again
@@ -919,11 +911,11 @@ test_encryption_manager :: () {
         send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
-        check(send_key != null);
-        check(receive_key != null);
+        assert_not_null(send_key);
+        assert_not_null(receive_key);
 
-        check(array_equal(send_key.*, it.send_key) == true);
-        check(array_equal(receive_key.*, it.receive_key) == true);
+        assert_true(array_equal(send_key.*, it.send_key));
+        assert_true(array_equal(receive_key.*, it.receive_key));
     }
 
     // check that encryption mappings time out properly
@@ -936,8 +928,8 @@ test_encryption_manager :: () {
         send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
-        check(send_key == null);
-        check(receive_key == null);
+        assert_null(send_key);
+        assert_null(receive_key);
     }
 
     // add the same encryption mappings after timeout
@@ -945,19 +937,19 @@ test_encryption_manager :: () {
     for * encryption_mapping {
         encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
 
-        check(encryption_index == -1);
+        assert_equal(encryption_index, -1);
 
-        check(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index) == null);
-        check(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index) == null);
+        assert_null(netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index));
+        assert_null(netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index));
 
-        check(netcode_encryption_manager_add_encryption_mapping(
+        assert_true(netcode_encryption_manager_add_encryption_mapping(
             *encryption_manager,
             it.address,
             it.send_key,
             it.receive_key,
             time,
             seconds_to_apollo(-1),
-            TEST_TIMEOUT_SECONDS) == true
+            TEST_TIMEOUT_SECONDS)
         );
 
         encryption_index = netcode_encryption_manager_find_encryption_mapping(*encryption_manager, it.address, time);
@@ -965,11 +957,11 @@ test_encryption_manager :: () {
         send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
-        check(send_key != null);
-        check(receive_key != null);
+        assert_not_null(send_key);
+        assert_not_null(receive_key);
 
-        check(array_equal(send_key.*, it.send_key) == true);
-        check(array_equal(receive_key.*, it.receive_key) == true);
+        assert_true(array_equal(send_key.*, it.send_key));
+        assert_true(array_equal(receive_key.*, it.receive_key));
     }
 
     // reset the encryption mapping and verify that all encryption mappings have been removed
@@ -982,13 +974,13 @@ test_encryption_manager :: () {
         send_key := netcode_encryption_manager_get_send_key(*encryption_manager, encryption_index);
         receive_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
 
-        check(send_key == null);
-        check(receive_key == null);
+        assert_null(send_key);
+        assert_null(receive_key);
     }
 
     // test the expire time for encryption mapping works as expected
 
-    check(netcode_encryption_manager_add_encryption_mapping(
+    assert_true(netcode_encryption_manager_add_encryption_mapping(
         *encryption_manager,
         encryption_mapping[0].address,
         encryption_mapping[0].send_key,
@@ -1000,13 +992,13 @@ test_encryption_manager :: () {
 
     encryption_index := netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time);
 
-    check(encryption_index != -1);
+    assert_not_equal(encryption_index, -1);
 
-    check(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time + milliseconds_to_apollo(1100)) == -1);
+    assert_equal(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time + milliseconds_to_apollo(1100)), -1);
 
     netcode_encryption_manager_set_expire_time(*encryption_manager, encryption_index, seconds_to_apollo(-1));
 
-    check(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time) == encryption_index);
+    assert_equal(netcode_encryption_manager_find_encryption_mapping(*encryption_manager, encryption_mapping[0].address, time), encryption_index);
 }
 
 test_replay_protection :: () {
@@ -1015,7 +1007,7 @@ test_replay_protection :: () {
     for 0..1 {
         netcode_replay_protection_reset(*replay_protection);
 
-        check(replay_protection.most_recent_sequence == 0);
+        assert_equal(replay_protection.most_recent_sequence, cast(u64) 0);
 
         // the first time we receive packets, they should not be already received
 
@@ -1023,30 +1015,30 @@ test_replay_protection :: () {
 
         for 0..MAX_SEQUENCE-1 {
             sequence := cast(u64) it;
-            check(netcode_replay_protection_already_received(*replay_protection, sequence) == false);
+            assert_false(netcode_replay_protection_already_received(*replay_protection, sequence));
             netcode_replay_protection_advance_sequence(*replay_protection, sequence);
         }
 
         // old packets outside buffer should be considered already received
 
-        check(netcode_replay_protection_already_received(*replay_protection, 0) == true);
+        assert_true(netcode_replay_protection_already_received(*replay_protection, 0));
 
         // packets received a second time should be flagged already received
 
         for MAX_SEQUENCE-10..MAX_SEQUENCE-1 {
             sequence := cast(u64) it;
-            check(netcode_replay_protection_already_received(*replay_protection, sequence) == true);
+            assert_true(netcode_replay_protection_already_received(*replay_protection, sequence));
         }
 
         // jumping ahead to a much higher sequence should be considered not already received
 
-        check(netcode_replay_protection_already_received(*replay_protection, MAX_SEQUENCE + NETCODE_REPLAY_PROTECTION_BUFFER_SIZE) == false);
+        assert_false(netcode_replay_protection_already_received(*replay_protection, MAX_SEQUENCE + NETCODE_REPLAY_PROTECTION_BUFFER_SIZE));
 
         // old packets should be considered already received
 
         for 0..MAX_SEQUENCE-1 {
             sequence := cast(u64) it;
-            check(netcode_replay_protection_already_received(*replay_protection, sequence) == true);
+            assert_true(netcode_replay_protection_already_received(*replay_protection, sequence));
         }
     }
 }
@@ -1059,10 +1051,10 @@ test_client_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
-        check(client != null);
-        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(client.socket_holder.ipv6.handle == INVALID_SOCKET);
-        check(netcode_address_equal(client.address, *test_address));
+        assert_not_null(client);
+        assert_not_equal(client.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_equal(client.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
     }
@@ -1074,10 +1066,10 @@ test_client_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("[::]:50000", *test_address);
 
-        check(client != null);
-        check(client.socket_holder.ipv4.handle == INVALID_SOCKET);
-        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(client.address, *test_address));
+        assert_not_null(client);
+        assert_equal(client.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(client.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
     }
@@ -1089,10 +1081,10 @@ test_client_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
-        check(client != null);
-        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(client.address, *test_address));
+        assert_not_null(client);
+        assert_not_equal(client.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(client.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
     }
@@ -1104,10 +1096,10 @@ test_client_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("[::]:50000", *test_address);
 
-        check(client != null);
-        check(client.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(client.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(client.address, *test_address));
+        assert_not_null(client);
+        assert_not_equal(client.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(client.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(client.address, *test_address));
 
         netcode_client_destroy(client);
     }
@@ -1121,10 +1113,10 @@ test_server_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
-        check(server != null);
-        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(server.socket_holder.ipv6.handle == INVALID_SOCKET);
-        check(netcode_address_equal(*server.address, *test_address));
+        assert_not_null(server);
+        assert_not_equal(server.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_equal(server.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(*server.address, *test_address));
 
         netcode_server_destroy(server);
     }
@@ -1136,10 +1128,10 @@ test_server_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("[::1]:50000", *test_address);
 
-        check(server != null);
-        check(server.socket_holder.ipv4.handle == INVALID_SOCKET);
-        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(*server.address, *test_address));
+        assert_not_null(server);
+        assert_equal(server.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(server.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(*server.address, *test_address));
 
         netcode_server_destroy(server);
     }
@@ -1151,10 +1143,10 @@ test_server_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("127.0.0.1:40000", *test_address);
 
-        check(server != null);
-        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(*server.address, *test_address));
+        assert_not_null(server);
+        assert_not_equal(server.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(server.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(*server.address, *test_address));
 
         netcode_server_destroy(server);
     }
@@ -1166,10 +1158,10 @@ test_server_create :: () {
         test_address: netcode_address_t;
         netcode_parse_address("[::1]:50000", *test_address);
 
-        check(server != null);
-        check(server.socket_holder.ipv4.handle != INVALID_SOCKET);
-        check(server.socket_holder.ipv6.handle != INVALID_SOCKET);
-        check(netcode_address_equal(*server.address, *test_address));
+        assert_not_null(server);
+        assert_not_equal(server.socket_holder.ipv4.handle, INVALID_SOCKET);
+        assert_not_equal(server.socket_holder.ipv6.handle, INVALID_SOCKET);
+        assert_true(netcode_address_equal(*server.address, *test_address));
 
         netcode_server_destroy(server);
     }
@@ -1198,7 +1190,7 @@ test_client_server_connect :: () {
 
     client := netcode_client_create("[::]:50000", *client_config, time);
 
-    check(client != null);
+    assert_not_null(client);
 
     server_config: netcode_server_config_t;
     server_config.protocol_id = TEST_PROTOCOL_ID;
@@ -1207,7 +1199,7 @@ test_client_server_connect :: () {
 
     server_address := "[::1]:40000";
     server := netcode_server_create(server_address, *server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -1216,7 +1208,7 @@ test_client_server_connect :: () {
     netcode_random_bytes(user_data);
 
     connect_token: ConnectTokenBuf;
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -1234,10 +1226,10 @@ test_client_server_connect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     server_num_packets_received := 0;
     client_num_packets_received := 0;
@@ -1260,8 +1252,8 @@ test_client_server_connect :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet.count), 0);
             client_num_packets_received += 1;
             netcode_client_free_packet(client, packet);
         }
@@ -1270,8 +1262,8 @@ test_client_server_connect :: () {
             packet, packet_sequence := netcode_server_receive_packet(server, 0);
             if (!packet)
                 break;
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet.count), 0);
             server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -1289,7 +1281,8 @@ test_client_server_connect :: () {
         time += delta_time;
     }
 
-    check(client_num_packets_received >= 10 && server_num_packets_received >= 10);
+    assert_true(client_num_packets_received >= 10);
+    assert_true(server_num_packets_received >= 10);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -1302,13 +1295,13 @@ client_server_socket_connect :: (client_address: string, client_address2: string
 
     client_config: netcode_client_config_t;
     client := netcode_client_create_overload(client_address, client_address2, client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_config: netcode_server_config_t;
     server_config.protocol_id = TEST_PROTOCOL_ID;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create_overload(server_address, server_address2, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -1317,7 +1310,7 @@ client_server_socket_connect :: (client_address: string, client_address2: string
     netcode_random_bytes(user_data);
 
     connect_token: ConnectTokenBuf;
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -1370,7 +1363,7 @@ test_client_server_keep_alive :: () {
     client_config.network_simulator = network_simulator;
 
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_config: netcode_server_config_t;
     server_config.protocol_id = TEST_PROTOCOL_ID;
@@ -1379,7 +1372,7 @@ test_client_server_keep_alive :: () {
 
     server_address := "[::1]:40000";
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -1388,7 +1381,7 @@ test_client_server_keep_alive :: () {
     netcode_random_bytes(user_data);
 
     connect_token: ConnectTokenBuf;
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -1406,10 +1399,10 @@ test_client_server_keep_alive :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // pump the client and server long enough that they would timeout without keep alive packets
 
@@ -1427,10 +1420,10 @@ test_client_server_keep_alive :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -1458,7 +1451,7 @@ test_client_server_multiple_clients :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     NUM_START_STOP_ITERATIONS :: 3;
     max_clients: [NUM_START_STOP_ITERATIONS] int = .[ 2, 32, 5 ];
@@ -1471,20 +1464,20 @@ test_client_server_multiple_clients :: () {
         // create # of client objects for this iteration and connect to server
 
         clients := NewArray(max_clients[it], *netcode_client_t);
-        check(clients.count > 0 );
+        assert_true(clients.count > 0);
 
         for * client: clients {
             client_address := tprint("[::]:%", 50000 + it_index);
 
             client.* = netcode_client_create(client_address, client_config, time);
-            check(client.* != null);
+            assert_not_null(client.*);
 
             client_id := random_get();
             connect_token: ConnectTokenBuf;
             user_data: UserDataBuf;
             netcode_random_bytes(user_data);
 
-            check(netcode_generate_connect_token(
+            assert_equal(netcode_generate_connect_token(
                 .[ server_address ],
                 .[ server_address ],
                 TEST_CONNECT_TOKEN_EXPIRY,
@@ -1494,7 +1487,7 @@ test_client_server_multiple_clients :: () {
                 private_key,
                 user_data,
                 connect_token
-            ) == NETCODE_OK);
+            ), NETCODE_OK);
 
             netcode_client_connect(client.*, connect_token);
         }
@@ -1528,11 +1521,11 @@ test_client_server_multiple_clients :: () {
             time += delta_time;
         }
 
-        check(netcode_server_num_connected_clients(server) == clients.count);
+        assert_equal(netcode_server_num_connected_clients(server), clients.count);
 
         for client: clients {
-            check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-            check(netcode_server_client_connected(server, it_index) == true);
+            assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+            assert_true(netcode_server_client_connected(server, it_index));
         }
 
         // make sure all clients can exchange packets with the server
@@ -1568,8 +1561,8 @@ test_client_server_multiple_clients :: () {
                     if packet.count == 0 {
                         break;
                     }
-                    assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-                    assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+                    assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+                    assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
                     client_num_packets_received[it_index] += 1;
                     netcode_client_free_packet(client, packet);
                 }
@@ -1581,8 +1574,8 @@ test_client_server_multiple_clients :: () {
                     if packet.count == 0 {
                         break;
                     }
-                    assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-                    assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+                    assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+                    assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
                     server_num_packets_received[it_index] += 1;
                     netcode_server_free_packet(server, packet);
                 }
@@ -1617,7 +1610,7 @@ test_client_server_multiple_clients :: () {
             }
         }
 
-        check(num_clients_ready == clients.count);
+        assert_equal(num_clients_ready, clients.count);
 
         array_free(server_num_packets_received);
         array_free(client_num_packets_received);
@@ -1651,14 +1644,14 @@ test_client_server_multiple_servers :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_config: netcode_server_config_t;
     server_config.protocol_id = TEST_PROTOCOL_ID;
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create("[::1]:40000", server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -1669,7 +1662,7 @@ test_client_server_multiple_servers :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(server_addresses, server_addresses, TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(server_addresses, server_addresses, TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -1688,10 +1681,10 @@ test_client_server_multiple_servers :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     server_num_packets_received := 0;
     client_num_packets_received := 0;
@@ -1714,8 +1707,8 @@ test_client_server_multiple_servers :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             client_num_packets_received += 1;
             netcode_client_free_packet(client, packet);
         }
@@ -1725,8 +1718,8 @@ test_client_server_multiple_servers :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -1744,7 +1737,8 @@ test_client_server_multiple_servers :: () {
         time += delta_time;
     }
 
-    check(client_num_packets_received >= 10 && server_num_packets_received >= 10);
+    assert_true(client_num_packets_received >= 10);
+    assert_true(server_num_packets_received >= 10);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -1764,18 +1758,18 @@ test_client_error_connect_token_expired :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     client_id := random_get();
     user_data: UserDataBuf;
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], .{}, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], .{}, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
     netcode_client_update(client, time);
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECT_TOKEN_EXPIRED);
 
     netcode_client_destroy(client);
     netcode_network_simulator_destroy(network_simulator);
@@ -1795,7 +1789,7 @@ test_client_error_invalid_connect_token :: () {
     client_config.network_simulator = network_simulator;
 
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     connect_token: ConnectTokenBuf;
     netcode_random_bytes(connect_token);
@@ -1803,7 +1797,7 @@ test_client_error_invalid_connect_token :: () {
     client_id := random_get();
     netcode_client_connect(client, connect_token);
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_INVALID_CONNECT_TOKEN);
 
     netcode_client_destroy(client);
     netcode_network_simulator_destroy(network_simulator);
@@ -1825,7 +1819,7 @@ test_client_error_connection_timed_out :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -1833,7 +1827,7 @@ test_client_error_connection_timed_out :: () {
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -1842,7 +1836,7 @@ test_client_error_connection_timed_out :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -1860,10 +1854,10 @@ test_client_error_connection_timed_out :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // now disable updating the server and verify that the client times out
 
@@ -1878,7 +1872,7 @@ test_client_error_connection_timed_out :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTION_TIMED_OUT);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -1899,7 +1893,7 @@ test_client_error_connection_response_timeout :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -1907,7 +1901,7 @@ test_client_error_connection_response_timeout :: () {
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     server.flags = NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS;
     netcode_server_start(server, 1);
@@ -1917,7 +1911,7 @@ test_client_error_connection_response_timeout :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -1936,7 +1930,7 @@ test_client_error_connection_response_timeout :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTION_RESPONSE_TIMED_OUT);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -1957,7 +1951,7 @@ test_client_error_connection_request_timeout :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -1965,7 +1959,7 @@ test_client_error_connection_request_timeout :: () {
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     server.flags = NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS;
     netcode_server_start(server, 1);
@@ -1975,7 +1969,7 @@ test_client_error_connection_request_timeout :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -1994,7 +1988,7 @@ test_client_error_connection_request_timeout :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTION_REQUEST_TIMED_OUT);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2017,7 +2011,7 @@ test_client_error_connection_denied :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -2025,7 +2019,7 @@ test_client_error_connection_denied :: () {
     server_config.network_simulator = network_simulator;
     array_copy(server_config.private_key, private_key);
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -2034,7 +2028,7 @@ test_client_error_connection_denied :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -2053,22 +2047,22 @@ test_client_error_connection_denied :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // now attempt to connect a second client. the connection should be denied.
 
     client2 := netcode_client_create("[::]:50001", client_config, time);
-    check(client2 != null);
+    assert_not_null(client2);
 
     client_id2 := random_get();
     user_data2: UserDataBuf;
     netcode_random_bytes(user_data2);
     connect_token2: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id2, TEST_PROTOCOL_ID, private_key, user_data2, connect_token2) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id2, TEST_PROTOCOL_ID, private_key, user_data2, connect_token2), NETCODE_OK);
 
     netcode_client_connect(client2, connect_token2);
 
@@ -2088,10 +2082,10 @@ test_client_error_connection_denied :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_state(client2) == NETCODE_CLIENT_STATE_CONNECTION_DENIED);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_state(client2), NETCODE_CLIENT_STATE_CONNECTION_DENIED);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2110,7 +2104,7 @@ test_client_side_disconnect :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -2119,7 +2113,7 @@ test_client_side_disconnect :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -2128,7 +2122,7 @@ test_client_side_disconnect :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -2147,10 +2141,10 @@ test_client_side_disconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // disconnect client side and verify that the server sees that client disconnect cleanly, rather than timing out.
 
@@ -2168,8 +2162,8 @@ test_client_side_disconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_server_client_connected(server, 0) == false);
-    check(netcode_server_num_connected_clients(server) == 0);
+    assert_false(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 0);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2187,7 +2181,7 @@ test_server_side_disconnect :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -2196,7 +2190,7 @@ test_server_side_disconnect :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -2205,7 +2199,7 @@ test_server_side_disconnect :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -2224,10 +2218,10 @@ test_server_side_disconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // disconnect server side and verify that the client disconnects cleanly, rather than timing out.
 
@@ -2245,9 +2239,9 @@ test_server_side_disconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_DISCONNECTED);
-    check(netcode_server_client_connected(server, 0) == false);
-    check(netcode_server_num_connected_clients(server) == 0);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_DISCONNECTED);
+    assert_false(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 0);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2270,7 +2264,7 @@ test_client_reconnect :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -2279,7 +2273,7 @@ test_client_reconnect :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create("[::1]:40000", server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -2288,7 +2282,7 @@ test_client_reconnect :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -2307,10 +2301,10 @@ test_client_reconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // disconnect client on the server-side and wait until client sees the disconnect
 
@@ -2329,15 +2323,15 @@ test_client_reconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_DISCONNECTED);
-    check(netcode_server_client_connected(server, 0) == false);
-    check(netcode_server_num_connected_clients(server) == 0);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_DISCONNECTED);
+    assert_false(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 0);
 
     // now reconnect the client and verify they connect
 
     netcode_network_simulator_reset(network_simulator);
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(client, connect_token);
 
@@ -2356,10 +2350,10 @@ test_client_reconnect :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2380,7 +2374,7 @@ test_disable_timeout :: () {
     client_config: netcode_client_config_t;
     client_config.network_simulator = network_simulator;
     client := netcode_client_create("[::]:50000", client_config, time);
-    check(client != null);
+    assert_not_null(client);
 
     server_address := "[::1]:40000";
     server_config: netcode_server_config_t;
@@ -2389,7 +2383,7 @@ test_disable_timeout :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     netcode_server_start(server, 1);
 
@@ -2398,7 +2392,7 @@ test_disable_timeout :: () {
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, seconds_to_apollo(-1), client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, seconds_to_apollo(-1), client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
     netcode_client_connect(client, connect_token);
 
     while true {
@@ -2416,10 +2410,10 @@ test_disable_timeout :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(client) == 0);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_equal(netcode_client_state(client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(client), 0);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     server_num_packets_received := 0;
     client_num_packets_received := 0;
@@ -2442,8 +2436,8 @@ test_disable_timeout :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             client_num_packets_received += 1;
             netcode_client_free_packet(client, packet);
         }
@@ -2453,8 +2447,8 @@ test_disable_timeout :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -2472,7 +2466,8 @@ test_disable_timeout :: () {
         time += seconds_to_apollo(1000);  // normally this would timeout the client
     }
 
-    check(client_num_packets_received >= 10 && server_num_packets_received >= 10);
+    assert_true(client_num_packets_received >= 10);
+    assert_true(server_num_packets_received >= 10);
 
     netcode_server_destroy(server);
     netcode_client_destroy(client);
@@ -2487,9 +2482,9 @@ test_loopback_context_t :: struct {
 };
 
 client_send_loopback_packet_callback :: (ctx: *void, client_index: int, packet_data: [] u8, packet_sequence: u64) {
-    check(ctx != null);
-    check(client_index == 0);
-    check(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+    assert_not_null(ctx);
+    assert_equal(client_index, 0);
+    assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
     for * packet_data {
         it.* = cast(u8) (it_index & 0xFF);
     }
@@ -2500,11 +2495,11 @@ client_send_loopback_packet_callback :: (ctx: *void, client_index: int, packet_d
 }
 
 server_send_loopback_packet_callback :: (ctx: *void, client_index: int, packet_data: [] u8, packet_sequence: u64) {
-    check(ctx != null);
-    check(client_index == 0);
-    check(packet_data.count == NETCODE_MAX_PACKET_SIZE);
+    assert_not_null(ctx);
+    assert_equal(client_index, 0);
+    assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
     for packet_data {
-        check(it == cast(u8) (it_index & 0xFF));
+        assert_equal(it, cast(u8) (it_index & 0xFF));
     }
 
     c := cast(*test_loopback_context_t) ctx;
@@ -2536,7 +2531,7 @@ test_loopback :: () {
     array_copy(server_config.private_key, private_key);
 
     server := netcode_server_create(server_address, server_config, time);
-    check(server != null);
+    assert_not_null(server);
 
     max_clients := 2;
 
@@ -2552,34 +2547,34 @@ test_loopback :: () {
     client_config.network_simulator = network_simulator;
 
     loopback_client := netcode_client_create("[::]:50000", client_config, time);
-    check(loopback_client != null);
+    assert_not_null(loopback_client);
     netcode_client_connect_loopback(loopback_client, 0, max_clients);
     ctx.client = loopback_client;
 
-    check(netcode_client_index(loopback_client) == 0);
-    check(netcode_client_loopback(loopback_client) == true);
-    check(netcode_client_max_clients(loopback_client) == max_clients);
-    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(loopback_client), 0);
+    assert_true(netcode_client_loopback(loopback_client));
+    assert_equal(netcode_client_max_clients(loopback_client), max_clients);
+    assert_equal(netcode_client_state(loopback_client), NETCODE_CLIENT_STATE_CONNECTED);
 
     loopback_client_id := random_get();
     loopback_user_data: UserDataBuf;
     netcode_server_connect_loopback_client(server, 0, loopback_client_id, loopback_user_data);
 
-    check(netcode_server_client_loopback(server, 0) == true);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_true(netcode_server_client_loopback(server, 0));
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     // connect a regular client in the other slot
 
     regular_client := netcode_client_create("[::]:50001", client_config, time);
-    check(regular_client != null);
+    assert_not_null(regular_client);
 
     client_id := random_get();
     user_data: UserDataBuf;
     netcode_random_bytes(user_data);
     connect_token: ConnectTokenBuf;
 
-    check(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token) == NETCODE_OK);
+    assert_equal(netcode_generate_connect_token(.[ server_address ], .[ server_address ], TEST_CONNECT_TOKEN_EXPIRY, TEST_TIMEOUT_SECONDS, client_id, TEST_PROTOCOL_ID, private_key, user_data, connect_token), NETCODE_OK);
 
     netcode_client_connect(regular_client, connect_token);
 
@@ -2598,13 +2593,13 @@ test_loopback :: () {
         time += delta_time;
     }
 
-    check(netcode_client_state(regular_client) == NETCODE_CLIENT_STATE_CONNECTED);
-    check(netcode_client_index(regular_client) == 1);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_client_connected(server, 1) == true);
-    check(netcode_server_client_loopback(server, 0) == true);
-    check(netcode_server_client_loopback(server, 1) == false);
-    check(netcode_server_num_connected_clients(server) == 2);
+    assert_equal(netcode_client_state(regular_client), NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(regular_client), 1);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_true(netcode_server_client_connected(server, 1));
+    assert_true(netcode_server_client_loopback(server, 0));
+    assert_false(netcode_server_client_loopback(server, 1));
+    assert_equal(netcode_server_num_connected_clients(server), 2);
 
     // test that we can exchange packets for the regular client and the loopback client
 
@@ -2634,8 +2629,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             loopback_client_num_packets_received += 1;
             netcode_client_free_packet(loopback_client, packet);
         }
@@ -2645,8 +2640,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             regular_client_num_packets_received += 1;
             netcode_client_free_packet(regular_client, packet);
         }
@@ -2656,8 +2651,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             loopback_server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -2667,8 +2662,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             regular_server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -2686,46 +2681,46 @@ test_loopback :: () {
         time += delta_time;
     }
 
-    check(loopback_client_num_packets_received >= 10);
-    check(loopback_server_num_packets_received >= 10);
-    check(regular_client_num_packets_received >= 10);
-    check(regular_server_num_packets_received >= 10);
-    check(ctx.num_loopback_packets_sent_to_client >= 10);
-    check(ctx.num_loopback_packets_sent_to_server >= 10);
+    assert_true(loopback_client_num_packets_received >= 10);
+    assert_true(loopback_server_num_packets_received >= 10);
+    assert_true(regular_client_num_packets_received >= 10);
+    assert_true(regular_server_num_packets_received >= 10);
+    assert_true(ctx.num_loopback_packets_sent_to_client >= 10);
+    assert_true(ctx.num_loopback_packets_sent_to_server >= 10);
 
     // verify that we can disconnect the loopback client
 
-    check(netcode_server_client_loopback(server, 0) == true);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_num_connected_clients(server) == 2);
+    assert_true(netcode_server_client_loopback(server, 0));
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 2);
 
     netcode_server_disconnect_loopback_client(server, 0);
 
-    check(netcode_server_client_loopback(server, 0) == false);
-    check(netcode_server_client_connected(server, 0) == false);
-    check(netcode_server_num_connected_clients(server) == 1);
+    assert_false(netcode_server_client_loopback(server, 0));
+    assert_false(netcode_server_client_connected(server, 0));
+    assert_equal(netcode_server_num_connected_clients(server), 1);
 
     netcode_client_disconnect_loopback(loopback_client);
 
-    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_DISCONNECTED);
+    assert_equal(netcode_client_state(loopback_client), NETCODE_CLIENT_STATE_DISCONNECTED);
 
     // verify that we can reconnect the loopback client
 
     loopback_client_id = random_get();
     netcode_server_connect_loopback_client(server, 0, loopback_client_id, loopback_user_data);
 
-    check(netcode_server_client_loopback(server, 0) == true);
-    check(netcode_server_client_loopback(server, 1) == false);
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_client_connected(server, 1) == true);
-    check(netcode_server_num_connected_clients(server) == 2);
+    assert_true(netcode_server_client_loopback(server, 0));
+    assert_false(netcode_server_client_loopback(server, 1));
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_true(netcode_server_client_connected(server, 1));
+    assert_equal(netcode_server_num_connected_clients(server), 2);
 
     netcode_client_connect_loopback(loopback_client, 0, max_clients);
 
-    check(netcode_client_index(loopback_client) == 0);
-    check(netcode_client_loopback(loopback_client) == true);
-    check(netcode_client_max_clients(loopback_client) == max_clients);
-    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_index(loopback_client), 0);
+    assert_true(netcode_client_loopback(loopback_client));
+    assert_equal(netcode_client_max_clients(loopback_client), max_clients);
+    assert_equal(netcode_client_state(loopback_client), NETCODE_CLIENT_STATE_CONNECTED);
 
     // verify that we can exchange packets for both regular and loopback client post reconnect
 
@@ -2752,8 +2747,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             loopback_client_num_packets_received += 1;
             netcode_client_free_packet(loopback_client, packet);
         }
@@ -2763,8 +2758,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             regular_client_num_packets_received += 1;
             netcode_client_free_packet(regular_client, packet);
         }
@@ -2774,8 +2769,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             loopback_server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -2785,8 +2780,8 @@ test_loopback :: () {
             if packet.count == 0 {
                 break;
             }
-            assert(packet_data.count == NETCODE_MAX_PACKET_SIZE);
-            assert(memcmp(packet.data, packet_data.data, packet_data.count) == 0);
+            assert_equal(packet_data.count, NETCODE_MAX_PACKET_SIZE);
+            assert_equal(memcmp(packet.data, packet_data.data, packet_data.count), 0);
             regular_server_num_packets_received += 1;
             netcode_server_free_packet(server, packet);
         }
@@ -2804,12 +2799,12 @@ test_loopback :: () {
         time += delta_time;
     }
 
-    check(loopback_client_num_packets_received >= 10);
-    check(loopback_server_num_packets_received >= 10);
-    check(regular_client_num_packets_received >= 10);
-    check(regular_server_num_packets_received >= 10);
-    check(ctx.num_loopback_packets_sent_to_server >= 10);
-    check(ctx.num_loopback_packets_sent_to_client >= 10);
+    assert_true(loopback_client_num_packets_received >= 10);
+    assert_true(loopback_server_num_packets_received >= 10);
+    assert_true(regular_client_num_packets_received >= 10);
+    assert_true(regular_server_num_packets_received >= 10);
+    assert_true(ctx.num_loopback_packets_sent_to_server >= 10);
+    assert_true(ctx.num_loopback_packets_sent_to_client >= 10);
 
     // verify the regular client times out but loopback client doesn't
 
@@ -2817,20 +2812,20 @@ test_loopback :: () {
 
     netcode_server_update(server, time);
 
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_client_connected(server, 1) == false);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_false(netcode_server_client_connected(server, 1));
 
     netcode_client_update(loopback_client, time);
 
-    check(netcode_client_state(loopback_client) == NETCODE_CLIENT_STATE_CONNECTED);
+    assert_equal(netcode_client_state(loopback_client), NETCODE_CLIENT_STATE_CONNECTED);
 
     // verify that disconnect all clients leaves loopback clients alone
 
     netcode_server_disconnect_all_clients(server);
 
-    check(netcode_server_client_connected(server, 0) == true);
-    check(netcode_server_client_connected(server, 1) == false);
-    check(netcode_server_client_loopback(server, 0) == true);
+    assert_true(netcode_server_client_connected(server, 0));
+    assert_false(netcode_server_client_connected(server, 1));
+    assert_true(netcode_server_client_loopback(server, 0));
 
     // clean up
 
@@ -2854,37 +2849,37 @@ test_address_map :: () {
 
     // Set ipv4
     netcode_parse_address(str_address_1, *address_set);
-    check(netcode_address_map_set(map, address_set, 0) == true);
+    assert_true(netcode_address_map_set(map, address_set, 0));
 
     // Set ipv6
     netcode_parse_address(str_address_3, *address_set);
-    check(netcode_address_map_set(map, address_set, 1) == true);
+    assert_true(netcode_address_map_set(map, address_set, 1));
 
     // Get ipv4
     netcode_parse_address(str_address_1, *address_get);
-    check(netcode_address_map_get(map, address_get) == 0);
+    assert_equal(netcode_address_map_get(map, address_get), 0);
 
     // Get ipv6
     netcode_parse_address(str_address_3, *address_get);
-    check(netcode_address_map_get(map, address_get) == 1);
+    assert_equal(netcode_address_map_get(map, address_get), 1);
 
     // Get non-existent ipv4
     netcode_parse_address(str_address_2, *address_get);
-    check(netcode_address_map_get(map, address_get) == -1);
+    assert_equal(netcode_address_map_get(map, address_get), -1);
 
     // Get non-existent ipv6
     netcode_parse_address(str_address_4, *address_get);
-    check(netcode_address_map_get(map, address_get) == -1);
+    assert_equal(netcode_address_map_get(map, address_get), -1);
 
     // Try to delete key, after that, the key should disappear
     netcode_parse_address(str_address_1, *address_delete);
     netcode_parse_address(str_address_1, *address_get);
-    check(netcode_address_map_delete(map, address_delete) == true);
-    check(netcode_address_map_get(map, address_get) == -1);
+    assert_true(netcode_address_map_delete(map, address_delete));
+    assert_equal(netcode_address_map_get(map, address_get), -1);
 
     // Try to delete non-existent key
     netcode_parse_address(str_address_2, *address_delete);
-    check (netcode_address_map_delete(map, address_delete) == false);
+    assert_false(netcode_address_map_delete(map, address_delete));
 
     netcode_address_map_destroy(map);
 }

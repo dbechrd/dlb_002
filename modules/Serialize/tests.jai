@@ -1,9 +1,9 @@
 serialize_test :: () {
     log("\n--- Serialize-------------------------------------------------------------------\n");
     log("Running tests...\n");
-    run_test(test_bitpacker);
-    run_test(test_bits_required);
-    run_test(test_stream);
+    TEST(test_bitpacker);
+    TEST(test_bits_required);
+    TEST(test_stream);
     log("Passed!\n");
 }
 
@@ -12,22 +12,10 @@ serialize_test :: () {
 #import "Basic";
 #import "Random";
 #import "dlb";
+#import "Assertive";
 
-// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
-check :: assert;
-
-assert_equal :: (actual: $T, expected: T, call := #caller_code, loc := #caller_location) #expand {
-    if actual != expected {
-        assert(false, "%\n  actual: %\nexpected: %", #run get_expression(call), actual, expected, loc = loc);
-    }
-}
-
-run_test :: (test: (), call := #caller_code) #expand {
-    #if ENABLE_LOGGING {
-        dlb_run_test(test, call);
-    } else {
-        test();
-    }
+TEST :: (test: (), call := #caller_code) #expand {
+    assert_test(test, ENABLE_LOGGING, call);
 }
 
 test_bitpacker :: () {
@@ -191,7 +179,7 @@ test_data_serialize :: (data: *TestData, stream: *Stream) -> bool {
     return true;
 }
 
-operator == :: (a: TestData, b: TestData) -> bool {
+test_data_compare :: (a: TestData, b: TestData) -> bool {
     return
         a.a == b.a &&
         a.b == b.b &&
@@ -233,5 +221,22 @@ test_stream :: () {
     stream_init(*readStream, buffer);
     test_data_serialize(*readData, *readStream);
 
-    assert_equal(readData, writeData);
+    assert_equal(readData.a, writeData.a);
+    assert_equal(readData.b, writeData.b);
+    assert_equal(readData.c, writeData.c);
+    assert_equal(readData.d, writeData.d);
+    assert_equal(readData.e, writeData.e);
+    assert_equal(readData.f, writeData.f);
+    assert_equal(readData.flag, writeData.flag);
+    assert_equal(readData.v32, writeData.v32);
+    assert_equal(readData.v64, writeData.v64);
+    assert_equal(readData.numItems, writeData.numItems);
+    assert_equal(readData.items, writeData.items);
+    assert_equal(readData.float_value, writeData.float_value);
+    assert_equal(readData.compressed_float_value, writeData.compressed_float_value);
+    assert_equal(readData.double_value, writeData.double_value);
+    assert_equal(readData.uint64_value, writeData.uint64_value);
+    assert_equal(readData.int_relative, writeData.int_relative);
+    assert_equal(readData.bytes, writeData.bytes);
+    assert_equal(readData.str, writeData.str);
 }

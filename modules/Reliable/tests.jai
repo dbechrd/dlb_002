@@ -1,29 +1,24 @@
 reliable_test :: () {
     log("\n--- Reliable -------------------------------------------------------------------\n");
     log("Running tests...\n");
-    run_test(test_sequence_buffer);
-    run_test(test_generate_ack_bits);
-    run_test(test_packet_header);
-    run_test(test_acks);
-    run_test(test_acks_packet_loss);
-    run_test(test_packets);
-    run_test(test_large_packets);
-    run_test(test_sequence_buffer_rollover);
-    run_test(test_fragment_cleanup);
+    TEST(test_sequence_buffer);
+    TEST(test_generate_ack_bits);
+    TEST(test_packet_header);
+    TEST(test_acks);
+    TEST(test_acks_packet_loss);
+    TEST(test_packets);
+    TEST(test_large_packets);
+    TEST(test_sequence_buffer_rollover);
+    TEST(test_fragment_cleanup);
     log("Passed!\n");
 }
 
 #scope_file
 
-// Keep "check" for semantics of a test check vs. an assert, but actually just use assert for now.
-check :: assert;
+#import "Assertive";
 
-run_test :: (test: (), call := #caller_code) #expand {
-    #if ENABLE_LOGGING {
-        dlb_run_test(test, call);
-    } else {
-        test();
-    }
+TEST :: (test: (), call := #caller_code) #expand {
+    assert_test(test, ENABLE_LOGGING, call);
 }
 
 test_sequence_data_t :: struct {
@@ -35,14 +30,14 @@ TEST_SEQUENCE_BUFFER_SIZE :: 256;
 test_sequence_buffer :: () {
     sequence_buffer := reliable_sequence_buffer_create(TEST_SEQUENCE_BUFFER_SIZE, size_of(test_sequence_data_t));
 
-    assert(sequence_buffer != null);
-    assert(sequence_buffer.sequence == 0);
-    assert(sequence_buffer.num_entries == TEST_SEQUENCE_BUFFER_SIZE);
-    assert(sequence_buffer.entry_stride == size_of(test_sequence_data_t));
+    assert_not_null(sequence_buffer);
+    assert_equal(sequence_buffer.sequence, 0);
+    assert_equal(sequence_buffer.num_entries, TEST_SEQUENCE_BUFFER_SIZE);
+    assert_equal(sequence_buffer.entry_stride, size_of(test_sequence_data_t));
 
     // Check that all buffer slots are initially empty
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
-        assert(reliable_sequence_buffer_find(sequence_buffer, (cast(u16) it)) == null);
+        assert_null(reliable_sequence_buffer_find(sequence_buffer, (cast(u16) it)));
     }
 
     // Insert enough things to overwrite the buffer entries multiple times, ensuring sequence # keeps going up
@@ -50,34 +45,34 @@ test_sequence_buffer :: () {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
         assert(entry != null);
         entry.sequence = cast(u16) it;
-        assert(sequence_buffer.sequence == it + 1);
+        assert_equal(sequence_buffer.sequence, it + 1);
     }
 
     // Check that older sequenced things do not get inserted into the buffer
     for 0..TEST_SEQUENCE_BUFFER_SIZE {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
-        assert(entry == null);
+        assert_null(entry);
     }
 
     // Check that the N (where N == BUFFER_SIZE) most recent entries are in the buffer and have the last N sequence numbers
     sequence := TEST_SEQUENCE_BUFFER_SIZE * 4;
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_find(sequence_buffer, cast(u16) sequence);
-        assert(entry != null);
-        assert(entry.sequence == cast(u32) sequence);
+        assert_not_null(entry);
+        assert_equal(entry.sequence, cast(u32) sequence);
         sequence -= 1;
     }
 
     reliable_sequence_buffer_reset(sequence_buffer);
 
-    assert(sequence_buffer != null);
-    assert(sequence_buffer.sequence == 0);
-    assert(sequence_buffer.num_entries == TEST_SEQUENCE_BUFFER_SIZE);
-    assert(sequence_buffer.entry_stride == size_of(test_sequence_data_t));
+    assert_not_null(sequence_buffer);
+    assert_equal(sequence_buffer.sequence, 0);
+    assert_equal(sequence_buffer.num_entries, TEST_SEQUENCE_BUFFER_SIZE);
+    assert_equal(sequence_buffer.entry_stride, size_of(test_sequence_data_t));
 
     // Check that all of the entries were cleared
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
-        assert(reliable_sequence_buffer_find(sequence_buffer, cast(u16) it) == null);
+        assert_null(reliable_sequence_buffer_find(sequence_buffer, cast(u16) it));
     }
 
     reliable_sequence_buffer_destroy(sequence_buffer);
@@ -87,16 +82,16 @@ test_generate_ack_bits :: () {
      sequence_buffer := reliable_sequence_buffer_create(TEST_SEQUENCE_BUFFER_SIZE, size_of(test_sequence_data_t));
 
     ack, ack_bits := reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
-    assert(ack == 0xFFFF);
-    assert(ack_bits == 0);
+    assert_equal(ack, 0xFFFF);
+    assert_equal(ack_bits, 0);
 
     for 0..TEST_SEQUENCE_BUFFER_SIZE {
         reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
     }
 
     ack, ack_bits = reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
-    assert(ack == TEST_SEQUENCE_BUFFER_SIZE);
-    assert(ack_bits == 0xFFFFFFFF);
+    assert_equal(ack, TEST_SEQUENCE_BUFFER_SIZE);
+    assert_equal(ack_bits, 0xFFFFFFFF);
 
     reliable_sequence_buffer_reset(sequence_buffer);
 
@@ -107,8 +102,8 @@ test_generate_ack_bits :: () {
 
     ack, ack_bits = reliable_sequence_buffer_generate_ack_bits(sequence_buffer);
 
-    assert(ack == 11);
-    assert(ack_bits == ( 1 | (1<<(11-9)) | (1<<(11-5)) | (1<<(11-1)) ));
+    assert_equal(ack, 11);
+    assert_equal(ack_bits, ( 1 | (1<<(11-9)) | (1<<(11-5)) | (1<<(11-1)) ));
 
     reliable_sequence_buffer_destroy(sequence_buffer);
 }
@@ -127,13 +122,13 @@ test_packet_header :: () {
     write_ack_bits = 0;
 
     bytes_written := reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
-    assert(bytes_written == RELIABLE_MAX_PACKET_HEADER_BYTES);
+    assert_equal(bytes_written, RELIABLE_MAX_PACKET_HEADER_BYTES);
 
     bytes_read, read_sequence, read_ack, read_ack_bits := reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
-    assert(bytes_read == bytes_written);
-    assert(read_sequence == write_sequence);
-    assert(read_ack == write_ack);
-    assert(read_ack_bits == write_ack_bits);
+    assert_equal(bytes_read, bytes_written);
+    assert_equal(read_sequence, write_sequence);
+    assert_equal(read_ack, write_ack);
+    assert_equal(read_ack_bits, write_ack_bits);
 
     // rare case. sequence and ack are far apart, significant # of acks are missing
 
@@ -142,13 +137,13 @@ test_packet_header :: () {
     write_ack_bits = 0xFEFEFFFE;
 
     bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
-    assert(bytes_written == 1 + 2 + 2 + 3);
+    assert_equal(bytes_written, 1 + 2 + 2 + 3);
 
     bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
-    assert(bytes_read == bytes_written);
-    assert(read_sequence == write_sequence);
-    assert(read_ack == write_ack);
-    assert(read_ack_bits == write_ack_bits);
+    assert_equal(bytes_read, bytes_written);
+    assert_equal(read_sequence, write_sequence);
+    assert_equal(read_ack, write_ack);
+    assert_equal(read_ack_bits, write_ack_bits);
 
     // common case under packet loss. sequence and ack are close together, some acks are missing
 
@@ -157,13 +152,13 @@ test_packet_header :: () {
     write_ack_bits = 0xFFFEFFFF;
 
     bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
-    assert(bytes_written == 1 + 2 + 1 + 1);
+    assert_equal(bytes_written, 1 + 2 + 1 + 1);
 
     bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
-    assert(bytes_read == bytes_written);
-    assert(read_sequence == write_sequence);
-    assert(read_ack == write_ack);
-    assert(read_ack_bits == write_ack_bits);
+    assert_equal(bytes_read, bytes_written);
+    assert_equal(read_sequence, write_sequence);
+    assert_equal(read_ack, write_ack);
+    assert_equal(read_ack_bits, write_ack_bits);
 
     // ideal case. no packet loss.
 
@@ -172,13 +167,13 @@ test_packet_header :: () {
     write_ack_bits = 0xFFFFFFFF;
 
     bytes_written = reliable_write_packet_header(packet_data, write_sequence, write_ack, write_ack_bits);
-    assert(bytes_written == 1 + 2 + 1);
+    assert_equal(bytes_written, 1 + 2 + 1);
 
     bytes_read, read_sequence, read_ack, read_ack_bits = reliable_read_packet_header("test_packet_header", .{ bytes_written, packet_data.data });
-    assert(bytes_read == bytes_written);
-    assert(read_sequence == write_sequence);
-    assert(read_ack == write_ack);
-    assert(read_ack_bits == write_ack_bits);
+    assert_equal(bytes_read, bytes_written);
+    assert_equal(read_sequence, write_sequence);
+    assert_equal(read_ack, write_ack);
+    assert_equal(read_ack_bits, write_ack_bits);
 }
 
 test_context_t :: struct {
@@ -259,7 +254,7 @@ test_acks :: () {
         }
     }
     for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
-        assert(sender_acked_packet[it]);
+        assert_true(sender_acked_packet[it]);
     }
 
     receiver_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
@@ -270,7 +265,7 @@ test_acks :: () {
         }
     }
     for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
-        assert(receiver_acked_packet[it]);
+        assert_true(receiver_acked_packet[it]);
     }
 
     reliable_endpoint_destroy(ctx.sender);
@@ -322,7 +317,7 @@ test_acks_packet_loss :: () {
         }
     }
     for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
-        assert(sender_acked_packet[it] == cast(bool) ((it+1) % 2));
+        assert_equal(sender_acked_packet[it], cast(bool) ((it+1) % 2));
     }
 
     receiver_acked_packet: [TEST_ACKS_NUM_ITERATIONS] bool;
@@ -333,7 +328,7 @@ test_acks_packet_loss :: () {
         }
     }
     for 0..(TEST_ACKS_NUM_ITERATIONS/2)-1 {
-        assert(receiver_acked_packet[it] == cast(bool) ((it+1) % 2));
+        assert_equal(receiver_acked_packet[it], cast(bool) ((it+1) % 2));
     }
 
     reliable_endpoint_destroy(ctx.sender);
@@ -343,8 +338,8 @@ test_acks_packet_loss :: () {
 TEST_MAX_PACKET_BYTES :: 4 * 1024;
 
 generate_packet_data_with_size :: (sequence: u16, packet_data: [] u8) {
-    assert(packet_data.count >= 2);
-    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+    assert_true(packet_data.count >= 2);
+    assert_true(packet_data.count <= TEST_MAX_PACKET_BYTES);
 
     packet_data.data[0] = cast(u8) (sequence & 0xFF);
     packet_data.data[1] = cast(u8) ((sequence >> 8) & 0xFF);
@@ -360,8 +355,9 @@ generate_packet_data :: (sequence: u16, packet_data: [] u8) -> int {
 }
 
 validate_packet_data :: (packet_data: [] u8) {
-    assert(packet_data.count >= 2);
-    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+    assert_true(packet_data.count >= 2);
+    assert_true(packet_data.count <= TEST_MAX_PACKET_BYTES);
+
     sequence: u16 = 0;
     sequence |= cast(u16) packet_data[0];
     sequence |= (cast(u16) packet_data[1]) << 8;
@@ -372,9 +368,9 @@ validate_packet_data :: (packet_data: [] u8) {
 }
 
 test_process_packet_function_validate :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool {
-    assert(packet_data.data != null);
-    assert(packet_data.count > 0);
-    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+    assert_true(packet_data.data != null);
+    assert_true(packet_data.count > 0);
+    assert_true(packet_data.count <= TEST_MAX_PACKET_BYTES);
 
     validate_packet_data(packet_data);
 
@@ -383,8 +379,8 @@ test_process_packet_function_validate :: (ctx: *void, id: u64, sequence: u16, pa
 
 generate_packet_data_large :: (packet_data: [] u8) -> int {
     data_bytes := TEST_MAX_PACKET_BYTES - 2;
-    assert(data_bytes >= 2);
-    assert(data_bytes <= (1 << 16));
+    assert_true(data_bytes >= 2);
+    assert_true(data_bytes <= (1 << 16));
 
     packet_data.data[0] = cast(u8) (data_bytes & 0xFF);
     packet_data.data[1] = cast(u8) ((data_bytes >> 8) & 0xFF);
@@ -395,16 +391,16 @@ generate_packet_data_large :: (packet_data: [] u8) -> int {
 }
 
 test_process_packet_function_validate_large :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> bool {
-    assert(packet_data.data != null);
-    assert(packet_data.count >= 2);
-    assert(packet_data.count <= TEST_MAX_PACKET_BYTES);
+    assert_true(packet_data.data != null);
+    assert_true(packet_data.count >= 2);
+    assert_true(packet_data.count <= TEST_MAX_PACKET_BYTES);
 
     data_bytes: u16 = 0;
     data_bytes |= cast(u16) packet_data[0];
     data_bytes |= (cast(u16) packet_data[1]) << 8;
-    assert(packet_data.count == data_bytes + 2);
+    assert_equal(packet_data.count, cast(int) data_bytes + 2);
     for 2..data_bytes-1 {
-        assert(packet_data[it] == cast(u8) (it % 256));
+        assert_equal(packet_data[it], cast(u8) (it % 256));
     }
 
     return true;
@@ -540,8 +536,8 @@ test_sequence_buffer_rollover :: () {
 
     receiver_counters := reliable_endpoint_counters(ctx.receiver);
 
-    assert(cast(int) receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED] == num_packets_sent);
-    assert(receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID] == 0);
+    assert_equal(cast(int) receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_PACKETS_RECEIVED], num_packets_sent);
+    assert_equal(receiver_counters[RELIABLE_ENDPOINT_COUNTER_NUM_FRAGMENTS_INVALID], cast(u64) 0);
 
     reliable_endpoint_destroy(ctx.sender);
     reliable_endpoint_destroy(ctx.receiver);
@@ -563,7 +559,7 @@ test_tracking_allocate_function :: (pointer: *void) {
         }
     }
 
-    assert(tracking_index < ctx.active_allocations.count);
+    assert_true(tracking_index < ctx.active_allocations.count);
     ctx.active_allocations[tracking_index] = pointer;
 }
 
@@ -577,7 +573,7 @@ test_tracking_free_function :: (pointer: *void) {
         }
     }
 
-    assert(tracking_index < ctx.active_allocations.count);
+    assert_true(tracking_index < ctx.active_allocations.count);
     ctx.active_allocations[tracking_index] = null;
 }
 
@@ -630,7 +626,7 @@ test_fragment_cleanup :: () {
     ];
 
     // Make sure we're sending more than receiver_config.fragment_reassembly_buffer_size packets, so the buffer wraps around.
-    assert(packet_sizes.count > receiver_config.fragment_reassembly_buffer_size);
+    assert_true(packet_sizes.count > receiver_config.fragment_reassembly_buffer_size);
 
     for 0..packet_sizes.count-1 {
         // Only allow one packet per transmit, so that our fragmented packets are only partially
@@ -660,6 +656,6 @@ test_fragment_cleanup :: () {
 
     // Make sure that there is no memory that hasn't been freed.
     for tracking_alloc_context.active_allocations {
-        assert(it == null);
+        assert_null(it);
     }
 }
