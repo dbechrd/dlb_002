@@ -5,3 +5,6 @@ dlb_002
 dlb_002.dSYM
 *.rdi
 *.raddbg
+.DS_Store
+*.dSYM
+*.macbin

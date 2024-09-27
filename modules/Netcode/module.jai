@@ -1211,7 +1211,7 @@ netcode_socket_send_packet :: (socket: netcode_socket_t, to: netcode_address_t, 
             (cast(*u16) *socket_address.sin6_addr)[it] = htons(to.data.ipv6[it]);
         }
         socket_address.sin6_port = htons(to.port);
-        result := sendto(socket.handle, packet_data.data, cast(s32) packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in6));
+        result := sendto(socket.handle, packet_data.data, xx packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in6));
         if result == SOCKET_ERROR {
             netcode_log(.ERROR, "error: failed send packet (ipv6)\n");
             return false;
@@ -1219,12 +1219,17 @@ netcode_socket_send_packet :: (socket: netcode_socket_t, to: netcode_address_t, 
     } else if to.type == NETCODE_ADDRESS_IPV4 {
         socket_address: sockaddr_in;
         socket_address.sin_family = AF_INET;
-        socket_address.sin_addr.S_un.S_addr = ((cast(u32) to.data.ipv4[0])      ) |
-                                              ((cast(u32) to.data.ipv4[1]) << 8 ) |
-                                              ((cast(u32) to.data.ipv4[2]) << 16) |
-                                              ((cast(u32) to.data.ipv4[3]) << 24);
+        #if OS == .WINDOWS {
+            addr: *u32 = *socket_address.sin_addr.S_un.S_addr;
+        } else {
+            addr: *u32 = *socket_address.sin_addr.s_addr;
+        }
+        addr.* = ((cast(u32) to.data.ipv4[0])      ) |
+                 ((cast(u32) to.data.ipv4[1]) << 8 ) |
+                 ((cast(u32) to.data.ipv4[2]) << 16) |
+                 ((cast(u32) to.data.ipv4[3]) << 24);
         socket_address.sin_port = htons(to.port);
-        result := sendto(socket.handle, packet_data.data, cast(s32) packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in));
+        result := sendto(socket.handle, packet_data.data, xx packet_data.count, 0, cast(*sockaddr) *socket_address, size_of(sockaddr_in));
         if result == SOCKET_ERROR {
             netcode_log(.ERROR, "error: failed send packet (ipv4)\n");
             return false;
@@ -1243,7 +1248,7 @@ netcode_socket_receive_packet :: (socket: netcode_socket_t, from: *netcode_addre
     sockaddr_from: sockaddr_storage;
     from_length: socklen_t = cast(socklen_t) size_of(type_of(sockaddr_from));
 
-    bytes_read := recvfrom(socket.handle, packet_buf.data, cast(s32) packet_buf.count, 0, cast(*sockaddr) *sockaddr_from, *from_length);
+    bytes_read := recvfrom(socket.handle, packet_buf.data, xx packet_buf.count, 0, cast(*sockaddr) *sockaddr_from, *from_length);
     if bytes_read == SOCKET_ERROR {
         error := get_last_socket_error();
         if error == SOCKET_WOULDBLOCK {
@@ -1264,10 +1269,15 @@ netcode_socket_receive_packet :: (socket: netcode_socket_t, from: *netcode_addre
     } else if sockaddr_from.ss_family == AF_INET {
         addr_ipv4 := cast(*sockaddr_in) *sockaddr_from;
         from.type = NETCODE_ADDRESS_IPV4;
-        from.data.ipv4[0] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x000000FF)      );
-        from.data.ipv4[1] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x0000FF00) >> 8 );
-        from.data.ipv4[2] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0x00FF0000) >> 16);
-        from.data.ipv4[3] = cast(u8) ((addr_ipv4.sin_addr.S_un.S_addr & 0xFF000000) >> 24);
+        #if OS == .WINDOWS {
+            addr: u32 = addr_ipv4.sin_addr.S_un.S_addr;
+        } else {
+            addr: u32 = addr_ipv4.sin_addr.s_addr;
+        }
+        from.data.ipv4[0] = cast(u8) ((addr & 0x000000FF)      );
+        from.data.ipv4[1] = cast(u8) ((addr & 0x0000FF00) >> 8 );
+        from.data.ipv4[2] = cast(u8) ((addr & 0x00FF0000) >> 16);
+        from.data.ipv4[3] = cast(u8) ((addr & 0xFF000000) >> 24);
         from.port = ntohs(addr_ipv4.sin_port);
     } else {
         assert(false, "Invalid address family");

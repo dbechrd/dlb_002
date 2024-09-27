@@ -8,10 +8,10 @@ main :: () {
     context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
 
     log_cpu_info();
-    // address_test();
-    // serialize_test();
-    // reliable_test();
-    // netcode_test();
+    address_test();
+    serialize_test();
+    reliable_test();
+    netcode_test();
     // yojimbo_init();
     // yojimbo_tests();
 
@@ -79,7 +79,6 @@ Input :: #import "Input";
 #import "Math";
 #import "Thread";
 #import "Atomics";
-Windows :: #import "Windows";
 
 #load "common.jai";
 #load "fonts.jai";
@@ -155,9 +154,6 @@ run_game :: () {
                                 inputCmd.nav_forward = true;
                             case .BACKSPACE;
                                 inputCmd.nav_back = true;
-                        }
-                        if it.vkey == Windows.VK_NUMPAD0 {
-                            state.box_offset = .{};
                         }
                     }
                 case .MOUSE_WHEEL;

@@ -277,8 +277,8 @@ Bit reader constructor.
 @see BitWriter
 */
 bit_reader_init :: (using reader: *BitReader, buffer: [] u8) {
-    assert(buffer.count > 0);
-    assert(buffer.count % 4 == 0);
+    assert_greater(buffer.count, 0);
+    assert_equal(buffer.count % 4, 0);
 
     data = .{ buffer.count / 4, cast(*u32) buffer.data };
     numBits = buffer.count * 8;
@@ -1012,3 +1012,4 @@ stream_serialize_int32_relative_internal :: (stream: *Stream, previous: $T, curr
 #import "Basic";
 #import "Bit_Operations";
 Math :: #import "Math";
+#import "Assertive";
