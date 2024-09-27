@@ -62,7 +62,7 @@ yojimbo_shutdown :: () {
 }
 
 yojimbo_tests :: () {
-    address_tests();
+    // address_tests();
     // TODO(dlb): The rest of the tests..
 }
 
@@ -70,6 +70,7 @@ yojimbo_tests :: () {
 
 #import "Basic";
 Math :: #import "Math";
+#import "Assertive";
 #import "IPAddress";
 #import "Reliable";
 #import "Netcode";

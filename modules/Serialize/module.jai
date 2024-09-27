@@ -431,18 +431,26 @@ stream_serialize_bits :: (stream: *Stream, value: *u64, bits: int) -> bool {
     if #complete stream.type == {
         case .Write;
             s := cast(*WriteStream) stream;
-            bit_writer_write_bits(*s.writer, lo, 32);
-            if bits > 32 {
-                bit_writer_write_bits(*s.writer, hi, bits - 32);
+            if bits <= 32 {
+                bit_writer_write_bits(*s.writer, lo, bits);
+            } else {
+                bit_writer_write_bits(*s.writer, lo, 32);
+                if bits > 32 {
+                    bit_writer_write_bits(*s.writer, hi, bits - 32);
+                }
             }
         case .Read;
             s := cast(*ReadStream) stream;
             if bit_reader_would_read_past_end(*s.reader, bits) {
                 return false;
             }
-            lo = bit_reader_read_bits(*s.reader, 32);
-            if bits > 32 {
-                hi = bit_reader_read_bits(*s.reader, bits - 32);
+            if bits <= 32 {
+                lo = bit_reader_read_bits(*s.reader, bits);
+            } else {
+                lo = bit_reader_read_bits(*s.reader, 32);
+                if bits > 32 {
+                    hi = bit_reader_read_bits(*s.reader, bits - 32);
+                }
             }
             value.* = ((cast(u64) hi) << 32) | lo;
         case .Measure;

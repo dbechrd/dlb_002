@@ -1,7 +1,5 @@
 #load "yojimbo_test_shared.jai";
 
-quit := false;
-
 server_main :: () {
     log("started server on port % (insecure)\n", ServerPort);
 
@@ -21,7 +19,8 @@ server_main :: () {
 
     deltaTime := milliseconds_to_apollo(500);
 
-    while !quit {
+    // dunno how to capture SIGINT in Jai, who cares
+    while true {
         server_send_packets(server);
         server_receive_packets(server);
 

@@ -1,7 +1,5 @@
 #load "yojimbo_test_shared.jai";
 
-quit := false;
-
 client_main :: () {
     log("connecting client (insecure)\n");
 
@@ -26,7 +24,8 @@ client_main :: () {
 
     deltaTime := milliseconds_to_apollo(500);
 
-    while !quit {
+    // dunno how to capture SIGINT in Jai, who cares
+    while true {
         client_send_packets(client);
         client_receive_packets(client);
 

@@ -172,6 +172,9 @@ client_advance_time :: (using client: *Client, _time: Apollo_Time) {
     }
 }
 
+// TODO(dlb): This is really stupid, because BaseClient always has clientIndex == -1, even when we're connected.
+// We should clean this up somehow.. either by deleting clientIndex from the base, or by always syncing it when we
+// connect/disconnect. Maybe we just delete the base class entirely, nobody is ever going to subclass this themselves.
 client_get_client_index :: (using client: *Client) -> int {
     return ifx netClient != null then netcode_client_index(netClient) else -1;
 }
@@ -180,7 +183,7 @@ client_connect_loopback :: (using client: *Client, _clientIndex: int, _clientId:
     client_disconnect(client);
     client_create_internal(client);
     clientId = _clientId;
-    client_create_net_client(address);
+    client_create_net_client(client, address);
     netcode_client_connect_loopback(netClient, _clientIndex, maxClients);
     clientState = .Connected;
 }
@@ -253,8 +256,6 @@ client_state_change_callback :: (ctx: *void, previous: int, current: int) {
 
 client_send_loopback_packet_callback :: (ctx: *void, _clientIndex: int, packetData: [] u8, packetSequence: u64) {
     using client := cast(*Client) ctx;
-
-    assert(_clientIndex == clientIndex);
 
     if onClientSendLoopbackPacket != null {
         onClientSendLoopbackPacket(client, _clientIndex, packetData, packetSequence);

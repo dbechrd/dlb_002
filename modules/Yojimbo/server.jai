@@ -232,7 +232,7 @@ This allows you to have local clients connected to a server, for example for int
 @param clientId The unique client id.
 @param userData User data for this client. Optional. Pass NULL if not needed.
 */
-server_connect_loopback_client :: (using server: *Server, clientIndex: int, clientId: u64, userData: [] u8) {
+server_connect_loopback_client :: (using server: *Server, clientIndex: int, clientId: u64, userData: [256] u8) {
     netcode_server_connect_loopback_client(netServer, clientIndex, clientId, userData);
 }
 
@@ -263,7 +263,7 @@ Use this to pass packets from a client directly to the loopback client slot on t
 @param packetSequence The packet sequence number.
 */
 server_process_loopback_packet :: (using server: *Server, clientIndex: int, packetData: [] u8, packetSequence: u64) {
-    netcode_server_process_loopback_packet(netServer, clientIndex, packetData, packetBytes, packetSequence);
+    netcode_server_process_loopback_packet(netServer, clientIndex, packetData, packetSequence);
 }
 
 /*

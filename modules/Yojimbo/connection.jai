@@ -28,15 +28,15 @@ connection_packet_free :: (using connectionPacket: *ConnectionPacket) {
 }
 
 connection_packet_allocate_channel_data :: (using connectionPacket: *ConnectionPacket, numEntries: int) {
-    assert(numEntries > 0);
-    assert(numEntries <= MaxChannels);
+    assert_greater(numEntries, 0);
+    assert_less_or_equal(numEntries, MaxChannels);
 
     channelEntries = NewArray(numEntries, ChannelPacketData);
 }
 
 connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, stream: *Stream, messageFactory: MessageFactory, connectionConfig: *ConnectionConfig) -> bool {
     serialize_int(stream, *channelEntries.count, 0, connectionConfig.numChannels);
-    assert(stream_get_bits_processed(stream) <= ConservativePacketHeaderBits);
+    assert_less_or_equal(stream_get_bits_processed(stream), ConservativePacketHeaderBits);
 
     if channelEntries.count > 0 {
         if stream.isReading {
@@ -60,8 +60,8 @@ connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, strea
 // ------------------------------------------------------------------------------
 
 connection_init :: (using connection: *Connection, _messageFactory: MessageFactory, _connectionConfig: ConnectionConfig, time: Apollo_Time) {
-    assert(_connectionConfig.numChannels >= 1);
-    assert(_connectionConfig.numChannels <= MaxChannels);
+    assert_greater_or_equal(_connectionConfig.numChannels, 1);
+    assert_less_or_equal(_connectionConfig.numChannels, MaxChannels);
 
     messageFactory = _messageFactory;
     connectionConfig = _connectionConfig;

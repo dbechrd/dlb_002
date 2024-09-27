@@ -23,27 +23,43 @@ EOS
 }
 
 assert_true :: (value: bool, $call := #caller_code, loc := #caller_location) {
-    if value != true {
-        assert(false, "%\nValue is false.\nvalue : %", #run get_expression(call), value, loc = loc);
-    }
+    if value == true return;
+    assert(false, "%\nValue is false.\nvalue : %", #run get_expression(call), value, loc = loc);
 }
 
 assert_false :: (value: bool, $call := #caller_code, loc := #caller_location) {
-    if value != false {
-        assert(false, "%\nValue is not false.\nvalue : %", #run get_expression(call), value, loc = loc);
-    }
+    if value == false return;
+    assert(false, "%\nValue is not false.\nvalue : %", #run get_expression(call), value, loc = loc);
 }
 
 assert_null :: (value: $T, $call := #caller_code, loc := #caller_location) {
-    if value != null {
-        assert(false, "%\nValue is not null.\nvalue : %", #run get_expression(call), value, loc = loc);
-    }
+    if value == null return;
+    assert(false, "%\nValue is not null.\nvalue : %", #run get_expression(call), value, loc = loc);
 }
 
 assert_not_null :: (value: $T, $call := #caller_code, loc := #caller_location) {
-    if value == null {
-        assert(false, "%\nValue is null.", #run get_expression(call), loc = loc);
-    }
+    if value != null return;
+    assert(false, "%\nValue is null.", #run get_expression(call), loc = loc);
+}
+
+assert_less :: (left: T, right: $T, $call := #caller_code, loc := #caller_location) {
+    if left < right return;
+    assert(false, "%\nleft  : %\nright : %", #run get_expression(call), left, right, loc = loc);
+}
+
+assert_less_or_equal :: (left: T, right: $T, $call := #caller_code, loc := #caller_location) {
+    if left <= right return;
+    assert(false, "%\nleft  : %\nright : %", #run get_expression(call), left, right, loc = loc);
+}
+
+assert_greater :: (left: T, right: $T, $call := #caller_code, loc := #caller_location) {
+    if left > right return;
+    assert(false, "%\nleft  : %\nright : %", #run get_expression(call), left, right, loc = loc);
+}
+
+assert_greater_or_equal :: (left: T, right: $T, $call := #caller_code, loc := #caller_location) {
+    if left >= right return;
+    assert(false, "%\nleft  : %\nright : %", #run get_expression(call), left, right, loc = loc);
 }
 
 assert_equal :: (value: T, expected: $T, $call := #caller_code, loc := #caller_location) {
@@ -76,12 +92,6 @@ assert_equal :: (comparator: (T, T) -> bool, value: T, expected: $T, $call := #c
     }
 }
 */
-
-// For some reason when I name this `assert_equal`, and pass in two arrays, the compiler chooses the more generic `T`
-// overload instead. I'm not smart enough to understand why, so for now, we have to call this `assert_array_equal`.
-//assert_array_equal :: (value: [] T, expected: [] $T, $call := #caller_code, loc := #caller_location) {
-//
-//}
 
 #scope_file
 

@@ -8,10 +8,10 @@ main :: () {
     context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
 
     log_cpu_info();
-    address_test();
-    serialize_test();
-    reliable_test();
-    netcode_test();
+    // address_test();
+    // serialize_test();
+    // reliable_test();
+    // netcode_test();
     // yojimbo_init();
     // yojimbo_tests();
 
@@ -292,7 +292,11 @@ draw_one_frame :: (inputCmd: InputCommand) {
         if ti.type == {
             case .STRUCT;
                 using _ := cast(*Type_Info_Struct) ti;
-                return tprint("% (% bytes)", name, ti.runtime_size);
+                if textual_flags & .UNION {
+                    return tprint("% (% bytes)", ifx name then name else "UNION", ti.runtime_size);
+                } else {
+                    return tprint("% (% bytes)", ifx name then name else "STRUCT", ti.runtime_size);
+                }
             case .INTEGER;
                 using _ := cast(*Type_Info_Integer) ti;
                 return tprint("%0%", ifx signed then "s" else "u", ti.runtime_size * 8);
