@@ -273,14 +273,16 @@ BitReader :: struct {
 
 /*
 Bit reader constructor.
-@param buffer The buffer of bitpacked data to read. Length must be a multiple of 4, because the bitpacker reads and writes memory as dwords, not bytes.
+Non-multiples of four buffer sizes are supported, as this naturally tends to occur when packets are read from the network.
+However, actual buffer allocated for the packet data must round up at least to the next 4 bytes in memory, because the bit reader reads dwords from memory not bytes.
+@param data Pointer to the bitpacked data to read.
+@param bytes The number of bytes of bitpacked data to read.
 @see BitWriter
 */
 bit_reader_init :: (using reader: *BitReader, buffer: [] u8) {
     assert_greater(buffer.count, 0);
-    assert_equal(buffer.count % 4, 0);
 
-    data = .{ buffer.count / 4, cast(*u32) buffer.data };
+    data = .{ (buffer.count + 3) / 4, cast(*u32) buffer.data };
     numBits = buffer.count * 8;
 }
 
