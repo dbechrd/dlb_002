@@ -5,6 +5,7 @@ serialize_test :: () {
     TEST(test_bits_required);
     TEST(test_stream);
     log("Passed!\n");
+    reset_temporary_storage();
 }
 
 #scope_file

@@ -185,8 +185,8 @@ run_game :: () {
         draw_one_frame(inputCmd);
         Simp.swap_buffers(window);
 
-        reset_temporary_storage();
         memory_visualizer_per_frame_update();
+        reset_temporary_storage();
 
         sleep_milliseconds(10);
     }

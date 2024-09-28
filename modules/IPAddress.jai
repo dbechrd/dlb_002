@@ -705,6 +705,7 @@ address_test :: () {
     address_tests_running = true;
     defer address_tests_running = false;
     run_tests();
+    reset_temporary_storage();
 }
 
 // ----------------------------------------------------------------

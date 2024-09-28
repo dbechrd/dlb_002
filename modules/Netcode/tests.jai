@@ -39,6 +39,7 @@ netcode_test :: () {
     TEST(test_address_map);
     netcode_term();
     log("Passed!\n");
+    reset_temporary_storage();
 }
 
 #scope_file

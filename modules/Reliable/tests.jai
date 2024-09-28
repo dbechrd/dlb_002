@@ -11,6 +11,7 @@ reliable_test :: () {
     TEST(test_sequence_buffer_rollover);
     TEST(test_fragment_cleanup);
     log("Passed!\n");
+    reset_temporary_storage();
 }
 
 #scope_file
