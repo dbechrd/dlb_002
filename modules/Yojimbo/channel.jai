@@ -39,10 +39,10 @@ channel_init :: (channel: *Channel, messageFactory: MessageFactory, config: Chan
     channel.time = time;
 }
 
-channel_destroy :: (channel: *Channel) {
+channel_free :: (channel: *Channel) {
     if #complete channel.config.type == {
-        case .ReliableOrdered;      channel_destroy(cast(*ReliableOrderedChannel) channel);
-        case .UnreliableUnordered;  channel_destroy(cast(*UnreliableUnorderedChannel) channel);
+        case .ReliableOrdered;      channel_free(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  channel_free(cast(*UnreliableUnorderedChannel) channel);
         case; assert(false, "Invalid channel type");
     }
 }
@@ -84,12 +84,13 @@ channel_send_message :: (channel: *Channel, message: *Message) {
 
 // Pops the next message off the receive queue if one is available.
 // @returns A pointer to the received message, NULL if there are no messages to receive. The caller owns the message object returned by this function and is responsible for releasing it via Message::Release.
-channel_receive_message :: (channel: *Channel) {
+channel_receive_message :: (channel: *Channel) -> *Message {
     if #complete channel.config.type == {
-        case .ReliableOrdered;      channel_receive_message(cast(*ReliableOrderedChannel) channel);
-        case .UnreliableUnordered;  channel_receive_message(cast(*UnreliableUnorderedChannel) channel);
+        case .ReliableOrdered;      return channel_receive_message(cast(*ReliableOrderedChannel) channel);
+        case .UnreliableUnordered;  return channel_receive_message(cast(*UnreliableUnorderedChannel) channel);
         case; assert(false, "Invalid channel type");
     }
+    return null;
 }
 
 // Advance channel time

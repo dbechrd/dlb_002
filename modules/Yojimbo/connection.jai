@@ -21,7 +21,7 @@ ConnectionPacket :: struct {
 }
 
 connection_packet_free :: (using connectionPacket: *ConnectionPacket) {
-    for 0..channelEntries.count-1 {
+    for * channelEntries {
         channel_packet_data_free(it);
     }
     array_reset(*channelEntries);
@@ -41,7 +41,7 @@ connection_packet_serialize :: (using connectionPacket: *ConnectionPacket, strea
     if channelEntries.count > 0 {
         if stream.isReading {
             connection_packet_allocate_channel_data(connectionPacket, channelEntries.count);
-            // TODO(dlb): What is the point of this? Why would this flag ever be set here?
+            // TODO(dlb): What is the point of this? Why would this flag ever be set here? OOM?
             for channelEntries {
                 assert(!(it.flags & .FailedToSerialize));
             }
@@ -83,6 +83,7 @@ connection_init :: (using connection: *Connection, _messageFactory: MessageFacto
 connection_free :: (using connection: *Connection) {
     connection_reset(connection);
     for 0..connectionConfig.numChannels-1 {
+        channel_free(channels[it]);
         free(channels[it]);
     }
 }
@@ -109,10 +110,10 @@ connection_has_messages_to_send :: (using connection: *Connection, channelIndex:
 }
 
 connection_send_message :: (using connection: *Connection, channelIndex: int, message: *Message) {
-    assert(channelIndex >= 0);
-    assert(channelIndex < connectionConfig.numChannels);
+    assert_greater_or_equal(channelIndex, 0);
+    assert_less(channelIndex, connectionConfig.numChannels);
 
-    return channel_send_message(channels[channelIndex], message);
+    channel_send_message(channels[channelIndex], message);
 }
 
 connection_receive_message :: (using connection: *Connection, channelIndex: int) -> *Message {
@@ -140,6 +141,7 @@ connection_generate_packet :: (using connection: *Connection, packetSequence: u1
     }
 
     packet: ConnectionPacket;
+    defer connection_packet_free(*packet);
 
     if connectionConfig.numChannels > 0 {
         numChannelsWithData := 0;
@@ -150,6 +152,7 @@ connection_generate_packet :: (using connection: *Connection, packetSequence: u1
 
         for 0..connectionConfig.numChannels-1 {
             packetDataBits := channel_generate_packet_data(channels[it], *channelData[it], packetSequence, availableBits);
+
             if packetDataBits > 0 {
                 availableBits -= ConservativeChannelHeaderBits;
                 availableBits -= packetDataBits;
@@ -193,6 +196,7 @@ connection_process_packet :: (using connection: *Connection, packetSequence: u16
     }
 
     packet: ConnectionPacket;
+    defer connection_packet_free(*packet);
 
     if !connection_read_packet(connection, *packet, packetData) {
         yojimbo_log(.ERROR, "error: failed to read packet\n");
@@ -203,6 +207,7 @@ connection_process_packet :: (using connection: *Connection, packetSequence: u16
     for * packet.channelEntries {
         assert(it.channelIndex >= 0 );
         assert(it.channelIndex <= connectionConfig.numChannels );
+
         channel_process_packet_data(channels[it.channelIndex], it, packetSequence);
         if channels[it.channelIndex].errorLevel != .None {
             yojimbo_log(.VERBOSE_ONLY, "failed to read packet because channel % is in error state\n", it.channelIndex);

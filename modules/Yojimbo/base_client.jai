@@ -5,8 +5,6 @@ ClientState :: enum {
     Connected;
 };
 
-#scope_module
-
 /*
 Functionality that is common across all client implementations.
 */
@@ -135,9 +133,21 @@ Create a message of the specified type.
 @param type The type of the message to create. The message types correspond to the message factory set on this client.
 */
 client_create_message :: (using client: *BaseClient, type: int) -> *Message {
-    return messageFactory[type].create();
+    return message_acquire(messageFactory[type].create());
 }
 
+// TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.
+/*
+Allocate a data block for a message.
+@param bytes Length of the block of data in bytes.
+*/
+client_allocate_block :: (using client: *BaseClient, bytes: int) -> [] u8 {
+    assert(bytes > 0);
+
+    return NewArray(bytes, u8);
+}
+
+// TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.
 /*
 Attach data block to message.
 @param message The message to attach the block to. This message must be derived from BlockMessage.
@@ -176,9 +186,9 @@ Send a message on a channel.
 @param channelIndex The channel index in range [0,numChannels-1].
 @param message The message to send.
 */
-client_send_message :: (using client: *BaseClient, channelIndex: bool, message: *Message) {
+client_send_message :: (using client: *BaseClient, channelIndex: int, message: *Message) {
     assert(connection != null);
-    return connection_send_message(connection, channelIndex, message); //, ctx);  ???
+    connection_send_message(connection, channelIndex, message);
 }
 
 /*
@@ -186,7 +196,7 @@ Receive a message from a channel.
 @param channelIndex The channel index in range [0,numChannels-1].
 @returns The message received, or NULL if no message is available. Make sure to release this message by calling Client::ReleaseMessage.
 */
-client_receive_message :: (using client: *BaseClient, channelIndex: bool) -> *Message {
+client_receive_message :: (using client: *BaseClient, channelIndex: int) -> *Message {
     assert(connection != null);
     return connection_receive_message(connection, channelIndex);
 }
@@ -197,8 +207,7 @@ Call this for messages received by Client::ReceiveMessage.
 @param message The message to release.
 */
 client_release_message :: (using client: *BaseClient, message: *Message) {
-    assert(connection != null);
-    connection_release_message(connection, message);
+    message_release(message);
 }
 
 /*
@@ -257,6 +266,8 @@ client_process_loopback_packet :: (using client: *BaseClient, packetData: [] u8,
     assert(false, "Call this on the subtype");
 };
 
+// TODO(dlb): Everything below should be in #scope_file, but we can't do that until we merge BaseClient into Client.jai.
+// #scope_file
 
 client_create_internal :: (using client: *BaseClient) {
     assert(transmitPacketFunction != null);
@@ -296,8 +307,17 @@ client_destroy_internal :: (using client: *BaseClient) {
         endpoint = null;
     }
 
-    free(networkSimulator);
-    free(connection);
+    if networkSimulator != null {
+        network_simulator_free(networkSimulator);
+        free(networkSimulator);
+        networkSimulator = null;
+    }
+
+    if connection != null {
+        connection_free(connection);
+        free(connection);
+        connection = null;
+    }
 }
 
 client_reset :: (using client: *BaseClient) {

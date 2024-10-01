@@ -34,50 +34,50 @@ https://github.com/mas-bandwidth/reliable/commit/49b09d0726a09e16857315ec400df5d
 // Provide these via config when calling `reliable_endpoint_create` to receive
 // callbacks when Reliable is ready to send/receive network traffic.
 
-    TransmitPacketFunction :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8);
-    ProcessPacketFunction :: (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
+    TransmitPacketFunction (ctx: *void, id: u64, sequence: u16, packet_data: [] u8);
+    ProcessPacketFunction (ctx: *void, id: u64, sequence: u16, packet_data: [] u8) -> int;
 
 // Create a new endpoint (e.g. client or server)
 
-    reliable_endpoint_create :: (config: *reliable_config_t, time: Apollo_Time) -> *reliable_endpoint_t
+    reliable_endpoint_create (config: *reliable_config_t, time: Apollo_Time) -> *reliable_endpoint_t
 
 // Destroy an existing endpoint
 
-    reliable_endpoint_destroy :: (endpoint: *reliable_endpoint_t)
+    reliable_endpoint_destroy (endpoint: *reliable_endpoint_t)
 
 // Send a packet with acks (calls user-supplied `TransmitPacketFunction`)
 
-    reliable_endpoint_send_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8)
+    reliable_endpoint_send_packet (endpoint: *reliable_endpoint_t, packet_data: [] u8)
 
 // Receive a packet with acks (calls user-supplied `ProcessPacketFunction`)
 
-    reliable_endpoint_receive_packet :: (endpoint: *reliable_endpoint_t, packet_data: [] u8)
+    reliable_endpoint_receive_packet (endpoint: *reliable_endpoint_t, packet_data: [] u8)
 
 // Get a list of sequence numbers that have been ack'd recently
 
-    reliable_endpoint_get_acks :: (endpoint: *reliable_endpoint_t) -> [] u16
+    reliable_endpoint_get_acks (endpoint: *reliable_endpoint_t) -> [] u16
 
 // Mark all of the acks as handled (i.e. clear the ack buffer for re-use)
 
-    reliable_endpoint_clear_acks :: (endpoint: *reliable_endpoint_t)
+    reliable_endpoint_clear_acks (endpoint: *reliable_endpoint_t)
 
 // Reset the endpoint to its initial state (retaining the config and sequence buffer allocs)
 
-    reliable_endpoint_reset :: (endpoint: *reliable_endpoint_t)
+    reliable_endpoint_reset (endpoint: *reliable_endpoint_t)
 
 // Update time and statistics
 
-    reliable_endpoint_update :: (endpoint: *reliable_endpoint_t, time: Apollo_Time)
+    reliable_endpoint_update (endpoint: *reliable_endpoint_t, time: Apollo_Time)
 
 // Query current stats (with smoothing, see config)
 
-    reliable_endpoint_rtt :: inline (endpoint: *reliable_endpoint_t) -> float
-    reliable_endpoint_packet_loss :: inline (endpoint: *reliable_endpoint_t ) -> float
-    reliable_endpoint_bandwidth :: inline (endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float
+    reliable_endpoint_rtt (endpoint: *reliable_endpoint_t) -> float
+    reliable_endpoint_packet_loss (endpoint: *reliable_endpoint_t ) -> float
+    reliable_endpoint_bandwidth (endpoint: *reliable_endpoint_t) -> sent_bandwidth_kbps: float, received_bandwidth_kbps: float, acked_bandwidth_kpbs: float
 
 // Query current performance counters
 
-    reliable_endpoint_counters :: inline (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64
+    reliable_endpoint_counters (endpoint: *reliable_endpoint_t) -> [RELIABLE_ENDPOINT_NUM_COUNTERS] u64
 
 -----------------------------------------------------------------------------------------------------------------------
 */

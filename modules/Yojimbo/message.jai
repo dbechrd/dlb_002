@@ -1,5 +1,7 @@
 #scope_export
 
+MEMLEAK_CHECK :: 0;
+
 /*
 An object that can be serialized to a bitstream.
 
@@ -20,6 +22,39 @@ Message :: struct {
     id        : u16;    // The message id. For messages sent over reliable-ordered channels, this starts at 0 and increases with each message sent. For unreliable-unordered channels this is set to the sequence number of the packet the message was included in.
     type      : u16;    // The message type. Corresponds to the type integer used when the message was created though the message factory.
     blockData : [] u8;  // The block data. Empty if no block is attached.
+    refCount  : int;
+}
+
+message_acquire :: (message: *Message) -> *Message {
+    message.refCount += 1;
+
+    #if MEMLEAK_CHECK {
+        log("\nAcquired message % id % type %, refCount = %\n", message, message.id, message.type, message.refCount);
+        log_stack_trace(context.stack_trace, .VERBOSE_ONLY);
+        log("\n");
+    }
+
+    return message;
+}
+
+message_release :: (message: *Message) {
+    assert(message.refCount > 0);
+    if message.refCount > 0 {
+        message.refCount -= 1;
+    }
+
+    #if MEMLEAK_CHECK {
+        log("\nReleased message % id % type %, refCount = %\n", message, message.id, message.type, message.refCount);
+        log_stack_trace(context.stack_trace, .VERBOSE_ONLY);
+        log("\n");
+    }
+
+    if message.refCount == 0 {
+        if message.blockData.count > 0 {
+            array_free(message.blockData);
+        }
+        free(message);
+    }
 }
 
 /*

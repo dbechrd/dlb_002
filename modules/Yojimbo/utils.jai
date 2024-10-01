@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 Generate a random integer between a and b (inclusive).
 IMPORTANT: This is not a cryptographically secure random. It's used only for test functions and in the network simulator.
@@ -9,7 +7,7 @@ IMPORTANT: This is not a cryptographically secure random. It's used only for tes
 */
 yojimbo_random_int :: inline (a: int, b: int) -> int {
     assert(a < b);
-    result := a + (cast(int) random_get()) % (b - a + 1);
+    result := a + cast(int) (random_get() % cast(u64)(b - a + 1));
     assert(result >= a);
     assert(result <= b);
     return result;

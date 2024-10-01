@@ -2404,7 +2404,7 @@ void interrupt_handler(int /*dummy*/)
 
 int main()
 {
-    srand(time(NULL));
+    random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
 
     printf("\n");
 

@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 Simulates packet loss, latency, jitter and duplicate packets.
 This is useful during development, so your game is tested and played under real world conditions, instead of ideal LAN conditions.
@@ -56,7 +54,7 @@ Set the latency in milliseconds.
 This latency is added on packet send. To simulate a round trip time of 100ms, add 50ms of latency to both sides of the connection.
 @param milliseconds The latency to add in milliseconds.
 */
-network_simulator_set_latency :: (using networkSimulator: *NetworkSimulator, milliseconds: float) {
+network_simulator_set_latency :: (using networkSimulator: *NetworkSimulator, milliseconds: int) {
     latency = milliseconds_to_apollo(milliseconds);
     network_simulator_update_active(networkSimulator);
 }
@@ -66,7 +64,7 @@ Set the packet jitter in milliseconds.
 Jitter is applied +/- this amount in milliseconds. To be truly effective, jitter must be applied together with some latency.
 @param milliseconds The amount of jitter to add in milliseconds (+/-).
 */
-network_simulator_set_jitter :: (using networkSimulator: *NetworkSimulator, milliseconds: float) {
+network_simulator_set_jitter :: (using networkSimulator: *NetworkSimulator, milliseconds: int) {
     jitter = milliseconds_to_apollo(milliseconds);
     network_simulator_update_active(networkSimulator);
 }
@@ -160,18 +158,17 @@ network_simulator_receive_packets :: (using networkSimulator: *NetworkSimulator,
 
     numPackets := 0;
 
-    for 0..packetEntries.count-1 {
-        packetEntry := *packetEntries[it];
-        if packetEntry.packetData.count == 0 {
+    for * packetEntries {
+        if it.packetData.count == 0 {
             continue;
         }
 
-        if packetEntry.deliveryTime < time {
-            packetData[numPackets] = packetEntry.packetData;
+        if it.deliveryTime < time {
+            packetData[numPackets] = it.packetData;
             if to.count > 0 {
-                to[numPackets] = packetEntry.to;
+                to[numPackets] = it.to;
             }
-            packetEntry.* = .{};
+            it.* = .{};
             numPackets += 1;
         }
     }
@@ -184,14 +181,13 @@ Discard all packets in the network simulator.
 This is useful if the simulator needs to be reset and used for another purpose.
 */
 network_simulator_discard_packets :: (using networkSimulator: *NetworkSimulator) {
-    for 0..packetEntries.count-1 {
-        packetEntry := *packetEntries[i];
-        if packetEntry.packetData.count == 0 {
+    for * packetEntries {
+        if it.packetData.count == 0 {
             continue;
         }
 
-        array_free(packetEntry.packetData);
-        packetEntry.* = .{};
+        array_free(it.packetData);
+        it.* = .{};
     }
 }
 
@@ -200,14 +196,13 @@ Discard packets sent to a particular client index.
 This is called when a client disconnects from the server.
 */
 network_simulator_discard_client_packets :: (using networkSimulator: *NetworkSimulator, clientIndex: int) {
-    for 0..packetEntries.count-1 {
-        packetEntry := *packetEntries[it];
-        if (packetEntry.packetData.count == 0 || packetEntry.to != clientIndex) {
+    for * packetEntries {
+        if (it.packetData.count == 0 || it.to != clientIndex) {
             continue;
         }
 
-        array_free(packetEntry.packetData);
-        packetEntry.* = .{};
+        array_free(it.packetData);
+        it.* = .{};
     }
 }
 

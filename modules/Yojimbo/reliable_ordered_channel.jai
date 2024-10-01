@@ -29,7 +29,8 @@ Reliable ordered channel constructor.
 @param channelIndex The channel index in [0,numChannels-1].
 */
 channel_init :: (using channel: *ReliableOrderedChannel, _messageFactory: MessageFactory, _config: ChannelConfig, _channelIndex: int, _time: Apollo_Time) {
-    assert(config.type == .ReliableOrdered);
+    assert(_config.type == .ReliableOrdered);
+
     channel_init(*base, _messageFactory, _config, _channelIndex, _time);
 
     assert((65536 % config.sentPacketBufferSize) == 0);
@@ -58,12 +59,11 @@ Reliable ordered channel destructor.
 Any messages still in the send or receive queues will be released.
 */
 channel_free :: (using channel: *ReliableOrderedChannel) {
-    // TODO(dlb)[perf]: most of this is wasted effort.. lots of zero'ing
-    channel_reset(channel);
+    channel_free_owned_messages(channel);
 
-    sequence_buffer_free(sentPackets);
-    sequence_buffer_free(messageSendQueue);
-    sequence_buffer_free(messageReceiveQueue);
+    sequence_buffer_free(*sentPackets);
+    sequence_buffer_free(*messageSendQueue);
+    sequence_buffer_free(*messageReceiveQueue);
     array_free(sentPacketMessageIds);
 
     send_block_data_free(sendBlock);
@@ -73,25 +73,13 @@ channel_free :: (using channel: *ReliableOrderedChannel) {
 }
 
 channel_reset :: (using channel: *ReliableOrderedChannel) {
+    channel_free_owned_messages(channel);
+
     errorLevel = .None;
 
     sendMessageId = 0;
     receiveMessageId = 0;
     oldestUnackedMessageId = 0;
-
-    for 0..sequence_buffer_get_capacity(*messageSendQueue)-1 {
-        entry := sequence_buffer_get_at_index(*messageSendQueue, it);
-        if entry != null && entry.message != null {
-            free(entry.message);
-        }
-    }
-
-    for 0..sequence_buffer_get_capacity(*messageReceiveQueue)-1 {
-        entry := sequence_buffer_get_at_index(*messageReceiveQueue, it);
-        if entry != null && entry.message != null {
-            free(entry.message);
-        }
-    }
 
     sequence_buffer_reset(*sentPackets);
     sequence_buffer_reset(*messageSendQueue);
@@ -117,30 +105,30 @@ channel_send_message :: (using channel: *ReliableOrderedChannel, message: *Messa
     assert(channel_can_send_message(channel));
 
     if errorLevel != .None {
-        free(message);
+        message_release(message);
         return;
     }
 
     if !channel_can_send_message(channel) {
         // Increase your send queue size!
         errorLevel = .SendQueueFull;
-        free(message);
+        message_release(message);
         return;
     }
 
     message.id = sendMessageId;
 
-    entry := sequence_buffer_insert(messageSendQueue, sendMessageId);
-    assert(entry != null);
+    sendQueueEntry := sequence_buffer_insert(*messageSendQueue, sendMessageId);
+    assert(sendQueueEntry != null);
 
     // Overwrite any previous values because sequence buffer entries get reused
-    entry = .{ message = message };
+    sendQueueEntry.* = .{ message = message };
 
     assert(message.blockData.count <= config.maxBlockSize);
 
     measureStream: MeasureStream;
     messageFactory[message.type].serialize(*measureStream, message);
-    entry.measuredBits = stream_get_bits_processed(*measureStream);
+    sendQueueEntry.measuredBits = stream_get_bits_processed(*measureStream);
     counters[ChannelCounter.MessagesSent] += 1;
     sendMessageId += 1;
 }
@@ -260,10 +248,10 @@ channel_get_messages_to_send :: (using channel: *ReliableOrderedChannel, message
             break;
         }
 
-        assert(entry.measuredBits <= cast(u32) maxBits, "Increase your max packet size!");
+        assert(entry.measuredBits <= maxBits, "Increase your max packet size!");
 
-        if entry.timeLastSent + config.messageResendTime <= time && availableBits >= cast(int) entry.measuredBits {
-            messageBits: int = entry.measuredBits + messageTypeBits;
+        if entry.timeLastSent + config.messageResendTime <= time && availableBits >= entry.measuredBits {
+            messageBits := entry.measuredBits + messageTypeBits;
 
             if numMessageIds == 0 {
                 messageBits += 16;
@@ -311,7 +299,8 @@ channel_get_message_packet_data :: (using channel: *ReliableOrderedChannel, pack
         entry := sequence_buffer_find(*messageSendQueue, messageIds[it]);
         assert(entry != null);
         assert(entry.message != null);
-        packetData.message.messages[it] = entry.message;
+
+        packetData.message.messages[it] = message_acquire(entry.message);
     }
 }
 
@@ -373,7 +362,7 @@ channel_process_packet_messages :: (using channel: *ReliableOrderedChannel, mess
             return;
         }
 
-        entry.message = message;
+        entry.message = message_acquire(message);
     }
 }
 
@@ -418,6 +407,8 @@ channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
         if sendQueueEntry != null {
             assert(sendQueueEntry.message != null);
             assert(sendQueueEntry.message.id == messageId);
+
+            message_release(sendQueueEntry.message);
             sequence_buffer_remove(*messageSendQueue, messageId);
             channel_update_oldest_unacked_message_id(channel);
         }
@@ -436,8 +427,9 @@ channel_process_ack :: (using channel: *ReliableOrderedChannel, ack: u16) {
 
                 sendQueueEntry := sequence_buffer_find(*messageSendQueue, messageId);
                 assert(sendQueueEntry != null);
-                sequence_buffer_remove(*messageSendQueue, messageId);
 
+                message_release(sendQueueEntry.message);
+                sequence_buffer_remove(*messageSendQueue, messageId);
                 channel_update_oldest_unacked_message_id(channel);
             }
         }
@@ -566,11 +558,10 @@ channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, pac
 
     if fragmentId == 0 {
         entry := sequence_buffer_find(*messageSendQueue, packetData.block.messageId);
-
         assert(entry != null);
         assert(entry.message != null);
 
-        packetData.block.message = entry.message;
+        packetData.block.message = message_acquire(entry.message);
         fragmentBits += entry.measuredBits + messageTypeBits;
     } else {
         packetData.block.message = null;
@@ -671,7 +662,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
 
             if fragmentId == 0 {
                 // save block message (sent with fragment 0)
-                receiveBlock.blockMessage = blockMessage;
+                receiveBlock.blockMessage = message_acquire(blockMessage);
             }
 
             if receiveBlock.numReceivedFragments == receiveBlock.numFragments {
@@ -697,15 +688,18 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
 
                 entry := sequence_buffer_insert(*messageReceiveQueue, messageId);
                 assert(entry != null);
-                entry.message = receiveBlock.blockMessage;
 
+                // NOTE: We don't message_acquire() here because receive_block_data_reset() immediately releases
+                // its ownership on the next line.
+                entry.message = receiveBlock.blockMessage;
                 receive_block_data_reset(receiveBlock);
             }
         }
     }
 }
 
-#scope_file
+// TODO: Revert this, need for debug
+//#scope_file
 
 #import "Bit_Array";
 
@@ -716,7 +710,7 @@ Messages stay into the send queue until acked. Each message is acked individuall
 MessageSendQueueEntry :: struct {
     message      : *Message;     // Pointer to the message. When inserted in the send queue the message has one reference. It is released when the message is acked and removed from the send queue.
     timeLastSent : Apollo_Time;  // The time the message was last sent. Used to implement ChannelConfig::messageResendTime.
-    measuredBits : u32;          // The number of bits the message takes up in a bit stream.
+    measuredBits : int;          // The number of bits the message takes up in a bit stream.
 };
 
 /*
@@ -816,3 +810,27 @@ receive_block_data_reset :: (using receiveBlockData: *ReceiveBlockData) {
 #scope_file
 
 Math :: #import "Math";
+
+// Shared by both channel_reset and channel_free. To save a bunch unnecessary zero'ing when we're about to free.
+channel_free_owned_messages :: (using channel: *ReliableOrderedChannel) {
+    for 0..sequence_buffer_get_capacity(*messageSendQueue)-1 {
+        entry := sequence_buffer_get_at_index(*messageSendQueue, it);
+        if entry != null && entry.message != null {
+            message_release(entry.message);
+        }
+    }
+
+    for 0..sequence_buffer_get_capacity(*messageReceiveQueue)-1 {
+        entry := sequence_buffer_get_at_index(*messageReceiveQueue, it);
+        if entry != null && entry.message != null {
+            message_release(entry.message);
+        }
+    }
+
+    if receiveBlock != null {
+        if receiveBlock.blockMessage != null {
+            message_release(receiveBlock.blockMessage);
+            receiveBlock.blockMessage = null;
+        }
+    }
+}

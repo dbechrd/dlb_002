@@ -1,7 +1,9 @@
-#import "Basic";
+#import "Basic"()(MEMORY_DEBUGGER=true);
 #import "Random";
+Math :: #import "Math";
 #import "IPAddress"()(ENABLE_LOGGING=true);
 #import "Yojimbo"()(ENABLE_LOGGING=true);
+#import "Netcode"; //()(ENABLE_LOGGING=true);
 #import "Serialize";
 
 ProtocolId :: cast(u64) 0x11223344556677;
@@ -15,7 +17,7 @@ GetNumBitsForMessage :: (sequence: u16) -> int {
     return messageBitsArray[index];
 }
 
-TestMessageType :: enum u16 {
+using TestMessageType :: enum u16 {
     TEST_MESSAGE;
     TEST_BLOCK_MESSAGE;
     TEST_SERIALIZE_FAIL_ON_READ_MESSAGE;

@@ -19,7 +19,7 @@ Reliable ordered channel constructor.
 @param channelIndex The channel index in [0,numChannels-1].
 */
 channel_init :: (using channel: *UnreliableUnorderedChannel, _messageFactory: MessageFactory, _config: ChannelConfig, _channelIndex: int, _time: Apollo_Time) {
-    assert(config.type == .UnreliableUnordered);
+    assert(_config.type == .UnreliableUnordered);
 
     channel_init(*base, _messageFactory, _config, _channelIndex, _time);
     queue_init(*messageSendQueue, config.messageSendQueueSize);
@@ -39,11 +39,11 @@ channel_reset :: (using channel: *UnreliableUnorderedChannel) {
     errorLevel = .None;
 
     for 0..messageSendQueue.count-1 {
-        free(messageSendQueue[it]);
+        message_release(messageSendQueue[it]);
     }
 
     for 0..messageReceiveQueue.count-1 {
-        free(messageReceiveQueue[it]);
+        message_release(messageReceiveQueue[it]);
     }
 
     queue_clear(*messageSendQueue);
@@ -65,13 +65,13 @@ channel_send_message :: (using channel: *UnreliableUnorderedChannel, message: *M
     assert(channel_can_send_message(channel));
 
     if errorLevel != .None {
-        free(message);
+        message_release(message);
         return;
     }
 
     if !channel_can_send_message(channel) {
         errorLevel = .SendQueueFull;
-        free(message);
+        message_release(message);
         return;
     }
 
@@ -140,7 +140,9 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
         messageBits := messageTypeBits + stream_get_bits_processed(*measureStream);
 
         if usedBits + messageBits > budgetedBits {
-            free(message);
+            // This isn't an error, because this channel is unreliable, but the user might want to increase the queue size in this case.
+            yojimbo_log(.VERBOSE_ONLY, "Too many messages in unreliable send queue, discarding message id %\n", message.id);
+            message_release(message);
             continue;
         }
 
@@ -175,14 +177,12 @@ channel_process_packet_data :: (channel: *UnreliableUnorderedChannel, packetData
         return;
     }
 
-    for 0..packetData.message.numMessages-1 {
-        message := packetData.message.messages[it];
+    for message: packetData.message.messages {
         assert(message != null);
         message.id = packetSequence;
         if !queue_full(*messageReceiveQueue) {
-            queue_push(*messageReceiveQueue, message);
+            queue_push(*messageReceiveQueue, message_acquire(message));
         }
-        // TODO(dlb): Else??? We should probably log a warning or something when queue is full.
     }
 }
 

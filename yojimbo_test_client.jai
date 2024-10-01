@@ -42,6 +42,7 @@ client_main :: () {
             break;
         }
 
+        reset_temporary_storage();
         sleep_milliseconds(cast(s32) to_milliseconds(deltaTime));
     }
 
@@ -58,7 +59,7 @@ main :: () {
     }
 
     //yojimbo_log_level( YOJIMBO_LOG_LEVEL_INFO );
-    //srand( (unsigned int) time( NULL ) );
+    random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
 
     client_main();
 

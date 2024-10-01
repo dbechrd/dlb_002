@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 Common functionality across all server implementations.
 */
@@ -117,27 +115,24 @@ server_create_message :: (using server: *BaseServer, clientIndex: int, type: int
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
 
-    return messageFactory[type].create();
+    return message_acquire(messageFactory[type].create());
 }
 
-// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
-server_allocate_block :: (server: *BaseServer, clientIndex: int, bytes: int) {
-    assert(false, "Just call NewArray() you fool.");
+// TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.
+server_allocate_block :: (server: *BaseServer, clientIndex: int, bytes: int) -> [] u8 {
+    return NewArray(bytes, u8);
 }
 
-// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
-server_attack_block_to_message :: (server: *BaseServer, clientIndex: int, message: *Message, blockData: [] u8) {
-    assert(false, "Just attach it to message.blockData yourself you fool.");
+// TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.
+server_attack_block_to_message :: (server: *BaseServer, clientIndex: int, message: *Message, block: [] u8) {
+    assert(message != null);
+    assert(block.count > 0);
+
+    message.blockData = block;
 }
 
-// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
-server_free_block :: (server: *BaseServer, clientIndex: int, block: *u8) {
-    assert(false, "Just call free() you fool.");
-}
-
-// TODO(dlb)[cleanup]: Idk who's using this, but beat them with a stick until they stop, then remove this.
-server_release_message :: (using server: *BaseServer, message: *Message) {
-    assert(false, "Just call free() you fool.");
+server_release_message :: (using server: *BaseServer, clientIndex: int, message: *Message) {
+    message_release(message);
 }
 
 server_get_network_info :: (using server: *BaseServer, clientIndex: int, info: *NetworkInfo) {
@@ -155,7 +150,7 @@ server_can_send_message :: (using server: *BaseServer, clientIndex: int, channel
     assert(clientIndex < maxClients);
     assert(clientConnection[clientIndex] != null);
 
-    connection_can_send_message(clientConnection[clientIndex], channelIndex);
+    return connection_can_send_message(clientConnection[clientIndex], channelIndex);
 }
 
 server_has_messages_to_send :: (using server: *BaseServer, clientIndex: int, channelIndex: int) -> bool {
@@ -163,7 +158,7 @@ server_has_messages_to_send :: (using server: *BaseServer, clientIndex: int, cha
     assert(clientIndex < maxClients);
     assert(clientConnection[clientIndex] != null);
 
-    connection_has_messages_to_send(clientConnection[clientIndex], channelIndex);
+    return connection_has_messages_to_send(clientConnection[clientIndex], channelIndex);
 }
 
 /*
@@ -191,10 +186,12 @@ server_receive_message :: (using server: *BaseServer, clientIndex: int, channelI
     assert(clientIndex < maxClients);
     assert(clientConnection[clientIndex] != null);
 
-    connection_receive_message(clientConnection[clientIndex], channelIndex);
+    return connection_receive_message(clientConnection[clientIndex], channelIndex);
 }
 
-// TODO(dlb): This should be in #scope_file, but we can't do that until we merge BaseServer into Server.jai.
+// TODO(dlb): Everything below should be in #scope_file, but we can't do that until we merge BaseClient into Client.jai.
+// #scope_file
+
 server_reset_client :: (using server: *BaseServer, clientIndex: int) {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
@@ -202,4 +199,3 @@ server_reset_client :: (using server: *BaseServer, clientIndex: int) {
 
     connection_reset(clientConnection[clientIndex]);
 }
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -70,6 +70,7 @@ client_server_main :: () {
 
         server_advance_time(server, time);
 
+        reset_temporary_storage();
         sleep_milliseconds(cast(s32) to_milliseconds(deltaTime));
     }
 
@@ -87,7 +88,7 @@ main :: () {
     }
 
     //yojimbo_log_level(YOJIMBO_LOG_LEVEL_INFO);
-    //random_seed(current_time_monotonic());
+    random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
 
     client_server_main();
 

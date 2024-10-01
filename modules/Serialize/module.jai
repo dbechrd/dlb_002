@@ -691,8 +691,8 @@ serialize_int :: (stream: *Stream, value: *$T, min: T, max: T) #expand {
 
     // .Write or .Measure
     if stream.isWriting {
-        assert(value.* >= min);
-        assert(value.* <= max);
+        assert_greater_or_equal(value.*, min);
+        assert_less_or_equal(value.*, max);
     }
 
     v := cast,no_check(u64) (value.* - min);

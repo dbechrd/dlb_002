@@ -23,7 +23,16 @@ main :: () {
 
 #scope_file
 
-// NOTE: Set DEFAULT_EDITOR_COMMAND to `start /b code -g %2:%1` in codex_view's settings.jai file.
+// NOTE: Need to patch codex_view to make it work with VS Code.
+// examples/codex_view/src/draw_metrics.jai:
+//
+//   open_editor_to_file_and_line :: (filename: string, line: s64) {
+//       command := tprint("C:/Users/User/AppData/Local/Programs/Microsoft VS Code/Code.exe -g %:%", filename, line);
+//       strings := Process.break_command_into_strings(command);
+//       log("Running: %\n", strings);
+//       Process.run_command(..strings);
+//   }
+//
 MEMORY_DEBUGGER :: false;
 
 /*

@@ -73,6 +73,8 @@ Remove an entry from the sequence buffer.
 sequence_buffer_remove :: (using sequenceBuffer: *SequenceBuffer, sequence: u16) {
     index := sequence % entryValid.count;
     entryValid[index] = false;
+    entrySequence[index] = 0;
+    //entryData[index] = sequenceBuffer.T.{};
 }
 
 /*
@@ -81,7 +83,7 @@ This works because older entries are automatically set back to unoccupied state 
 @param sequence The sequence number.
 @returns True if the sequence buffer entry is available, false if it is already occupied.
 */
-sequence_buffer_available :: (using sequenceBuffer: *SequenceBuffer, sequence: u16) {
+sequence_buffer_available :: (using sequenceBuffer: *SequenceBuffer, sequence: u16) -> bool {
     index := sequence % entryValid.count;
     return !entryValid[index];
 }
