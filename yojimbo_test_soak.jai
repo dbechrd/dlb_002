@@ -64,7 +64,7 @@ soak_main :: () {
     client_message_send_iter := 0;
 
     iters := 0;
-    while iters < 10_000 {
+    while iters < 50_000 {
         iters += 1;
 
         client_send_packets(*client);
@@ -328,7 +328,7 @@ main :: () {
     }
     context.logger = logger;
 
-    push_allocator(get_unmapping_allocator());
+    // push_allocator(get_unmapping_allocator());
     context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
@@ -342,10 +342,9 @@ main :: () {
 
     // yojimbo_log_level(YOJIMBO_LOG_LEVEL_INFO);
     random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
-
     soak_main();
-
     yojimbo_shutdown();
+    log("fin.\n");
 
     // report_memory_leaks();
 }

@@ -1791,29 +1791,31 @@ netcode_create_payload_packet :: (payload_bytes: int) -> *netcode_connection_pay
     assert(payload_bytes >= 0);
     assert(payload_bytes <= NETCODE_MAX_PAYLOAD_BYTES);
 
-    // NOTE: Round up to next word to prevent bit_reader reading out of bounds later
-    word_aligned_meta_size := align_forward(size_of(netcode_connection_payload_packet_t), 16);
-    word_aligned_payload_size := align_forward(payload_bytes, 16);
-    print("create payload packet: % % / % %\n", size_of(netcode_connection_payload_packet_t), word_aligned_meta_size, payload_bytes, word_aligned_payload_size);
-    buffer := NewArray(word_aligned_meta_size + word_aligned_payload_size, u8, alignment = 16);
+    // NOTE(dlb): Ensure there's a full word at the end of the byte array prevent bit_reader reading out of bounds
+    // later. If the struct were not aligned on 4-byte word boundaries, we would also need to align it, but it is, so
+    // I'm just asserting that it says that way.
+    header_size := size_of(netcode_connection_payload_packet_t);
+    assert_equal(header_size % 4, 0);
+    buffer_size := align_forward(header_size + payload_bytes + 3, 4);
+    buffer := NewArray(buffer_size, u8);
     if buffer.count == 0 {
         return null;
     }
 
     packet := cast(*netcode_connection_payload_packet_t) buffer.data;
     Initialize(packet);
-    packet.payload_data = .{ payload_bytes, buffer.data + word_aligned_meta_size };
+    packet.payload_data = .{ payload_bytes, buffer.data + header_size };
+    assert_equal(cast(int) packet.payload_data.data % 4, 0);  // must be word-aligned!
 
     return packet;
 }
 
-// TODO(dlb): Maybe this should just be called netcode_free_packet?
 netcode_free_payload_packet :: (payload_data: [] u8) {
     assert(payload_data.count > 0);
 
     // NOTE(dlb): Contiguous allocation of struct+buffer. See netcode_create_payload_packet().
-    word_aligned_meta_size := align_forward(size_of(netcode_connection_payload_packet_t), 16);
-    free(payload_data.data - word_aligned_meta_size);
+    header_size := size_of(netcode_connection_payload_packet_t);
+    free(payload_data.data - header_size);
 }
 
 netcode_context_t :: struct {
