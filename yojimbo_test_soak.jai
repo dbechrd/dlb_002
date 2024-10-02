@@ -65,7 +65,7 @@ soak_main :: () {
 
     iters := 0;
     while iters < 10_000 {
-        // iters += 1;
+        iters += 1;
 
         client_send_packets(*client);
         server_send_packets(*server);
@@ -328,7 +328,7 @@ main :: () {
     }
     context.logger = logger;
 
-    // push_allocator(get_overwriting_allocator());
+    push_allocator(get_unmapping_allocator());
     context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
@@ -352,4 +352,4 @@ main :: () {
 
 #scope_file
 
-#import "Overwriting_Allocator";
+#import "Unmapping_Allocator";

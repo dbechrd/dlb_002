@@ -1,4 +1,4 @@
-// jai dlb_002.jai -output_path bin -exe dlb_002 -plug Performance_Report
+// jai dlb_002.jai -output_path bin -exe dlb_002 -plug Performance_Report -plug Codex
 
 main :: () {
     context.logger = logger;

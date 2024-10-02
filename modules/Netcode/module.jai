@@ -1791,14 +1791,18 @@ netcode_create_payload_packet :: (payload_bytes: int) -> *netcode_connection_pay
     assert(payload_bytes >= 0);
     assert(payload_bytes <= NETCODE_MAX_PAYLOAD_BYTES);
 
-    buffer := NewArray(size_of(netcode_connection_payload_packet_t) + payload_bytes, u8);
+    // NOTE: Round up to next word to prevent bit_reader reading out of bounds later
+    word_aligned_meta_size := align_forward(size_of(netcode_connection_payload_packet_t), 16);
+    word_aligned_payload_size := align_forward(payload_bytes, 16);
+    print("create payload packet: % % / % %\n", size_of(netcode_connection_payload_packet_t), word_aligned_meta_size, payload_bytes, word_aligned_payload_size);
+    buffer := NewArray(word_aligned_meta_size + word_aligned_payload_size, u8, alignment = 16);
     if buffer.count == 0 {
         return null;
     }
 
     packet := cast(*netcode_connection_payload_packet_t) buffer.data;
     Initialize(packet);
-    packet.payload_data = .{ payload_bytes, buffer.data + size_of(netcode_connection_payload_packet_t) };
+    packet.payload_data = .{ payload_bytes, buffer.data + word_aligned_meta_size };
 
     return packet;
 }
@@ -1808,7 +1812,8 @@ netcode_free_payload_packet :: (payload_data: [] u8) {
     assert(payload_data.count > 0);
 
     // NOTE(dlb): Contiguous allocation of struct+buffer. See netcode_create_payload_packet().
-    free(payload_data.data - size_of(netcode_connection_payload_packet_t));
+    word_aligned_meta_size := align_forward(size_of(netcode_connection_payload_packet_t), 16);
+    free(payload_data.data - word_aligned_meta_size);
 }
 
 netcode_context_t :: struct {
