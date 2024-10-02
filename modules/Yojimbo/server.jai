@@ -44,7 +44,9 @@ server_init :: (using server: *Server, _privateKey: [KeyBytes] u8, _address: IPA
 
 server_free :: (using server: *Server) {
     // IMPORTANT: Please stop the server before destroying it!
-    assert(server == null);
+    assert(netServer == null);
+
+    server_free(*base);
 }
 
 /*
@@ -60,7 +62,7 @@ server_start :: (using server: *Server, _maxClients: int) {
 
     server_start(*base, _maxClients);
 
-    addressString := address_to_string(address);
+    addressString := address_to_string(address,, temp);
 
     netcodeConfig: netcode_server_config_t;
     netcodeConfig.protocol_id = config.protocolId;

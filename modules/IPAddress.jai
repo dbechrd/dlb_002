@@ -814,8 +814,8 @@ EOS
             }
         } else {
             log(FAIL_MSG, s, type,
-                address_to_string(expected_address, canonical=true), expected_remainder, expected_log,
-                address_to_string(ip, canonical=true), remainder, address_last_log_message
+                address_to_string(expected_address, canonical=true,, temp), expected_remainder, expected_log,
+                address_to_string(ip, canonical=true,, temp), remainder, address_last_log_message
             );
         }
     }

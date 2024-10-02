@@ -20,7 +20,7 @@ client_main :: () {
 
     client_insecure_connect(client, privateKey, clientId, serverAddress);
 
-    log("client address is %\n", address_to_string(client.boundAddress));
+    log("client address is %\n", address_to_string(client.boundAddress,, temp));
 
     deltaTime := milliseconds_to_apollo(500);
 

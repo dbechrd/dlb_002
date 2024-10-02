@@ -172,8 +172,7 @@ netcode_client_connect :: (using client: *netcode_client_t, connect_token_buf: C
     server_address_index = 0;
     server_address = connect_token.server_addresses[0];
 
-    server_address_string := netcode_address_to_string(server_address);
-
+    server_address_string := netcode_address_to_string(server_address,, temp);
     netcode_log(.VERBOSE_ONLY, "client connecting to server % [%/%]\n", server_address_string, server_address_index + 1, connect_token.num_server_addresses);
 
     ctx.read_packet_key = connect_token.server_to_client_key;
@@ -775,7 +774,7 @@ netcode_server_process_packet :: (using server: *netcode_server_t, from: netcode
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
     if read_packet_key == null && packet_data[0] != 0 {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from));
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from,, temp));
         return;
     }
 
@@ -3011,7 +3010,7 @@ netcode_client_connect_to_next_server :: (using client: *netcode_client_t) -> bo
     netcode_client_reset_before_next_connect(client);
 
     netcode_log(.VERBOSE_ONLY, "client connecting to next server % [%/%]\n",
-        netcode_address_to_string(*server_address),
+        netcode_address_to_string(*server_address,, temp),
         server_address_index + 1,
         connect_token.num_server_addresses
     );
@@ -3482,6 +3481,7 @@ netcode_server_socket_create:: (socket: *netcode_socket_t, address: netcode_addr
 }
 
 // TODO(dlb): Rename this to netcode_server_create2
+// TODO(dlb): Make this take IPAddress instead of string, to remove the pointless double-parse in Yojimbo server_start()
 netcode_server_create_overload :: (server_address1_string: string, server_address2_string: string, config: netcode_server_config_t, time: Apollo_Time) -> *netcode_server_t {
     assert(netcode.initialized);
 
@@ -3808,7 +3808,7 @@ netcode_server_connect_client :: (using server: *netcode_server_t, _client_index
     client_last_packet_receive_time[_client_index] = time;
     array_copy(client_user_data[_client_index], _user_data);
 
-    netcode_log(.VERBOSE_ONLY, "server accepted client % % in slot %\n", netcode_address_to_string(_address), _client_id, _client_index);
+    netcode_log(.VERBOSE_ONLY, "server accepted client % % in slot %\n", netcode_address_to_string(_address,, temp), _client_id, _client_index);
 
     packet: netcode_connection_keep_alive_packet_t;
     assert(packet.type == NETCODE_CONNECTION_KEEP_ALIVE_PACKET);
@@ -3878,13 +3878,13 @@ netcode_server_process_packet_internal :: (using server: *netcode_server_t, from
     if packet.type == {
         case NETCODE_CONNECTION_REQUEST_PACKET;
             if !(flags & NETCODE_SERVER_FLAG_IGNORE_CONNECTION_REQUEST_PACKETS) {
-                netcode_log(.VERY_VERBOSE_ONLY, "server received connection request from %\n", netcode_address_to_string(from));
+                netcode_log(.VERY_VERBOSE_ONLY, "server received connection request from %\n", netcode_address_to_string(from,, temp));
                 p := cast(*netcode_connection_request_packet_t) packet;
                 netcode_server_process_connection_request_packet(server, from, p);
             }
         case NETCODE_CONNECTION_RESPONSE_PACKET;
             if !(flags & NETCODE_SERVER_FLAG_IGNORE_CONNECTION_RESPONSE_PACKETS) {
-                netcode_log(.VERY_VERBOSE_ONLY, "server received connection response from %\n", netcode_address_to_string(from));
+                netcode_log(.VERY_VERBOSE_ONLY, "server received connection response from %\n", netcode_address_to_string(from,, temp));
                 p := cast(*netcode_connection_response_packet_t) packet;
                 netcode_server_process_connection_response_packet(server, from, p, encryption_index);
             }
@@ -3938,7 +3938,7 @@ netcode_server_read_and_process_packet :: (using server: *netcode_server_t, from
 
     read_packet_key := netcode_encryption_manager_get_receive_key(*encryption_manager, encryption_index);
     if read_packet_key == null && packet_data[0] != 0 {
-        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from));
+        netcode_log(.VERY_VERBOSE_ONLY, "server could not process packet (type %) because no encryption mapping exists for %\n", packet_data[0] & 0xF, netcode_address_to_string(from,, temp));
         return;
     }
 

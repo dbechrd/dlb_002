@@ -689,9 +689,7 @@ channel_process_packet_fragment :: (using channel: *ReliableOrderedChannel, mess
                 entry := sequence_buffer_insert(*messageReceiveQueue, messageId);
                 assert(entry != null);
 
-                // NOTE: We don't message_acquire() here because receive_block_data_reset() immediately releases
-                // its ownership on the next line.
-                entry.message = receiveBlock.blockMessage;
+                entry.message = message_acquire(receiveBlock.blockMessage);
                 receive_block_data_reset(receiveBlock);
             }
         }
@@ -804,7 +802,10 @@ receive_block_data_reset :: (using receiveBlockData: *ReceiveBlockData) {
     blockSize = 0;
     clear_all_bits(*receivedFragment);
     array_zero(blockData);
-    blockMessage = null;
+    if blockMessage != null {
+        message_release(blockMessage);
+        blockMessage = null;
+    }
 }
 
 #scope_file

@@ -63,7 +63,10 @@ soak_main :: () {
 
     client_message_send_iter := 0;
 
-    while true {
+    iters := 0;
+    while iters < 10_000 {
+        // iters += 1;
+
         client_send_packets(*client);
         server_send_packets(*server);
 
@@ -78,7 +81,7 @@ soak_main :: () {
         time += deltaTime;
 
         if client_is_connected(*client) {
-            // On very rare occasion, drop the client and reconnect
+            // Rarely, drop the client and reconnect
             if yojimbo_random_int(1, 10_000) == 1 {
                 log("client reconnect\n");
                 client_disconnect(*client);
@@ -95,7 +98,7 @@ soak_main :: () {
         if client_is_connected(*client) {
             clientConnected = true;
 
-            // On rare occasion, stall the packet stream for up to 1 second
+            // Occasionally, stall the packet stream for up to 1 second
             if timeForNextClientMessage < time && yojimbo_random_int(1, 1000) == 1 {
                 stallMs := yojimbo_random_int(1, 1000);
                 timeForNextClientMessage = time + milliseconds_to_apollo(stallMs);
@@ -299,6 +302,9 @@ soak_main :: () {
 
     client_disconnect(*client);
     server_stop(*server);
+
+    client_free(*client);
+    server_free(*server);
 }
 
 main :: () {
@@ -322,7 +328,7 @@ main :: () {
     }
     context.logger = logger;
 
-    push_allocator(get_overwriting_allocator());
+    // push_allocator(get_overwriting_allocator());
     context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
     context.print_style.default_format_struct.use_newlines_if_long_form = true;
     context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
@@ -340,6 +346,8 @@ main :: () {
     soak_main();
 
     yojimbo_shutdown();
+
+    // report_memory_leaks();
 }
 
 #scope_file

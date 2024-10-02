@@ -36,6 +36,8 @@ client_init :: (using client: *Client, _address: IPAddress, _config: ClientServe
 client_free :: (using client: *Client) {
     // IMPORTANT: Please disconnect the client before destroying it
     assert(netClient == null);
+
+    client_free(*base);
 }
 
 client_insecure_connect :: (client: *Client, privateKey: [KeyBytes] u8, clientId: u64, address: IPAddress) {

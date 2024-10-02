@@ -15,7 +15,7 @@ server_main :: () {
 
     server_start(server, MaxClients);
 
-    log("server address is %\n", address_to_string(server_address));
+    log("server address is %\n", address_to_string(server_address,, temp));
 
     deltaTime := milliseconds_to_apollo(500);
 

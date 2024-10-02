@@ -1,4 +1,4 @@
-#import "Basic"()(MEMORY_DEBUGGER=true);
+#import "Basic"; //()(MEMORY_DEBUGGER=true);
 #import "Random";
 Math :: #import "Math";
 #import "IPAddress"()(ENABLE_LOGGING=true);

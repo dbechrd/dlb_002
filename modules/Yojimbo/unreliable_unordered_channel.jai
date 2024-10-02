@@ -33,6 +33,8 @@ Any messages still in the send or receive queues will be released.
 */
 channel_free :: (using channel: *UnreliableUnorderedChannel) {
     channel_reset(channel);
+    queue_free(*messageSendQueue);
+    queue_free(*messageReceiveQueue);
 }
 
 channel_reset :: (using channel: *UnreliableUnorderedChannel) {

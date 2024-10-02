@@ -22,8 +22,7 @@ queue_init :: (using queue: *Queue, capacity: int) {
 Queue destructor.
 */
 queue_free :: (using queue: *Queue) {
-    array_free(*entries);
-    queue.* = .{};
+    array_free(entries);
 }
 
 /*

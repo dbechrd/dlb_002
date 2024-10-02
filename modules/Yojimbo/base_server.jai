@@ -71,13 +71,17 @@ server_stop :: (using server: *BaseServer) {
 
     array_reset(*packetBuffer);
     if networkSimulator != null {
+        network_simulator_free(networkSimulator);
         free(networkSimulator);
+        networkSimulator = null;
     }
     for 0..maxClients-1 {
         reliable_endpoint_destroy(clientEndpoint[it]);
         clientEndpoint[it] = null;
 
+        connection_free(clientConnection[it]);
         free(clientConnection[it]);
+        clientConnection[it] = null;
     }
     maxClients = 0;
     running = false;
