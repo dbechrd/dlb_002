@@ -61,11 +61,6 @@ yojimbo_shutdown :: () {
     netcode_term();
 }
 
-yojimbo_tests :: () {
-    // address_tests();
-    // TODO(dlb): The rest of the tests..
-}
-
 #scope_module
 
 #import "Basic";

@@ -1,5 +1,5 @@
 serialize_test :: () {
-    log("\n--- Serialize-------------------------------------------------------------------\n");
+    log("\n--- Serialize ------------------------------------------------------------------\n");
     log("Running tests...\n");
     TEST(test_bitpacker);
     TEST(test_bits_required);
