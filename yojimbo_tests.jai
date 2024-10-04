@@ -36,7 +36,7 @@ yojimbo_test :: () {
     TEST(test_sequence_buffer);
 
     TEST(test_connection_reliable_ordered_messages);
-    // TEST(test_connection_reliable_ordered_blocks);
+    TEST(test_connection_reliable_ordered_blocks);
     // TEST(test_connection_reliable_ordered_messages_and_blocks);
     // TEST(test_connection_reliable_ordered_messages_and_blocks_multiple_channels);
     // TEST(test_connection_unreliable_unordered_messages);
@@ -527,6 +527,8 @@ pump_connection_update :: (connectionConfig: ConnectionConfig, time: *Apollo_Tim
         }
     }
 
+    packetData.count = connectionConfig.maxPacketSize;
+
     if connection_generate_packet(receiver, receiverSequence.*, packetData, *packetData.count) {
         if yojimbo_random_int(0, 100) >= packetLossPercent {
             connection_process_packet(sender, receiverSequence.*, packetData);
@@ -567,12 +569,11 @@ test_connection_reliable_ordered_messages :: () {
     senderAddress := address_init_auto_detect("::1", SenderPort);
     receiverAddress := address_init_auto_detect("::1", ReceiverPort);
 
-    numMessagesReceived := 0;
-
-    NumIterations :: 1000;
-
     senderSequence: u16;
     receiverSequence: u16;
+
+    NumIterations :: 1000;
+    numMessagesReceived := 0;
 
     for 0..NumIterations-1 {
         pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
@@ -588,6 +589,79 @@ test_connection_reliable_ordered_messages :: () {
 
             testMessage := cast(*TestMessage) message;
             assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_connection_reliable_ordered_blocks :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 32;
+
+    for msgIndex: 0..NumMessagesSent-1 {
+        message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+        assert_not_null(message);
+        message.sequence = xx msgIndex;
+
+        blockSize := 1 + ((msgIndex * 901) % 3333);
+        blockData := NewArray(blockSize, u8);
+        for * blockData {
+            it.* = cast,no_check(u8) (msgIndex + it_index);
+        }
+        message.blockData = blockData;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 10000;
+    numMessagesReceived := 0;
+
+    for iter: 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.id, xx numMessagesReceived);
+            assert_equal(message.type, xx TEST_BLOCK_MESSAGE);
+
+            blockMessage := cast(*TestBlockMessage) message;
+            assert_equal(blockMessage.sequence, xx numMessagesReceived);
+
+            blockSize := blockMessage.blockData.count;
+            assert_equal(blockSize, 1 + ((numMessagesReceived * 901) % 3333));
+
+            assert_not_null(blockMessage.blockData.data);
+
+            for blockMessage.blockData {
+                assert_equal(it, cast,no_check(u8) (numMessagesReceived + it_index));
+            }
 
             message_release(message);
             numMessagesReceived += 1;
