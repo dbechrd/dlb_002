@@ -1,5 +1,3 @@
-#scope_module
-
 /*
 Data structure that stores data indexed by sequence number.
 Entries may or may not exist. If they don't exist the sequence value for the entry at that index is set to 0xFFFFFFFF.

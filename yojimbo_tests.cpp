@@ -1,202 +1,4 @@
 
-struct TestSequenceData
-{
-    TestSequenceData() : sequence(0xFFFF) {}
-    explicit TestSequenceData(uint16_t _sequence) : sequence(_sequence) {}
-    uint16_t sequence;
-};
-
-void test_sequence_buffer()
-{
-    const int Size = 256;
-
-    SequenceBuffer<TestSequenceData> sequence_buffer(GetDefaultAllocator(), Size);
-
-    for (int i = 0; i < Size; ++i)
-        check(sequence_buffer.Find(i) == NULL);
-
-    for (int i = 0; i <= Size*4; ++i)
-    {
-        TestSequenceData * entry = sequence_buffer.Insert(i);
-        entry->sequence = i;
-        check(sequence_buffer.GetSequence() == i + 1);
-    }
-
-    for (int i = 0; i <= Size; ++i)
-    {
-        TestSequenceData * entry = sequence_buffer.Insert(i);
-        check(!entry);
-    }
-
-    int index = Size * 4;
-    for (int i = 0; i < Size; ++i)
-    {
-        TestSequenceData * entry = sequence_buffer.Find(index);
-        check(entry);
-        check(entry->sequence == uint32_t(index));
-        index--;
-    }
-
-    for (int i = 0; i <= Size; ++i)
-    {
-        TestSequenceData * entry = sequence_buffer.Insert(i, true);
-        check(entry);
-        entry->sequence = i;
-        check(sequence_buffer.GetSequence() == i + 1);
-    }
-
-    sequence_buffer.Reset();
-
-    check(sequence_buffer.GetSequence() == 0);
-
-    for (int i = 0; i < Size; ++i)
-        check(sequence_buffer.Find(i) == NULL);
-}
-
-void test_allocator_tlsf()
-{
-    const int NumBlocks = 256;
-    const int BlockSize = 1024;
-    const int MemorySize = NumBlocks * BlockSize;
-
-    uint8_t * memory = (uint8_t*) malloc(MemorySize);
-
-    TLSF_Allocator allocator(memory, MemorySize);
-
-    uint8_t * blockData[NumBlocks];
-    memset(blockData, 0, sizeof(blockData));
-
-    int stopIndex = 0;
-
-    for (int i = 0; i < NumBlocks; ++i)
-    {
-        blockData[i] = (uint8_t*) YOJIMBO_ALLOCATE(allocator, BlockSize);
-
-        if (!blockData[i])
-        {
-            check(allocator.GetErrorLevel() == ALLOCATOR_ERROR_OUT_OF_MEMORY);
-            allocator.ClearError();
-            check(allocator.GetErrorLevel() == ALLOCATOR_ERROR_NONE);
-            stopIndex = i;
-            break;
-        }
-
-        check(blockData[i]);
-        check(allocator.GetErrorLevel() == ALLOCATOR_ERROR_NONE);
-
-        memset(blockData[i], i + 10, BlockSize);
-    }
-
-    check(stopIndex > NumBlocks / 2);
-
-    for (int i = 0; i < NumBlocks - 1; ++i)
-    {
-        if (blockData[i])
-        {
-            for (int j = 0; j < BlockSize; ++j)
-                check(blockData[i][j] == uint8_t(i + 10));
-        }
-
-        YOJIMBO_FREE(allocator, blockData[i]);
-    }
-
-    free(memory);
-}
-
-void PumpConnectionUpdate(ConnectionConfig & connectionConfig, double & time, Connection & sender, Connection & receiver, uint16_t & senderSequence, uint16_t & receiverSequence, float deltaTime = 0.1f, int packetLossPercent = 90)
-{
-    uint8_t * packetData = (uint8_t*) alloca(connectionConfig.maxPacketSize);
-
-    int packetBytes;
-    if (sender.GeneratePacket(NULL, senderSequence, packetData, connectionConfig.maxPacketSize, packetBytes))
-    {
-        if (yojimbo_random_int(0, 100) >= packetLossPercent)
-        {
-            receiver.ProcessPacket(NULL, senderSequence, packetData, packetBytes);
-            sender.ProcessAcks(&senderSequence, 1);
-        }
-    }
-
-    if (receiver.GeneratePacket(NULL, receiverSequence, packetData, connectionConfig.maxPacketSize, packetBytes))
-    {
-        if (yojimbo_random_int(0, 100) >= packetLossPercent)
-        {
-            sender.ProcessPacket(NULL, receiverSequence, packetData, packetBytes);
-            receiver.ProcessAcks(&receiverSequence, 1);
-        }
-    }
-
-    time += deltaTime;
-
-    sender.AdvanceTime(time);
-    receiver.AdvanceTime(time);
-
-    senderSequence++;
-    receiverSequence++;
-}
-
-void test_connection_reliable_ordered_messages()
-{
-    TestMessageFactory messageFactory(GetDefaultAllocator());
-
-    double time = 100.0;
-
-    ConnectionConfig connectionConfig;
-
-    Connection sender(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-    Connection receiver(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    const int NumMessagesSent = 64;
-
-    for (int i = 0; i < NumMessagesSent; ++i)
-    {
-        TestMessage * message = (TestMessage*) messageFactory.CreateMessage(TEST_MESSAGE);
-        check(message);
-        message->sequence = i;
-        sender.SendMessage(0, message);
-    }
-
-    const int SenderPort = 10000;
-    const int ReceiverPort = 10001;
-
-    Address senderAddress("::1", SenderPort);
-    Address receiverAddress("::1", ReceiverPort);
-
-    int numMessagesReceived = 0;
-
-    const int NumIterations = 1000;
-
-    uint16_t senderSequence = 0;
-    uint16_t receiverSequence = 0;
-
-    for (int i = 0; i < NumIterations; ++i)
-    {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
-
-        while (true)
-        {
-            Message * message = receiver.ReceiveMessage(0);
-            if (!message)
-                break;
-
-            check(message->GetId() == (int) numMessagesReceived);
-            check(message->GetType() == TEST_MESSAGE);
-
-            TestMessage * testMessage = (TestMessage*) message;
-
-            check(testMessage->sequence == numMessagesReceived);
-
-            ++numMessagesReceived;
-
-            messageFactory.ReleaseMessage(message);
-        }
-
-        if (numMessagesReceived == NumMessagesSent)
-            break;
-    }
-
-    check(numMessagesReceived == NumMessagesSent);
-}
 
 void test_connection_reliable_ordered_blocks()
 {
@@ -239,7 +41,7 @@ void test_connection_reliable_ordered_blocks()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
 
         while (true)
         {
@@ -332,7 +134,7 @@ void test_connection_reliable_ordered_messages_and_blocks()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
 
         while (true)
         {
@@ -451,7 +253,7 @@ void test_connection_reliable_ordered_messages_and_blocks_multiple_channels()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
 
         for (int channelIndex = 0; channelIndex < NumChannels; ++channelIndex)
         {
@@ -562,7 +364,7 @@ void test_connection_unreliable_unordered_messages()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
 
         while (true)
         {
@@ -632,7 +434,7 @@ void test_connection_unreliable_unordered_blocks()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
 
         while (true)
         {
@@ -1577,7 +1379,7 @@ void test_single_message_type_reliable()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
 
         while (true)
         {
@@ -1645,7 +1447,7 @@ void test_single_message_type_reliable_blocks()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
 
         while (true)
         {
@@ -1724,7 +1526,7 @@ void test_single_message_type_unreliable()
 
     for (int i = 0; i < NumIterations; ++i)
     {
-        PumpConnectionUpdate(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
+        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
 
         while (true)
         {

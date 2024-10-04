@@ -1,3 +1,5 @@
+#import "Unmapping_Allocator";
+
 ENABLE_LOGGING :: true;
 SOAK :: 0;
 
@@ -5,6 +7,8 @@ SOAK :: 0;
 check :: assert;
 
 main :: () {
+    push_allocator(get_unmapping_allocator());
+
     random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
 
     iters := 0;
@@ -18,6 +22,7 @@ main :: () {
 }
 
 yojimbo_test :: () {
+    address_test();
     serialize_test();
     netcode_test();
     reliable_test();
@@ -28,10 +33,9 @@ yojimbo_test :: () {
     TEST(test_queue);
     TEST(test_address);
     TEST(test_bit_array);
-    // TEST(test_sequence_buffer);
-    // TEST(test_allocator_tlsf);
+    TEST(test_sequence_buffer);
 
-    // TEST(test_connection_reliable_ordered_messages);
+    TEST(test_connection_reliable_ordered_messages);
     // TEST(test_connection_reliable_ordered_blocks);
     // TEST(test_connection_reliable_ordered_messages_and_blocks);
     // TEST(test_connection_reliable_ordered_messages_and_blocks_multiple_channels);
@@ -456,4 +460,143 @@ test_bit_array :: () {
     for bit_array {
         check(it == false);
     }
+}
+
+test_sequence_buffer :: () {
+    TestSequenceData :: struct {
+        sequence: u16 = 0xFFFF;
+    };
+
+    Size :: 256;
+
+    sequence_buffer: SequenceBuffer(TestSequenceData);
+    sequence_buffer_init(*sequence_buffer, Size);
+
+    for 0..Size-1 {
+        entry := sequence_buffer_find(*sequence_buffer, xx it);
+        assert_null(entry);
+    }
+
+    for 0..Size*4 {
+        entry := sequence_buffer_insert(*sequence_buffer, xx it);
+        entry.sequence = xx it;
+        assert_equal(sequence_buffer_get_next_sequence(*sequence_buffer), cast(u16) it + 1);
+    }
+
+    for 0..Size {
+        entry := sequence_buffer_insert(*sequence_buffer, xx it);
+        assert_null(entry);
+    }
+
+    index := Size * 4;
+    for 0..Size-1 {
+        entry := sequence_buffer_find(*sequence_buffer, xx index);
+        assert_not_null(entry);
+        assert_equal(entry.sequence, xx index);
+        index -= 1;
+    }
+
+    for 0..Size {
+        entry := sequence_buffer_insert(*sequence_buffer, xx it, true);
+        assert_not_null(entry);
+        entry.sequence = xx it;
+        assert_equal(sequence_buffer_get_next_sequence(*sequence_buffer), cast(u16) it + 1);
+    }
+
+    sequence_buffer_reset(*sequence_buffer);
+
+    assert_equal(sequence_buffer_get_next_sequence(*sequence_buffer), 0);
+
+    for 0..Size-1 {
+        assert_null(sequence_buffer_find(*sequence_buffer, xx it));
+    }
+}
+
+APOLLO_100_MS :: #run milliseconds_to_apollo(100);
+
+pump_connection_update :: (connectionConfig: ConnectionConfig, time: *Apollo_Time, sender: *Connection,
+                           receiver: *Connection, senderSequence: *u16, receiverSequence: *u16,
+                           deltaTime: Apollo_Time = APOLLO_100_MS, packetLossPercent := 0) { //90) {
+
+    packetData := NewArray(connectionConfig.maxPacketSize, u8,, temp);
+
+    if connection_generate_packet(sender, senderSequence.*, packetData, *packetData.count) {
+        if yojimbo_random_int(0, 100) >= packetLossPercent {
+            connection_process_packet(receiver, senderSequence.*, packetData);
+            connection_process_acks(sender, .[senderSequence.*]);
+        }
+    }
+
+    if connection_generate_packet(receiver, receiverSequence.*, packetData, *packetData.count) {
+        if yojimbo_random_int(0, 100) >= packetLossPercent {
+            connection_process_packet(sender, receiverSequence.*, packetData);
+            connection_process_acks(receiver, .[receiverSequence.*]);
+        }
+    }
+
+    time.* += deltaTime;
+
+    connection_advance_time(sender, time);
+    connection_advance_time(receiver, time);
+
+    senderSequence.* += 1;
+    receiverSequence.* += 1;
+}
+
+test_connection_reliable_ordered_messages :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 64;
+
+    for 0..NumMessagesSent-1 {
+        message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+        assert_not_null(message);
+        message.sequence = xx it;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    numMessagesReceived := 0;
+
+    NumIterations :: 1000;
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    for 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.id, xx numMessagesReceived);
+            assert_equal(message.type, xx TEST_MESSAGE);
+
+            testMessage := cast(*TestMessage) message;
+            assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
 }

@@ -59,7 +59,7 @@ Reliable ordered channel destructor.
 Any messages still in the send or receive queues will be released.
 */
 channel_free :: (using channel: *ReliableOrderedChannel) {
-    channel_free_owned_messages(channel);
+    channel_release_messages(channel);
 
     sequence_buffer_free(*sentPackets);
     sequence_buffer_free(*messageSendQueue);
@@ -73,7 +73,7 @@ channel_free :: (using channel: *ReliableOrderedChannel) {
 }
 
 channel_reset :: (using channel: *ReliableOrderedChannel) {
-    channel_free_owned_messages(channel);
+    channel_release_messages(channel);
 
     errorLevel = .None;
 
@@ -122,7 +122,7 @@ channel_send_message :: (using channel: *ReliableOrderedChannel, message: *Messa
     assert(sendQueueEntry != null);
 
     // Overwrite any previous values because sequence buffer entries get reused
-    sendQueueEntry.* = .{ message = message };
+    sendQueueEntry.* = .{ message = message_acquire(message) };
 
     assert(message.blockData.count <= config.maxBlockSize);
 
@@ -813,7 +813,7 @@ receive_block_data_reset :: (using receiveBlockData: *ReceiveBlockData) {
 Math :: #import "Math";
 
 // Shared by both channel_reset and channel_free. To save a bunch unnecessary zero'ing when we're about to free.
-channel_free_owned_messages :: (using channel: *ReliableOrderedChannel) {
+channel_release_messages :: (using channel: *ReliableOrderedChannel) {
     for 0..sequence_buffer_get_capacity(*messageSendQueue)-1 {
         entry := sequence_buffer_get_at_index(*messageSendQueue, it);
         if entry != null && entry.message != null {

@@ -46,7 +46,7 @@ test_sequence_buffer :: () {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_insert(sequence_buffer, cast(u16) it);
         assert(entry != null);
         entry.sequence = cast(u16) it;
-        assert_equal(sequence_buffer.sequence, it + 1);
+        assert_equal(sequence_buffer.sequence, cast(u16) it + 1);
     }
 
     // Check that older sequenced things do not get inserted into the buffer
@@ -60,7 +60,7 @@ test_sequence_buffer :: () {
     for 0..TEST_SEQUENCE_BUFFER_SIZE-1 {
         entry := cast(*test_sequence_data_t) reliable_sequence_buffer_find(sequence_buffer, cast(u16) sequence);
         assert_not_null(entry);
-        assert_equal(entry.sequence, cast(u32) sequence);
+        assert_equal(entry.sequence, cast(u16) sequence);
         sequence -= 1;
     }
 

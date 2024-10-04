@@ -1,5 +1,3 @@
-#scope_module
-
 ConnectionErrorLevel :: enum {
     None;                 // No error. All is well.
     ChannelError;         // A channel is in an error state.
