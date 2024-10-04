@@ -1,3 +1,9 @@
+// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
+// ----------------------------------------------------------------------
+// Check all the pump call params for the last two values
+// ----------------------------------------------------------------------
+// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
+
 #import "Unmapping_Allocator";
 
 ENABLE_LOGGING :: true;
@@ -37,10 +43,10 @@ yojimbo_test :: () {
 
     TEST(test_connection_reliable_ordered_messages);
     TEST(test_connection_reliable_ordered_blocks);
-    // TEST(test_connection_reliable_ordered_messages_and_blocks);
-    // TEST(test_connection_reliable_ordered_messages_and_blocks_multiple_channels);
-    // TEST(test_connection_unreliable_unordered_messages);
-    // TEST(test_connection_unreliable_unordered_blocks);
+    TEST(test_connection_reliable_ordered_messages_and_blocks);
+    TEST(test_connection_reliable_ordered_messages_and_blocks_multiple_channels);
+    TEST(test_connection_unreliable_unordered_messages);
+    TEST(test_connection_unreliable_unordered_blocks);
 
     // TEST(test_client_server_messages);
     // TEST(test_client_server_start_stop_restart);
@@ -673,4 +679,478 @@ test_connection_reliable_ordered_blocks :: () {
     }
 
     assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_connection_reliable_ordered_messages_and_blocks :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 32;
+
+    for msgIndex: 0..NumMessagesSent-1 {
+        if yojimbo_random_int(0, 1) == 1 {
+            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+            connection_send_message(*sender, 0, message);
+        } else {
+            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+            blockSize := 1 + ((msgIndex * 901) % 3333);
+            blockData := NewArray(blockSize, u8);
+            for * blockData {
+                it.* = cast,no_check(u8) (msgIndex + it_index);
+            }
+            message.blockData = blockData;
+            connection_send_message(*sender, 0, message);
+        }
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 10000;
+    numMessagesReceived := 0;
+
+    for iter: 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.id, xx numMessagesReceived);
+
+            if cast(TestMessageType) message.type == {
+                case TEST_MESSAGE;
+                    testMessage := cast(*TestMessage) message;
+
+                    assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+                    numMessagesReceived += 1;
+                case TEST_BLOCK_MESSAGE;
+                    blockMessage := cast(*TestBlockMessage) message;
+
+                    assert_equal(blockMessage.sequence, xx numMessagesReceived);
+                    assert_equal(blockMessage.blockData.count, 1 + ((numMessagesReceived * 901) % 3333));
+                    assert_not_null(blockMessage.blockData.data);
+
+                    for blockMessage.blockData {
+                        assert_equal(it, cast,no_check(u8) (numMessagesReceived + it_index));
+                    }
+
+                    numMessagesReceived += 1;
+            }
+
+            message_release(message);
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_connection_reliable_ordered_messages_and_blocks_multiple_channels :: () {
+    NumChannels :: 2;
+
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    connectionConfig.numChannels = NumChannels;
+    connectionConfig.channel[0].type = .ReliableOrdered;
+    connectionConfig.channel[0].maxMessagesPerPacket = 8;
+    connectionConfig.channel[1].type = .ReliableOrdered;
+    connectionConfig.channel[1].maxMessagesPerPacket = 8;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 32;
+
+    for channelIndex: 0..NumChannels-1 {
+        for msgIndex: 0..NumMessagesSent-1 {
+            if yojimbo_random_int(0, 1) == 1 {
+                message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+                assert_not_null(message);
+                message.sequence = xx msgIndex;
+                connection_send_message(*sender, channelIndex, message);
+            } else {
+                message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+                assert_not_null(message);
+                message.sequence = xx msgIndex;
+                blockSize := 1 + ((msgIndex * 901) % 3333);
+                blockData := NewArray(blockSize, u8);
+                for * blockData {
+                    it.* = cast,no_check(u8) (msgIndex + it_index);
+                }
+                message.blockData = blockData;
+                connection_send_message(*sender, channelIndex, message);
+            }
+        }
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 10000;
+    numMessagesReceived: [NumChannels] int;
+
+    for iter: 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        for channelIndex: 0..NumChannels-1 {
+            while true {
+                message := connection_receive_message(*receiver, channelIndex);
+                if message == null {
+                    break;
+                }
+
+                assert_equal(message.id, xx numMessagesReceived[channelIndex]);
+
+                if cast(TestMessageType) message.type == {
+                    case TEST_MESSAGE;
+                        testMessage := cast(*TestMessage) message;
+
+                        assert_equal(testMessage.sequence, xx numMessagesReceived[channelIndex]);
+
+                        numMessagesReceived[channelIndex] += 1;
+                    case TEST_BLOCK_MESSAGE;
+                        blockMessage := cast(*TestBlockMessage) message;
+
+                        assert_equal(blockMessage.sequence, xx numMessagesReceived[channelIndex]);
+
+                        assert_equal(blockMessage.blockData.count, 1 + ((numMessagesReceived[channelIndex] * 901) % 3333));
+                        assert_not_null(blockMessage.blockData.data);
+
+                        for blockMessage.blockData {
+                            assert_equal(it, cast,no_check(u8) (numMessagesReceived[channelIndex] + it_index));
+                        }
+
+                        numMessagesReceived[channelIndex] += 1;
+                }
+
+                message_release(message);
+            }
+        }
+
+        receivedAllMessages := true;
+
+        for channelIndex: 0..NumChannels-1 {
+            if numMessagesReceived[channelIndex] != NumMessagesSent {
+                receivedAllMessages = false;
+                break;
+            }
+        }
+
+        if receivedAllMessages {
+            break;
+        }
+    }
+
+    for channelIndex: 0..NumChannels-1 {
+        assert_equal(numMessagesReceived[channelIndex], NumMessagesSent);
+    }
+}
+
+test_connection_unreliable_unordered_messages :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    connectionConfig.numChannels = 1;
+    connectionConfig.channel[0].type = .UnreliableUnordered;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 16;
+
+     for 0..NumMessagesSent-1 {
+        message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+        assert_not_null(message);
+        message.sequence = xx it;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 256;
+    numMessagesReceived := 0;
+
+    for 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence, APOLLO_100_MS, 0);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.type, xx TEST_MESSAGE);
+
+            testMessage := cast(*TestMessage) message;
+            assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_connection_unreliable_unordered_blocks :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    connectionConfig.numChannels = 1;
+    connectionConfig.channel[0].type = .UnreliableUnordered;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+
+    NumMessagesSent :: 8;
+
+    for msgIndex: 0..NumMessagesSent-1 {
+        message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+        assert_not_null(message);
+        message.sequence = xx msgIndex;
+
+        blockSize := 1 + (msgIndex * 7);
+        blockData := NewArray(blockSize, u8);
+        for * blockData {
+            it.* = cast,no_check(u8) (msgIndex + it_index);
+        }
+        message.blockData = blockData;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 256;
+    numMessagesReceived := 0;
+
+    for iter: 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence, APOLLO_100_MS, 0);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.type, xx TEST_BLOCK_MESSAGE);
+
+            blockMessage := cast(*TestBlockMessage) message;
+            assert_equal(blockMessage.sequence, xx numMessagesReceived);
+
+            blockSize := blockMessage.blockData.count;
+            assert_equal(blockSize, 1 + (numMessagesReceived * 7));
+
+            assert_not_null(blockMessage.blockData.data);
+
+            for blockMessage.blockData {
+                assert_equal(it, cast,no_check(u8) (numMessagesReceived + it_index));
+            }
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+pump_client_server_update :: (time: *Apollo_Time, clients: [] *Client, servers: [] *Server, deltaTime: Apollo_Time = APOLLO_100_MS) {
+    for clients {
+        client_send_packets(it);
+    }
+    for servers {
+        server_send_packets(it);
+    }
+
+    for clients {
+        client_receive_packets(it);
+    }
+    for servers {
+        server_receive_packets(it);
+    }
+
+    time.* += deltaTime;
+
+    for clients {
+        client_advance_time(it, time.*);
+    }
+    for servers {
+        server_advance_time(it, time.*);
+    }
+
+    sleep_milliseconds(0);  // Don't ask me.. it was already here. Maybe it helps yield to WinSock.. idk.
+}
+
+send_client_to_server_messages :: (client: *Client, numMessagesToSend: int, channelIndex := 0) {
+    for msgIndex: 0..numMessagesToSend-1 {
+        if !client_can_send_message(client, channelIndex) {
+            break;
+        }
+
+        // 90% normal, 10% blocks
+        if (yojimbo_random_int(1, 10) != 1) {
+            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+            client_send_message(client, channelIndex, message);
+        } else {
+            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+
+            blockSize := 1 + ((msgIndex * 901) % 1001);
+            blockData := NewArray(blockSize, u8);
+            for * blockData {
+                it.* = cast,no_check(u8) (msgIndex + it_index);
+            }
+            message.blockData = blockData;
+            client_send_message(client, channelIndex, message);
+        }
+    }
+}
+
+send_server_to_client_messages :: (server: *Server, clientIndex: int, numMessagesToSend: int, channelIndex := 0) {
+    for msgIndex: 0..numMessagesToSend-1 {
+        if !server_can_send_message(server, clientIndex, channelIndex) {
+            break;
+        }
+
+        // 90% normal, 10% blocks
+        if (yojimbo_random_int(1, 10) != 1) {
+            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+            server_send_message(server, clientIndex, channelIndex, message);
+        } else {
+             message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            assert_not_null(message);
+            message.sequence = xx msgIndex;
+
+            blockSize := 1 + ((msgIndex * 901) % 1001);
+            blockData := NewArray(blockSize, u8);
+            for * blockData {
+                it.* = cast,no_check(u8) (msgIndex + it_index);
+            }
+            message.blockData = blockData;
+            server_send_message(server, clientIndex, channelIndex, message);
+        }
+    }
+}
+
+process_server_to_client_messages :: (client: *Client, numMessagesReceivedFromServer: *int) {
+    while true {
+        message := client_receive_message(client, 0);
+        if message == null {
+            break;
+        }
+
+        assert_equal(message.id, xx numMessagesReceivedFromServer.*);
+
+        if cast(TestMessageType) message.type == {
+            case TEST_MESSAGE;
+                assert_equal(message.blockData.count, 0);
+                testMessage := cast(*TestMessage) message;
+
+                assert_equal(testMessage.sequence, xx numMessagesReceivedFromServer.*);
+                numMessagesReceivedFromServer.* += 1;
+            case TEST_BLOCK_MESSAGE;
+                blockMessage := cast(*TestBlockMessage) message;
+                assert_equal(blockMessage.sequence, xx numMessagesReceivedFromServer.*);
+
+                assert_equal(blockMessage.blockData.count, 1 + ((numMessagesReceivedFromServer.* * 901) % 1001));
+                assert_not_null(blockMessage.blockData.data);
+                for * blockMessage.blockData {
+                    it.* = cast,no_check(u8) (numMessagesReceivedFromServer.* + it_index);
+                }
+                numMessagesReceivedFromServer.* += 1;
+        }
+
+        client_release_message(client, message);
+    }
+}
+
+process_client_to_server_messages :: (server: *Server, clientIndex: int, numMessagesReceivedFromClient: *int) {
+    while true {
+        message := server_receive_message(server, clientIndex, 0);
+        if message == null {
+            break;
+        }
+
+        assert_equal(message.id, xx numMessagesReceivedFromClient.*);
+
+        if cast(TestMessageType) message.type == {
+            case TEST_MESSAGE;
+                assert_equal(message.blockData.count, 0);
+                testMessage := cast(*TestMessage) message;
+
+                assert_equal(testMessage.sequence, xx numMessagesReceivedFromClient.*);
+                numMessagesReceivedFromClient.* += 1;
+            case TEST_BLOCK_MESSAGE;
+                blockMessage := cast(*TestBlockMessage) message;
+                assert_equal(blockMessage.sequence, xx numMessagesReceivedFromClient.*);
+
+                assert_equal(blockMessage.blockData.count, 1 + ((numMessagesReceivedFromClient.* * 901) % 1001));
+                assert_not_null(blockMessage.blockData.data);
+                for * blockMessage.blockData {
+                    it.* = cast,no_check(u8) (numMessagesReceivedFromClient.* + it_index);
+                }
+                numMessagesReceivedFromClient.* += 1;
+        }
+
+        server_release_message(server, clientIndex, message);
+    }
 }

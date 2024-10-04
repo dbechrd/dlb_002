@@ -38,7 +38,7 @@ message_acquire :: (message: *Message) -> *Message {
 }
 
 message_release :: (message: *Message) {
-    assert(message.refCount > 0);
+    assert_greater(message.refCount, 0);
     if message.refCount > 0 {
         message.refCount -= 1;
     }

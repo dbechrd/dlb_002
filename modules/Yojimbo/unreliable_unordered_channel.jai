@@ -79,7 +79,7 @@ channel_send_message :: (using channel: *UnreliableUnorderedChannel, message: *M
 
     assert(message.blockData.count <= config.maxBlockSize);
 
-    queue_push(*messageSendQueue, message);
+    queue_push(*messageSendQueue, message_acquire(message));
 
     counters[ChannelCounter.MessagesSent] += 1;
 }
@@ -169,7 +169,7 @@ channel_generate_packet_data :: (using channel: *UnreliableUnorderedChannel, pac
     return usedBits;
 }
 
-channel_process_packet_data :: (channel: *UnreliableUnorderedChannel, packetData: ChannelPacketData, packetSequence: u16) {
+channel_process_packet_data :: (using channel: *UnreliableUnorderedChannel, packetData: *ChannelPacketData, packetSequence: u16) {
     if errorLevel != .None {
         return;
     }

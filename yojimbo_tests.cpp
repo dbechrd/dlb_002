@@ -1,568 +1,5 @@
 
 
-void test_connection_reliable_ordered_messages_and_blocks()
-{
-    TestMessageFactory messageFactory(GetDefaultAllocator());
-
-    double time = 100.0;
-
-    ConnectionConfig connectionConfig;
-
-    Connection sender(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    Connection receiver(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    const int NumMessagesSent = 32;
-
-    for (int i = 0; i < NumMessagesSent; ++i)
-    {
-        if (rand() % 2)
-        {
-            TestMessage * message = (TestMessage*) messageFactory.CreateMessage(TEST_MESSAGE);
-            check(message);
-            message->sequence = i;
-            sender.SendMessage(0, message);
-        }
-        else
-        {
-            TestBlockMessage * message = (TestBlockMessage*) messageFactory.CreateMessage(TEST_BLOCK_MESSAGE);
-            check(message);
-            message->sequence = i;
-            const int blockSize = 1 + ((i * 901) % 3333);
-            uint8_t * blockData = (uint8_t*) YOJIMBO_ALLOCATE(messageFactory.GetAllocator(), blockSize);
-            for (int j = 0; j < blockSize; ++j)
-                blockData[j] = i + j;
-            message->AttachBlock(messageFactory.GetAllocator(), blockData, blockSize);
-            sender.SendMessage(0, message);
-        }
-    }
-
-    const int SenderPort = 10000;
-    const int ReceiverPort = 10001;
-
-    Address senderAddress("::1", SenderPort);
-    Address receiverAddress("::1", ReceiverPort);
-
-    int numMessagesReceived = 0;
-
-    uint16_t senderSequence = 0;
-    uint16_t receiverSequence = 0;
-
-    const int NumIterations = 10000;
-
-    for (int i = 0; i < NumIterations; ++i)
-    {
-        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
-
-        while (true)
-        {
-            Message * message = receiver.ReceiveMessage(0);
-            if (!message)
-                break;
-
-            check(message->GetId() == (int) numMessagesReceived);
-
-            switch (message->GetType())
-            {
-                case TEST_MESSAGE:
-                {
-                    TestMessage * testMessage = (TestMessage*) message;
-
-                    check(testMessage->sequence == uint16_t(numMessagesReceived));
-
-                    ++numMessagesReceived;
-                }
-                break;
-
-                case TEST_BLOCK_MESSAGE:
-                {
-                    TestBlockMessage * blockMessage = (TestBlockMessage*) message;
-
-                    check(blockMessage->sequence == uint16_t(numMessagesReceived));
-
-                    const int blockSize = blockMessage->GetBlockSize();
-
-                    check(blockSize == 1 + ((numMessagesReceived * 901) % 3333));
-
-                    const uint8_t * blockData = blockMessage->GetBlockData();
-
-                    check(blockData);
-
-                    for (int j = 0; j < blockSize; ++j)
-                    {
-                        check(blockData[j] == uint8_t(numMessagesReceived + j));
-                    }
-
-                    ++numMessagesReceived;
-                }
-                break;
-            }
-
-            messageFactory.ReleaseMessage(message);
-        }
-
-        if (numMessagesReceived == NumMessagesSent)
-            break;
-    }
-
-    check(numMessagesReceived == NumMessagesSent);
-}
-
-void test_connection_reliable_ordered_messages_and_blocks_multiple_channels()
-{
-    const int NumChannels = 2;
-
-    double time = 100.0;
-
-    TestMessageFactory messageFactory(GetDefaultAllocator());
-
-    ConnectionConfig connectionConfig;
-    connectionConfig.numChannels = NumChannels;
-    connectionConfig.channel[0].type = CHANNEL_TYPE_RELIABLE_ORDERED;
-    connectionConfig.channel[0].maxMessagesPerPacket = 8;
-    connectionConfig.channel[1].type = CHANNEL_TYPE_RELIABLE_ORDERED;
-    connectionConfig.channel[1].maxMessagesPerPacket = 8;
-
-    Connection sender(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    Connection receiver(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    const int NumMessagesSent = 32;
-
-    for (int channelIndex = 0; channelIndex < NumChannels; ++channelIndex)
-    {
-        for (int i = 0; i < NumMessagesSent; ++i)
-        {
-            if (rand() % 2)
-            {
-                TestMessage * message = (TestMessage*) messageFactory.CreateMessage(TEST_MESSAGE);
-                check(message);
-                message->sequence = i;
-                sender.SendMessage(channelIndex, message);
-            }
-            else
-            {
-                TestBlockMessage * message = (TestBlockMessage*) messageFactory.CreateMessage(TEST_BLOCK_MESSAGE);
-                check(message);
-                message->sequence = i;
-                const int blockSize = 1 + ((i * 901) % 3333);
-                uint8_t * blockData = (uint8_t*) YOJIMBO_ALLOCATE(messageFactory.GetAllocator(), blockSize);
-                for (int j = 0; j < blockSize; ++j)
-                    blockData[j] = i + j;
-                message->AttachBlock(messageFactory.GetAllocator(), blockData, blockSize);
-                sender.SendMessage(channelIndex, message);
-            }
-        }
-    }
-
-    const int SenderPort = 10000;
-    const int ReceiverPort = 10001;
-
-    Address senderAddress("::1", SenderPort);
-    Address receiverAddress("::1", ReceiverPort);
-
-    const int NumIterations = 10000;
-
-    int numMessagesReceived[NumChannels];
-    memset(numMessagesReceived, 0, sizeof(numMessagesReceived));
-
-    uint16_t senderSequence = 0;
-    uint16_t receiverSequence = 0;
-
-    for (int i = 0; i < NumIterations; ++i)
-    {
-        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence);
-
-        for (int channelIndex = 0; channelIndex < NumChannels; ++channelIndex)
-        {
-            while (true)
-            {
-                Message * message = receiver.ReceiveMessage(channelIndex);
-                if (!message)
-                    break;
-
-                check(message->GetId() == (int) numMessagesReceived[channelIndex]);
-
-                switch (message->GetType())
-                {
-                    case TEST_MESSAGE:
-                    {
-                        TestMessage * testMessage = (TestMessage*) message;
-
-                        check(testMessage->sequence == uint16_t(numMessagesReceived[channelIndex]));
-
-                        ++numMessagesReceived[channelIndex];
-                    }
-                    break;
-
-                    case TEST_BLOCK_MESSAGE:
-                    {
-                        TestBlockMessage * blockMessage = (TestBlockMessage*) message;
-
-                        check(blockMessage->sequence == uint16_t(numMessagesReceived[channelIndex]));
-
-                        const int blockSize = blockMessage->GetBlockSize();
-
-                        check(blockSize == 1 + ((numMessagesReceived[channelIndex] * 901) % 3333));
-
-                        const uint8_t * blockData = blockMessage->GetBlockData();
-
-                        check(blockData);
-
-                        for (int j = 0; j < blockSize; ++j)
-                        {
-                            check(blockData[j] == uint8_t(numMessagesReceived[channelIndex] + j));
-                        }
-
-                        ++numMessagesReceived[channelIndex];
-                    }
-                    break;
-                }
-
-                messageFactory.ReleaseMessage(message);
-            }
-        }
-
-        bool receivedAllMessages = true;
-
-        for (int channelIndex = 0; channelIndex < NumChannels; ++channelIndex)
-        {
-            if (numMessagesReceived[channelIndex] != NumMessagesSent)
-            {
-                receivedAllMessages = false;
-                break;
-            }
-        }
-
-        if (receivedAllMessages)
-            break;
-    }
-
-    for (int channelIndex = 0; channelIndex < NumChannels; ++channelIndex)
-    {
-        check(numMessagesReceived[channelIndex] == NumMessagesSent);
-    }
-}
-
-void test_connection_unreliable_unordered_messages()
-{
-    TestMessageFactory messageFactory(GetDefaultAllocator());
-
-    double time = 100.0;
-
-    ConnectionConfig connectionConfig;
-    connectionConfig.numChannels = 1;
-    connectionConfig.channel[0].type = CHANNEL_TYPE_UNRELIABLE_UNORDERED;
-
-    Connection sender(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-    Connection receiver(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    const int SenderPort = 10000;
-    const int ReceiverPort = 10001;
-
-    Address senderAddress("::1", SenderPort);
-    Address receiverAddress("::1", ReceiverPort);
-
-    const int NumIterations = 256;
-
-    const int NumMessagesSent = 16;
-
-    for (int j = 0; j < NumMessagesSent; ++j)
-    {
-        TestMessage * message = (TestMessage*) messageFactory.CreateMessage(TEST_MESSAGE);
-        check(message);
-        message->sequence = j;
-        sender.SendMessage(0, message);
-    }
-
-    int numMessagesReceived = 0;
-
-    uint16_t senderSequence = 0;
-    uint16_t receiverSequence = 0;
-
-    for (int i = 0; i < NumIterations; ++i)
-    {
-        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
-
-        while (true)
-        {
-            Message * message = receiver.ReceiveMessage(0);
-            if (!message)
-                break;
-
-            check(message->GetType() == TEST_MESSAGE);
-
-            TestMessage * testMessage = (TestMessage*) message;
-
-            check(testMessage->sequence == uint16_t(numMessagesReceived));
-
-            ++numMessagesReceived;
-
-            messageFactory.ReleaseMessage(message);
-        }
-
-        if (numMessagesReceived == NumMessagesSent)
-            break;
-    }
-
-    check(numMessagesReceived == NumMessagesSent);
-}
-
-void test_connection_unreliable_unordered_blocks()
-{
-    TestMessageFactory messageFactory(GetDefaultAllocator());
-
-    double time = 100.0;
-
-    ConnectionConfig connectionConfig;
-    connectionConfig.numChannels = 1;
-    connectionConfig.channel[0].type = CHANNEL_TYPE_UNRELIABLE_UNORDERED;
-
-    Connection sender(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    Connection receiver(GetDefaultAllocator(), messageFactory, connectionConfig, time);
-
-    const int SenderPort = 10000;
-    const int ReceiverPort = 10001;
-
-    Address senderAddress("::1", SenderPort);
-    Address receiverAddress("::1", ReceiverPort);
-
-    const int NumIterations = 256;
-
-    const int NumMessagesSent = 8;
-
-    for (int j = 0; j < NumMessagesSent; ++j)
-    {
-        TestBlockMessage * message = (TestBlockMessage*) messageFactory.CreateMessage(TEST_BLOCK_MESSAGE);
-        check(message);
-        message->sequence = j;
-        const int blockSize = 1 + (j * 7);
-        uint8_t * blockData = (uint8_t*) YOJIMBO_ALLOCATE(messageFactory.GetAllocator(), blockSize);
-        for (int k = 0; k < blockSize; ++k)
-            blockData[k] = j + k;
-        message->AttachBlock(messageFactory.GetAllocator(), blockData, blockSize);
-        sender.SendMessage(0, message);
-    }
-
-    int numMessagesReceived = 0;
-
-    uint16_t senderSequence = 0;
-    uint16_t receiverSequence = 0;
-
-    for (int i = 0; i < NumIterations; ++i)
-    {
-        pump_connection_update(connectionConfig, time, sender, receiver, senderSequence, receiverSequence, 0.1f, 0);
-
-        while (true)
-        {
-            Message * message = receiver.ReceiveMessage(0);
-            if (!message)
-                break;
-
-            check(message->GetType() == TEST_BLOCK_MESSAGE);
-
-            TestBlockMessage * blockMessage = (TestBlockMessage*) message;
-
-            check(blockMessage->sequence == uint16_t(numMessagesReceived));
-
-            const int blockSize = blockMessage->GetBlockSize();
-
-            check(blockSize == 1 + (numMessagesReceived * 7));
-
-            const uint8_t * blockData = blockMessage->GetBlockData();
-
-            check(blockData);
-
-            for (int j = 0; j < blockSize; ++j)
-            {
-                check(blockData[j] == uint8_t(numMessagesReceived + j));
-            }
-
-            ++numMessagesReceived;
-
-            messageFactory.ReleaseMessage(message);
-        }
-
-        if (numMessagesReceived == NumMessagesSent)
-            break;
-    }
-
-    check(numMessagesReceived == NumMessagesSent);
-}
-
-void PumpClientServerUpdate(double & time, Client ** client, int numClients, Server ** server, int numServers, float deltaTime = 0.1f)
-{
-    for (int i = 0; i < numClients; ++i)
-        client[i]->SendPackets();
-
-    for (int i = 0; i < numServers; ++i)
-        server[i]->SendPackets();
-
-    for (int i = 0; i < numClients; ++i)
-        client[i]->ReceivePackets();
-
-    for (int i = 0; i < numServers; ++i)
-        server[i]->ReceivePackets();
-
-    time += deltaTime;
-
-    for (int i = 0; i < numClients; ++i)
-        client[i]->AdvanceTime(time);
-
-    for (int i = 0; i < numServers; ++i)
-        server[i]->AdvanceTime(time);
-
-    yojimbo_sleep(0.0f);
-}
-
-void SendClientToServerMessages(Client & client, int numMessagesToSend, int channelIndex = 0)
-{
-    for (int i = 0; i < numMessagesToSend; ++i)
-    {
-        if (!client.CanSendMessage(channelIndex))
-            break;
-
-        if (rand() % 10)
-        {
-            TestMessage * message = (TestMessage*) client.CreateMessage(TEST_MESSAGE);
-            check(message);
-            message->sequence = i;
-            client.SendMessage(channelIndex, message);
-        }
-        else
-        {
-            TestBlockMessage * message = (TestBlockMessage*) client.CreateMessage(TEST_BLOCK_MESSAGE);
-            check(message);
-            message->sequence = i;
-            const int blockSize = 1 + ((i * 901) % 1001);
-            uint8_t * blockData = client.AllocateBlock(blockSize);
-            check(blockData);
-            for (int j = 0; j < blockSize; ++j)
-                blockData[j] = i + j;
-            client.AttachBlockToMessage(message, blockData, blockSize);
-            client.SendMessage(channelIndex, message);
-        }
-    }
-}
-
-void SendServerToClientMessages(Server & server, int clientIndex, int numMessagesToSend, int channelIndex = 0)
-{
-    for (int i = 0; i < numMessagesToSend; ++i)
-    {
-        if (!server.CanSendMessage(clientIndex, channelIndex))
-            break;
-
-        if (rand() % 10)
-        {
-            TestMessage * message = (TestMessage*) server.CreateMessage(clientIndex, TEST_MESSAGE);
-            check(message);
-            message->sequence = i;
-            server.SendMessage(clientIndex, channelIndex, message);
-        }
-        else
-        {
-            TestBlockMessage * message = (TestBlockMessage*) server.CreateMessage(clientIndex, TEST_BLOCK_MESSAGE);
-            check(message);
-            message->sequence = i;
-            const int blockSize = 1 + ((i * 901) % 1001);
-            uint8_t * blockData = server.AllocateBlock(clientIndex, blockSize);
-            check(blockData);
-            for (int j = 0; j < blockSize; ++j)
-                blockData[j] = i + j;
-            server.AttachBlockToMessage(clientIndex, message, blockData, blockSize);
-            server.SendMessage(clientIndex, channelIndex, message);
-        }
-    }
-}
-
-void ProcessServerToClientMessages(Client & client, int & numMessagesReceivedFromServer)
-{
-    while (true)
-    {
-        Message * message = client.ReceiveMessage(0);
-
-        if (!message)
-            break;
-
-        check(message->GetId() == (int) numMessagesReceivedFromServer);
-
-        switch (message->GetType())
-        {
-            case TEST_MESSAGE:
-            {
-                TestMessage * testMessage = (TestMessage*) message;
-                check(!message->IsBlockMessage());
-                check(testMessage->sequence == uint16_t(numMessagesReceivedFromServer));
-                ++numMessagesReceivedFromServer;
-            }
-            break;
-
-            case TEST_BLOCK_MESSAGE:
-            {
-                check(message->IsBlockMessage());
-                TestBlockMessage * blockMessage = (TestBlockMessage*) message;
-                check(blockMessage->sequence == uint16_t(numMessagesReceivedFromServer));
-                const int blockSize = blockMessage->GetBlockSize();
-                check(blockSize == 1 + ((numMessagesReceivedFromServer * 901) % 1001));
-                const uint8_t * blockData = blockMessage->GetBlockData();
-                check(blockData);
-                for (int j = 0; j < blockSize; ++j)
-                {
-                    check(blockData[j] == uint8_t(numMessagesReceivedFromServer + j));
-                }
-                ++numMessagesReceivedFromServer;
-            }
-            break;
-        }
-
-        client.ReleaseMessage(message);
-    }
-}
-
-void ProcessClientToServerMessages(Server & server, int clientIndex, int & numMessagesReceivedFromClient)
-{
-    while (true)
-    {
-        Message * message = server.ReceiveMessage(clientIndex, 0);
-
-        if (!message)
-            break;
-
-        check(message->GetId() == (int) numMessagesReceivedFromClient);
-
-        switch (message->GetType())
-        {
-            case TEST_MESSAGE:
-            {
-                check(!message->IsBlockMessage());
-                TestMessage * testMessage = (TestMessage*) message;
-                check(testMessage->sequence == uint16_t(numMessagesReceivedFromClient));
-                ++numMessagesReceivedFromClient;
-            }
-            break;
-
-            case TEST_BLOCK_MESSAGE:
-            {
-                check(message->IsBlockMessage());
-                TestBlockMessage * blockMessage = (TestBlockMessage*) message;
-                check(blockMessage->sequence == uint16_t(numMessagesReceivedFromClient));
-                const int blockSize = blockMessage->GetBlockSize();
-                check(blockSize == 1 + ((numMessagesReceivedFromClient * 901) % 1001));
-                const uint8_t * blockData = blockMessage->GetBlockData();
-                check(blockData);
-                for (int j = 0; j < blockSize; ++j)
-                {
-                    check(blockData[j] == uint8_t(numMessagesReceivedFromClient + j));
-                }
-                ++numMessagesReceivedFromClient;
-            }
-            break;
-        }
-
-        server.ReleaseMessage(clientIndex, message);
-    }
-}
 
 void test_client_server_messages()
 {
@@ -626,9 +63,9 @@ void test_client_server_messages()
 
         const int NumMessagesSent = config.channel[0].messageSendQueueSize;
 
-        SendClientToServerMessages(client, NumMessagesSent);
+        send_client_to_server_messages(client, NumMessagesSent);
 
-        SendServerToClientMessages(server, client.GetClientIndex(), NumMessagesSent);
+        send_server_to_client_messages(server, client.GetClientIndex(), NumMessagesSent);
 
         int numMessagesReceivedFromClient = 0;
         int numMessagesReceivedFromServer = 0;
@@ -643,9 +80,9 @@ void test_client_server_messages()
 
             PumpClientServerUpdate(time, clients, 1, servers, 1);
 
-            ProcessServerToClientMessages(client, numMessagesReceivedFromServer);
+            process_server_to_client_messages(client, numMessagesReceivedFromServer);
 
-            ProcessClientToServerMessages(server, client.GetClientIndex(), numMessagesReceivedFromClient);
+            process_client_to_server_messages(server, client.GetClientIndex(), numMessagesReceivedFromClient);
 
             if (numMessagesReceivedFromClient == NumMessagesSent && numMessagesReceivedFromServer == NumMessagesSent)
                 break;
@@ -675,7 +112,7 @@ void test_client_server_messages()
     server.Stop();
 }
 
-void CreateClients(int numClients, Client ** clients, const Address & address, const ClientServerConfig & config, Adapter & _adapter, double time)
+void create_clients(int numClients, Client ** clients, const Address & address, const ClientServerConfig & config, Adapter & _adapter, double time)
 {
     for (int i = 0; i < numClients; ++i)
     {
@@ -687,7 +124,7 @@ void CreateClients(int numClients, Client ** clients, const Address & address, c
     }
 }
 
-void ConnectClients(int numClients, Client ** clients, const uint8_t privateKey[], const Address & serverAddress)
+void connect_clients(int numClients, Client ** clients, const uint8_t privateKey[], const Address & serverAddress)
 {
     for (int i = 0; i < numClients; ++i)
     {
@@ -695,7 +132,7 @@ void ConnectClients(int numClients, Client ** clients, const uint8_t privateKey[
     }
 }
 
-void DestroyClients(int numClients, Client ** clients)
+void destroy_clients(int numClients, Client ** clients)
 {
     for (int i = 0; i < numClients; ++i)
     {
@@ -705,7 +142,7 @@ void DestroyClients(int numClients, Client ** clients)
     }
 }
 
-bool AllClientsConnected(int numClients, Server & server, Client ** clients)
+bool all_clients_connected(int numClients, Server & server, Client ** clients)
 {
     if (server.GetNumConnectedClients() != numClients)
         return false;
@@ -719,7 +156,7 @@ bool AllClientsConnected(int numClients, Server & server, Client ** clients)
     return true;
 }
 
-bool AnyClientDisconnected(int numClients, Client ** clients)
+bool any_client_disconnected(int numClients, Client ** clients)
 {
     for (int i = 0; i < numClients; ++i)
     {
@@ -765,9 +202,9 @@ void test_client_server_start_stop_restart()
 
         Client * clients[MaxClients];
 
-        CreateClients(numClients[iteration], clients, clientAddress, config, adapter, time);
+        create_clients(numClients[iteration], clients, clientAddress, config, adapter, time);
 
-        ConnectClients(numClients[iteration], clients, privateKey, serverAddress);
+        connect_clients(numClients[iteration], clients, privateKey, serverAddress);
 
         while (true)
         {
@@ -775,21 +212,21 @@ void test_client_server_start_stop_restart()
 
             PumpClientServerUpdate(time, (Client**) clients, numClients[iteration], servers, 1);
 
-            if (AnyClientDisconnected(numClients[iteration], clients))
+            if (any_client_disconnected(numClients[iteration], clients))
                 break;
 
-            if (AllClientsConnected(numClients[iteration], server, clients))
+            if (all_clients_connected(numClients[iteration], server, clients))
                 break;
         }
 
-        check(AllClientsConnected(numClients[iteration], server, clients));
+        check(all_clients_connected(numClients[iteration], server, clients));
 
         const int NumMessagesSent = config.channel[0].messageSendQueueSize;
 
         for (int clientIndex = 0; clientIndex < numClients[iteration]; ++clientIndex)
         {
-            SendClientToServerMessages(*clients[clientIndex], NumMessagesSent);
-            SendServerToClientMessages(server, clientIndex, NumMessagesSent);
+            send_client_to_server_messages(*clients[clientIndex], NumMessagesSent);
+            send_server_to_client_messages(server, clientIndex, NumMessagesSent);
         }
 
         int numMessagesReceivedFromClient[MaxClients];
@@ -810,14 +247,14 @@ void test_client_server_start_stop_restart()
 
             for (int j = 0; j < numClients[iteration]; ++j)
             {
-                ProcessServerToClientMessages(*clients[j], numMessagesReceivedFromServer[j]);
+                process_server_to_client_messages(*clients[j], numMessagesReceivedFromServer[j]);
 
                 if (numMessagesReceivedFromServer[j] != NumMessagesSent)
                     allMessagesReceived = false;
 
                 int clientIndex = clients[j]->GetClientIndex();
 
-                ProcessClientToServerMessages(server, clientIndex, numMessagesReceivedFromClient[clientIndex]);
+                process_client_to_server_messages(server, clientIndex, numMessagesReceivedFromClient[clientIndex]);
 
                 if (numMessagesReceivedFromClient[clientIndex] != NumMessagesSent)
                     allMessagesReceived = false;
@@ -833,7 +270,7 @@ void test_client_server_start_stop_restart()
             check(numMessagesReceivedFromServer[clientIndex] == NumMessagesSent);
         }
 
-        DestroyClients(numClients[iteration], clients);
+        destroy_clients(numClients[iteration], clients);
 
         server.Stop();
     }
@@ -1113,7 +550,7 @@ void test_client_server_message_receive_queue_overflow()
 
     const int NumMessagesSent = config.channel[0].messageSendQueueSize;
 
-    SendClientToServerMessages(client, NumMessagesSent);
+    send_client_to_server_messages(client, NumMessagesSent);
 
     for (int i = 0; i < NumMessagesSent * 4; ++i)
     {
@@ -1471,7 +908,7 @@ void test_single_message_type_unreliable()
 }
 
 
-void SendClientToServerMessagesSample(Client & client, int numMessagesToSend, int channelIndex = 0)
+void send_client_to_server_messages_sample((Client & client, int numMessagesToSend, int channelIndex = 0)
 {
     for (int i = 0; i < numMessagesToSend; ++i)
     {
@@ -1485,7 +922,7 @@ void SendClientToServerMessagesSample(Client & client, int numMessagesToSend, in
     }
 }
 
-void SendServerToClientMessagesSample(Server & server, int clientIndex, int numMessagesToSend, int channelIndex = 0)
+void send_server_to_client_messages_sample((Server & server, int clientIndex, int numMessagesToSend, int channelIndex = 0)
 {
     for (int i = 0; i < numMessagesToSend; ++i)
     {
@@ -1499,7 +936,7 @@ void SendServerToClientMessagesSample(Server & server, int clientIndex, int numM
     }
 }
 
-void ProcessServerToClientMessagesSample(Client & client, int & numMessagesReceivedFromServer)
+void process_server_to_client_messages_sample((Client & client, int & numMessagesReceivedFromServer)
 {
     while (true)
     {
@@ -1521,7 +958,7 @@ void ProcessServerToClientMessagesSample(Client & client, int & numMessagesRecei
     }
 }
 
-void ProcessClientToServerMessagesSample(Server & server, int clientIndex, int & numMessagesReceivedFromClient)
+void process_client_to_server_messages_sample((Server & server, int clientIndex, int & numMessagesReceivedFromClient)
 {
     while (true)
     {
@@ -1604,9 +1041,9 @@ void test_client_server_messages_network_sim_leak()
 
         const int NumMessagesSent = 2000;
 
-        SendClientToServerMessagesSample(client, NumMessagesSent);
+        send_client_to_server_messages_sample((client, NumMessagesSent);
 
-        SendServerToClientMessagesSample(server, client.GetClientIndex(), NumMessagesSent);
+        send_server_to_client_messages_sample((server, client.GetClientIndex(), NumMessagesSent);
 
         int numMessagesReceivedFromClient = 0;
         int numMessagesReceivedFromServer = 0;
@@ -1621,8 +1058,8 @@ void test_client_server_messages_network_sim_leak()
 
             PumpClientServerUpdate(time, clients, 1, servers, 1);
 
-            ProcessServerToClientMessagesSample(client, numMessagesReceivedFromServer);
-            ProcessClientToServerMessagesSample(server, client.GetClientIndex(), numMessagesReceivedFromClient);
+            process_server_to_client_messages_sample((client, numMessagesReceivedFromServer);
+            process_client_to_server_messages_sample((server, client.GetClientIndex(), numMessagesReceivedFromClient);
         }
 
         check(client.IsConnected());
