@@ -1286,3 +1286,51 @@ test_client_server_messages :: () {
 
     server_stop(*server);
 }
+
+create_clients :: (clients: [] *Client, address: IPAddress, config: ClientServerConfig, messageFactory: MessageFactory, time: Apollo_Time) {
+    for * clients {
+        it.* = New(Client);
+        client_init(it.*, address, config, messageFactory, time);
+    }
+}
+
+connect_clients :: (clients: [] *Client, privateKey: [KeyBytes] u8, serverAddress: IPAddress) {
+    for clients {
+        client_insecure_connect(it, privateKey, cast(u64) it_index + 1, serverAddress);
+        network_simulator_set_latency(it.networkSimulator, 250);
+        network_simulator_set_jitter(it.networkSimulator, 100);
+        network_simulator_set_packet_loss(it.networkSimulator, 25.0);
+        network_simulator_set_duplicates(it.networkSimulator, 25.0);
+    }
+}
+
+destroy_clients :: (clients: [] *Client) {
+    for clients {
+        client_disconnect(it);
+        client_free(it);
+    }
+}
+
+all_clients_connected :: (server: *Server, clients: [] *Client) -> bool {
+    if server_get_num_connected_clients(server) != clients.count {
+        return false;
+    }
+
+    for clients {
+        if !client_is_connected(it) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+any_client_disconnected :: (clients: [] *Client) -> bool {
+    for clients {
+        if client_is_disconnected(it) {
+            return true;
+        }
+    }
+
+    return false;
+}
