@@ -97,9 +97,7 @@ TestExhaustStreamAllocatorOnReadMessage :: struct {
         },
         serialize = (stream: *Stream, message: *Message) -> bool {
             if stream.isReading {
-                NumBuffers :: 100;
-
-                buffers: [NumBuffers] [] u8;
+                buffers: [100] [] u8;
 
                 for * buffers {
                     it.* = NewArray(1024 * 1024, u8);

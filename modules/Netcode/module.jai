@@ -434,7 +434,8 @@ netcode_generate_connect_token :: (
     // encrypt the buffer
 
     create_timestamp := current_time_monotonic();
-    expire_timestamp := ifx expire_seconds >= .{} then create_timestamp + expire_seconds else APOLLO_MAX;
+    expire_timestamp := ifx expire_seconds >= .{} then create_timestamp + expire_seconds else create_timestamp + CONNECT_TOKEN_EXPIRE_MAX;
+    #run assert(CONNECT_TOKEN_EXPIRE_MAX > Apollo_Time.{});
     if netcode_encrypt_connect_token_private(connect_token_data, NETCODE_VERSION_INFO, protocol_id, expire_timestamp, nonce, private_key) != NETCODE_OK {
         return NETCODE_ERROR;
     }
@@ -931,7 +932,7 @@ System :: #import "System";
 #import "IPAddress";
 #import "dlb";
 
-APOLLO_MAX :: Apollo_Time.{0xFFFF_FFFF_FFFF_FFFF, 0xFFFF_FFFF_FFFF_FFFF};
+CONNECT_TOKEN_EXPIRE_MAX :: #run seconds_to_apollo(60 * 60 * 24);  // 24 hours
 
 NETCODE_SOCKET_IPV6 :: 1;
 NETCODE_SOCKET_IPV4 :: 2;
