@@ -358,6 +358,7 @@ channel_process_packet_messages :: (using channel: *ReliableOrderedChannel, mess
         entry := sequence_buffer_insert(*messageReceiveQueue, message.id);
         if entry == null {
             // For some reason we can't insert the message in the receive queue
+            yojimbo_log(.ERROR, "failed to insert message % into receive queue\n", message.id);
             errorLevel = .Desync;
             return;
         }

@@ -435,7 +435,6 @@ netcode_generate_connect_token :: (
 
     create_timestamp := current_time_monotonic();
     expire_timestamp := ifx expire_seconds >= .{} then create_timestamp + expire_seconds else create_timestamp + CONNECT_TOKEN_EXPIRE_MAX;
-    #run assert(CONNECT_TOKEN_EXPIRE_MAX > Apollo_Time.{});
     if netcode_encrypt_connect_token_private(connect_token_data, NETCODE_VERSION_INFO, protocol_id, expire_timestamp, nonce, private_key) != NETCODE_OK {
         return NETCODE_ERROR;
     }
@@ -933,6 +932,11 @@ System :: #import "System";
 #import "dlb";
 
 CONNECT_TOKEN_EXPIRE_MAX :: #run seconds_to_apollo(60 * 60 * 24);  // 24 hours
+#assert CONNECT_TOKEN_EXPIRE_MAX > Apollo_Time.{};
+#assert APOLLO_TIME_INVALID < Apollo_Time.{};
+#assert seconds_to_apollo(-1) < Apollo_Time.{};
+#assert seconds_to_apollo(0) == Apollo_Time.{};
+#assert seconds_to_apollo(1) > Apollo_Time.{};
 
 NETCODE_SOCKET_IPV6 :: 1;
 NETCODE_SOCKET_IPV4 :: 2;
@@ -3077,7 +3081,7 @@ netcode_encryption_manager_reset :: (using encryption_manager: *netcode_encrypti
 
     for 0..NETCODE_MAX_ENCRYPTION_MAPPINGS-1 {
         // NOTE(dlb): These are some weird "null" values.. I'm not sure if I interpreted the original code correctly but it should be fine.
-        expire_time[it] = seconds_to_apollo(-1);
+        expire_time[it] = APOLLO_TIME_INVALID;
         last_access_time[it] = seconds_to_apollo(-1000);
         address[it] = .{};
         client_index[it] = -1;
@@ -3136,7 +3140,7 @@ netcode_encryption_manager_remove_encryption_mapping :: (using encryption_manage
 
     for 0..num_encryption_mappings-1 {
         if netcode_address_equal(address[it], _address) {
-            expire_time[it] = seconds_to_apollo(-1);
+            expire_time[it] = APOLLO_TIME_INVALID;
             last_access_time[it] = seconds_to_apollo(-1000);
             address[it] = .{};
             array_zero(send_key[it]);
@@ -3751,7 +3755,7 @@ netcode_server_process_connection_request_packet :: (using server: *netcode_serv
         return;
     }
 
-    expire_time := ifx connect_token_private.timeout_seconds >= .{} then time + connect_token_private.timeout_seconds else seconds_to_apollo(-1);
+    expire_time := ifx connect_token_private.timeout_seconds >= .{} then time + connect_token_private.timeout_seconds else APOLLO_TIME_INVALID;
 
     if !netcode_encryption_manager_add_encryption_mapping(*encryption_manager, from,
         connect_token_private.server_to_client_key, connect_token_private.client_to_server_key, time, expire_time,
@@ -3801,7 +3805,7 @@ netcode_server_connect_client :: (using server: *netcode_server_t, _client_index
     assert(client_connected[_client_index] == false);
     assert(num_connected_clients < max_clients);
 
-    netcode_encryption_manager_set_expire_time(*encryption_manager, _encryption_index, seconds_to_apollo(-1));
+    netcode_encryption_manager_set_expire_time(*encryption_manager, _encryption_index, APOLLO_TIME_INVALID);
 
     encryption_manager.client_index[_encryption_index] = _client_index;
 

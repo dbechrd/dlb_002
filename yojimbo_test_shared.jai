@@ -120,7 +120,7 @@ TestMessageFactory: MessageFactory : MessageSerializer.[
     TestExhaustStreamAllocatorOnReadMessage.serializer
 ];
 
-SingleTestMessageType :: enum u16 {
+using SingleTestMessageType :: enum u16 {
     SINGLE_TEST_MESSAGE;
     NUM_SINGLE_TEST_MESSAGE_TYPES;
 }
@@ -129,7 +129,7 @@ SingleTestMessageFactory: MessageFactory : MessageSerializer.[
     TestMessage.serializer
 ];
 
-SingleBlockTestMessageType :: enum u16 {
+using SingleBlockTestMessageType :: enum u16 {
     SINGLE_BLOCK_TEST_MESSAGE;
     NUM_SINGLE_BLOCK_TEST_MESSAGE_TYPES;
 }

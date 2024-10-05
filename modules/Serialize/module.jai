@@ -56,7 +56,10 @@ Calculates the number of bits required to serialize an integer in range [min,max
 @returns The number of bits required to serialize the integer.
 */
 bits_required :: inline (min: u64, max: u64) -> int {
-    return ifx min == max then 0 else log2(max - min) + 1;
+    // NOTE(dlb): I changed the min == max case to use 1 bit, instead of 0, because implicitly
+    // serializing things seems like a bad idea in practice. It would be very easy for the reader/writer
+    // to become desync'd in different versions of the code.
+    return ifx min == max then 1 else log2(max - min) + 1;
 }
 
 /*
@@ -687,7 +690,7 @@ IMPORTANT: This macro must be called inside a function with a bool return value.
 */
 serialize_int :: (stream: *Stream, value: *$T, min: T, max: T) #expand {
     assert(size_of(T) <= 8);
-    assert(min < max);
+    assert(min <= max);
 
     // .Write or .Measure
     if stream.isWriting {

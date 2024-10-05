@@ -1,9 +1,3 @@
-// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-// ----------------------------------------------------------------------
-// Check all the pump call params for the last two values
-// ----------------------------------------------------------------------
-// TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO TODO
-
 #import "Unmapping_Allocator";
 
 ENABLE_LOGGING :: true;
@@ -13,6 +7,26 @@ SOAK :: 0;
 check :: assert;
 
 main :: () {
+    logger :: (message: string, data: *void, info: Log_Info) {
+        if !message then return;
+
+        if info.common_flags & .VERY_VERBOSE_ONLY && context.log_level < .VERY_VERBOSE {
+            return;
+        }
+        if info.common_flags & .VERBOSE_ONLY && context.log_level < .VERBOSE {
+            return;
+        }
+
+        to_standard_error := false; //(info.common_flags & .ERROR) != 0;
+
+        if message[message.count-1] != #char "\n" {
+            write_strings(message, "\n", to_standard_error = to_standard_error);
+        } else {
+            write_string(message, to_standard_error = to_standard_error);
+        }
+    }
+    context.logger = logger;
+
     // push_allocator(get_unmapping_allocator());
 
     random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
@@ -30,6 +44,7 @@ main :: () {
 }
 
 yojimbo_test :: () {
+#if 1 {
     address_test();
     serialize_test();
     netcode_test();
@@ -60,12 +75,14 @@ yojimbo_test :: () {
     TEST(test_client_server_message_receive_queue_overflow);
     TEST(test_reliable_outbound_sequence_outdated);
 
-    // TEST(test_single_message_type_reliable);
+    TEST(test_single_message_type_reliable);
     // TEST(test_single_message_type_reliable_blocks);
     // TEST(test_single_message_type_unreliable);
 
     // TEST(test_client_server_messages_network_sim_leak);
-
+} else {
+    TEST(test_client_server_message_receive_queue_overflow);
+}
     log("Passed!\n");
 }
 
@@ -1772,7 +1789,7 @@ test_reliable_outbound_sequence_outdated :: () {
     numMessagesSent += 1;
 
     // Simulate packet sequence being incremented by unreliable messages until it appears outdated.
-    for 0..32768-1 { // Test takes much longer when sending 32768 at once.
+    for 0..32768-1 {
         client_send_packets(*client);
     }
 
@@ -1832,4 +1849,63 @@ test_reliable_outbound_sequence_outdated :: () {
 
     client_free(*client);
     server_free(*server);
+}
+
+test_single_message_type_reliable :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, SingleTestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
+    connection_init(*receiver, SingleTestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
+
+    NumMessagesSent :: 64;
+
+    for 0..NumMessagesSent-1 {
+        message := cast(*TestMessage) SingleTestMessageFactory[SINGLE_TEST_MESSAGE].create();
+        assert_not_null(message);
+        message.sequence = xx it;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 1000;
+    numMessagesReceived := 0;
+
+    for 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.id, xx numMessagesReceived);
+            assert_equal(message.type, xx SINGLE_TEST_MESSAGE);
+
+            testMessage := cast(*TestMessage) message;
+            assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
 }

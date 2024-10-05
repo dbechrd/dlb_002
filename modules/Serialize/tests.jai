@@ -78,7 +78,7 @@ test_bitpacker :: () {
 }
 
 test_bits_required :: () {
-    assert_equal(bits_required(0, 0), 0);
+    assert_equal(bits_required(0, 0), 1);
     assert_equal(bits_required(0, 1), 1);
     assert_equal(bits_required(0, 2), 2);
     assert_equal(bits_required(0, 3), 2);
