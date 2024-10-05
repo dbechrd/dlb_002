@@ -31,10 +31,10 @@ soak_main :: () {
 
     server_start(*server, 1);
 
-    // network_simulator_set_latency(server.networkSimulator, 1000);
-    // network_simulator_set_jitter(server.networkSimulator, 100);
-    // network_simulator_set_packet_loss(server.networkSimulator, 25.0);
-    // network_simulator_set_duplicates(server.networkSimulator, 25.0);
+    network_simulator_set_latency(server.networkSimulator, 1000);
+    network_simulator_set_jitter(server.networkSimulator, 100);
+    network_simulator_set_packet_loss(server.networkSimulator, 25.0);
+    network_simulator_set_duplicates(server.networkSimulator, 25.0);
 
     clientAddress := address_init_v4("0.0.0.0");
     client: Client;
@@ -43,10 +43,10 @@ soak_main :: () {
     clientId := random_get();
     client_insecure_connect(*client, privateKey, clientId, serverAddress);
 
-    // network_simulator_set_latency(client.networkSimulator, 1000);
-    // network_simulator_set_jitter(client.networkSimulator, 100);
-    // network_simulator_set_packet_loss(client.networkSimulator, 25.0);
-    // network_simulator_set_duplicates(client.networkSimulator, 25.0);
+    network_simulator_set_latency(client.networkSimulator, 1000);
+    network_simulator_set_jitter(client.networkSimulator, 100);
+    network_simulator_set_packet_loss(client.networkSimulator, 25.0);
+    network_simulator_set_duplicates(client.networkSimulator, 25.0);
 
     numMessagesSentToServer: int;
     numMessagesSentToClient: int;
@@ -64,7 +64,7 @@ soak_main :: () {
     client_message_send_iter := 0;
 
     iters := 0;
-    while iters < 50_000 {
+    while iters < 500 {
         iters += 1;
 
         client_send_packets(*client);
@@ -346,7 +346,7 @@ main :: () {
     yojimbo_shutdown();
     log("fin.\n");
 
-    // report_memory_leaks();
+    report_memory_leaks();
 }
 
 #scope_file

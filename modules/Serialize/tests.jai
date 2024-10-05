@@ -5,7 +5,6 @@ serialize_test :: () {
     TEST(test_bits_required);
     TEST(test_stream);
     log("Passed!\n");
-    reset_temporary_storage();
 }
 
 #scope_file
@@ -17,6 +16,7 @@ serialize_test :: () {
 
 TEST :: (test: (), call := #caller_code) #expand {
     assert_test(test, ENABLE_LOGGING, call);
+    reset_temporary_storage();
 }
 
 test_bitpacker :: () {
@@ -175,7 +175,7 @@ test_data_serialize :: (data: *TestData, stream: *Stream) -> bool {
 
     serialize_bytes(stream, data.bytes);
 
-    serialize_string(stream, *data.str, 256);
+    serialize_string(stream, *data.str, 256,, temp);
 
     return true;
 }

@@ -174,11 +174,10 @@ server_advance_time :: (using server: *Server, _time: Apollo_Time) {
     server_advance_time(*base, _time);
     if networkSimulator != null && network_simulator_is_active(networkSimulator) {
         packetData := NewArray(config.maxSimulatorPackets, [] u8,, temp);
-        to := NewArray(config.maxSimulatorPackets, int);
+        to := NewArray(config.maxSimulatorPackets, int,, temp);
         numPackets := network_simulator_receive_packets(networkSimulator, packetData, to);
         for 0..numPackets-1 {
             netcode_server_send_packet(netServer, to[it], packetData[it]);
-            array_free(packetData[it]);
         }
     }
 }

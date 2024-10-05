@@ -133,7 +133,7 @@ Create a message of the specified type.
 @param type The type of the message to create. The message types correspond to the message factory set on this client.
 */
 client_create_message :: (using client: *BaseClient, type: int) -> *Message {
-    return message_acquire(messageFactory[type].create());
+    return messageFactory[type].create();
 }
 
 // TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.

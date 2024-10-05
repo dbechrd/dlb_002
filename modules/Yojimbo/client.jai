@@ -169,7 +169,6 @@ client_advance_time :: (using client: *Client, _time: Apollo_Time) {
         numPackets := network_simulator_receive_packets(networkSimulator, packetData, .{});
         for 0..numPackets-1 {
             netcode_client_send_packet(netClient, packetData[it]);
-            array_free(packetData[it]);
         }
     }
 }

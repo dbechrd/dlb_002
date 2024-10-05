@@ -119,7 +119,7 @@ server_create_message :: (using server: *BaseServer, clientIndex: int, type: int
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
 
-    return message_acquire(messageFactory[type].create());
+    return messageFactory[type].create();
 }
 
 // TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.

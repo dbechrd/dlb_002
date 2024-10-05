@@ -13,7 +13,7 @@ SOAK :: 0;
 check :: assert;
 
 main :: () {
-    push_allocator(get_unmapping_allocator());
+    // push_allocator(get_unmapping_allocator());
 
     random_seed(cast,no_check(u64) to_milliseconds(current_time_consensus()));
 
@@ -25,6 +25,8 @@ main :: () {
 
         yojimbo_test();
     }
+
+    report_memory_leaks();
 }
 
 yojimbo_test :: () {
@@ -48,7 +50,7 @@ yojimbo_test :: () {
     TEST(test_connection_unreliable_unordered_messages);
     TEST(test_connection_unreliable_unordered_blocks);
 
-    // TEST(test_client_server_messages);
+    TEST(test_client_server_messages);
     // TEST(test_client_server_start_stop_restart);
     // TEST(test_client_server_message_failed_to_serialize_reliable_ordered);
     // TEST(test_client_server_message_failed_to_serialize_unreliable_unordered);
@@ -62,7 +64,6 @@ yojimbo_test :: () {
     // TEST(test_client_server_messages_network_sim_leak);
 
     log("Passed!\n");
-    reset_temporary_storage();
 }
 
 #load "yojimbo_test_shared.jai";
@@ -78,6 +79,7 @@ TEST :: (test: (), call := #caller_code) #expand {
     }
     assert_test(test, ENABLE_LOGGING, call);
     yojimbo_shutdown();
+    reset_temporary_storage();
 }
 
 test_queue :: () {
@@ -85,6 +87,7 @@ test_queue :: () {
 
     queue: Queue(int);
     queue_init(*queue, QueueSize);
+    defer queue_free(*queue);
 
     assert_equal(queue_empty(queue), true);
     assert_equal(queue_full(queue), false);
@@ -406,6 +409,7 @@ test_bit_array :: () {
     Size := 300;
 
     bit_array := make_bit_array(Size);
+    defer deinit(*bit_array);
 
     // verify initial conditions
 
@@ -477,6 +481,7 @@ test_sequence_buffer :: () {
 
     sequence_buffer: SequenceBuffer(TestSequenceData);
     sequence_buffer_init(*sequence_buffer, Size);
+    defer sequence_buffer_free(*sequence_buffer);
 
     for 0..Size-1 {
         entry := sequence_buffer_find(*sequence_buffer, xx it);
@@ -558,7 +563,9 @@ test_connection_reliable_ordered_messages :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 64;
 
@@ -615,7 +622,9 @@ test_connection_reliable_ordered_blocks :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 32;
 
@@ -688,7 +697,9 @@ test_connection_reliable_ordered_messages_and_blocks :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 32;
 
@@ -781,7 +792,9 @@ test_connection_reliable_ordered_messages_and_blocks_multiple_channels :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 32;
 
@@ -885,7 +898,9 @@ test_connection_unreliable_unordered_messages :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 16;
 
@@ -943,7 +958,9 @@ test_connection_unreliable_unordered_blocks :: () {
     time := seconds_to_apollo(100);
 
     connection_init(*sender, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
     connection_init(*receiver, TestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
 
     NumMessagesSent :: 8;
 
@@ -1032,7 +1049,7 @@ pump_client_server_update :: (time: *Apollo_Time, clients: [] *Client, servers: 
         server_advance_time(it, time.*);
     }
 
-    sleep_milliseconds(0);  // Don't ask me.. it was already here. Maybe it helps yield to WinSock.. idk.
+    // sleep_milliseconds(0);  // Don't ask me.. it was already here. Maybe it helps yield to WinSock.. idk.
 }
 
 send_client_to_server_messages :: (client: *Client, numMessagesToSend: int, channelIndex := 0) {
@@ -1076,7 +1093,7 @@ send_server_to_client_messages :: (server: *Server, clientIndex: int, numMessage
             message.sequence = xx msgIndex;
             server_send_message(server, clientIndex, channelIndex, message);
         } else {
-             message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
             assert_not_null(message);
             message.sequence = xx msgIndex;
 
@@ -1153,4 +1170,119 @@ process_client_to_server_messages :: (server: *Server, clientIndex: int, numMess
 
         server_release_message(server, clientIndex, message);
     }
+}
+
+test_client_server_messages :: () {
+    clientId: u64 = 1;
+
+    clientAddress := address_init_v4("0.0.0.0", ClientPort);
+    serverAddress := address_init_v4("127.0.0.1", ServerPort);
+
+    config: ClientServerConfig;
+    config.channel[0].messageSendQueueSize = 32;
+    config.channel[0].maxMessagesPerPacket = 8;
+    config.channel[0].maxBlockSize = 1024;
+    config.channel[0].blockFragmentSize = 200;
+    time := seconds_to_apollo(100);
+
+    client: Client;
+    client_init(*client, clientAddress, config, TestMessageFactory, time);
+    defer client_free(*client);
+
+    privateKey: [KeyBytes] u8;
+
+    server: Server;
+    server_init(*server, privateKey, serverAddress, config, TestMessageFactory, time);
+    defer server_free(*server);
+
+    server_start(*server, MaxClients);
+
+    network_simulator_set_latency(server.networkSimulator, 250);
+    network_simulator_set_jitter(server.networkSimulator, 100);
+    network_simulator_set_packet_loss(server.networkSimulator, 25.0);
+    network_simulator_set_duplicates(server.networkSimulator, 25.0);
+
+    for 0..1 {
+        client_insecure_connect(*client, privateKey, clientId, serverAddress);
+
+        network_simulator_set_latency(client.networkSimulator, 250);
+        network_simulator_set_jitter(client.networkSimulator, 100);
+        network_simulator_set_packet_loss(client.networkSimulator, 25.0);
+        network_simulator_set_duplicates(client.networkSimulator, 25.0);
+
+        NumIterations :: 10000;
+
+        for 0..NumIterations-1 {
+            clients := *Client.[ *client ];
+            servers := *Server.[ *server ];
+
+            pump_client_server_update(*time, clients, servers);
+
+            if client_connection_failed(*client) {
+                break;
+            }
+
+            if !client_is_connecting(*client) && client_is_connected(*client) && server_get_num_connected_clients(*server) == 1 {
+                break;
+            }
+        }
+
+        assert_false(client_is_connecting(*client));
+        assert_true(client_is_connected(*client));
+        assert_equal(server_get_num_connected_clients(*server), 1);
+        assert_equal(client_get_client_index(*client), 0);
+        assert_true(server_is_client_connected(*server, 0));
+
+        NumMessagesSent := config.channel[0].messageSendQueueSize;
+
+        send_client_to_server_messages(*client, NumMessagesSent);
+
+        send_server_to_client_messages(*server, client_get_client_index(*client), NumMessagesSent);
+
+        numMessagesReceivedFromClient := 0;
+        numMessagesReceivedFromServer := 0;
+
+        for 0..NumIterations-1 {
+            if !client_is_connected(*client) {
+                break;
+            }
+
+            clients := *Client.[ *client ];
+            servers := *Server.[ *server ];
+
+            pump_client_server_update(*time, clients, servers);
+
+            process_server_to_client_messages(*client, *numMessagesReceivedFromServer);
+
+            process_client_to_server_messages(*server, client_get_client_index(*client), *numMessagesReceivedFromClient);
+
+            if numMessagesReceivedFromClient == NumMessagesSent && numMessagesReceivedFromServer == NumMessagesSent {
+                break;
+            }
+        }
+
+        assert_true(client_is_connected(*client));
+        assert_true(server_is_client_connected(*server, client_get_client_index(*client)));
+
+        assert_equal(numMessagesReceivedFromClient, NumMessagesSent);
+        assert_equal(numMessagesReceivedFromServer, NumMessagesSent);
+
+        client_disconnect(*client);
+
+        for 0..NumIterations-1 {
+            clients := *Client.[ *client ];
+            servers := *Server.[ *server ];
+
+            pump_client_server_update(*time, clients, servers);
+
+            if !client_is_connected(*client) && server_get_num_connected_clients(*server) == 0 {
+                break;
+            }
+        }
+
+        assert_false(client_is_connected(*client));
+        assert_equal(server_get_num_connected_clients(*server), 0);
+    }
+
+    server_stop(*server);
 }

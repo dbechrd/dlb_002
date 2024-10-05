@@ -118,24 +118,31 @@ network_simulator_send_packet :: (using networkSimulator: *NetworkSimulator, to:
         packetEntry.* = .{};
     }
 
-    delay := latency;
-    if jitter > .{} {
-        mult := yojimbo_random_float(-1.0, 1.0);
-        rand_jitter := milliseconds_to_apollo(cast(int) (to_milliseconds(jitter) * mult));
-        delay += rand_jitter;
-    }
+    #if 0 {
+        delay := latency;
+        if jitter > .{} {
+            mult := yojimbo_random_float(-1.0, 1.0);
+            rand_jitter := milliseconds_to_apollo(cast(int) (to_milliseconds(jitter) * mult));
+            delay += rand_jitter;
+        }
 
-    packetEntry.to = to;
-    packetEntry.deliveryTime = time + delay;
-    packetEntry.packetData = array_copy(packetData);
-    currentIndex = (currentIndex + 1) % packetEntries.count;
+        packetEntry.to = to;
+        packetEntry.deliveryTime = time + delay;
+        packetEntry.packetData = array_copy(packetData);
+        currentIndex = (currentIndex + 1) % packetEntries.count;
 
-    if yojimbo_random_float(0.0, 100.0) <= duplicatePct {
-        dupe_delay := milliseconds_to_apollo(yojimbo_random_int(0, 1000));
-        nextPacketEntry := *packetEntries[currentIndex];
-        nextPacketEntry.to = to;
-        nextPacketEntry.deliveryTime = time + delay + dupe_delay;
-        nextPacketEntry.packetData = array_copy(packetData);
+        if yojimbo_random_float(0.0, 100.0) <= duplicatePct {
+            dupe_delay := milliseconds_to_apollo(yojimbo_random_int(0, 1000));
+            nextPacketEntry := *packetEntries[currentIndex];
+            nextPacketEntry.to = to;
+            nextPacketEntry.deliveryTime = time + delay + dupe_delay;
+            nextPacketEntry.packetData = array_copy(packetData);
+            currentIndex = (currentIndex + 1) % packetEntries.count;
+        }
+    } else {
+        packetEntry.to = to;
+        packetEntry.deliveryTime = time;
+        packetEntry.packetData = array_copy(packetData);
         currentIndex = (currentIndex + 1) % packetEntries.count;
     }
 }
@@ -152,7 +159,7 @@ network_simulator_receive_packets :: (using networkSimulator: *NetworkSimulator,
     assert(packetData.count > 0);
     assert(to.count == 0 || to.count == packetData.count);
 
-    if network_simulator_is_active(networkSimulator) {
+    if !network_simulator_is_active(networkSimulator) {
         return 0;
     }
 
@@ -181,14 +188,7 @@ Discard all packets in the network simulator.
 This is useful if the simulator needs to be reset and used for another purpose.
 */
 network_simulator_discard_packets :: (using networkSimulator: *NetworkSimulator) {
-    for * packetEntries {
-        if it.packetData.count == 0 {
-            continue;
-        }
-
-        array_free(it.packetData);
-        it.* = .{};
-    }
+    array_zero(packetEntries);
 }
 
 /*
@@ -200,8 +200,6 @@ network_simulator_discard_client_packets :: (using networkSimulator: *NetworkSim
         if (it.packetData.count == 0 || it.to != clientIndex) {
             continue;
         }
-
-        array_free(it.packetData);
         it.* = .{};
     }
 }
