@@ -3,10 +3,9 @@
 ENABLE_LOGGING :: true;
 SOAK :: 0;
 
-// TODO(dlb)[cleanup]: Use Assertive asserts.
-check :: assert;
-
 main :: () {
+    // context.log_level = .VERBOSE;
+    // context.log_level = .VERY_VERBOSE;
     context.logger = logger;
 
     // push_allocator(get_unmapping_allocator());
@@ -26,6 +25,7 @@ main :: () {
 }
 
 yojimbo_test :: () {
+#if 1 {
     address_test();
     serialize_test();
     netcode_test();
@@ -58,10 +58,75 @@ yojimbo_test :: () {
 
     TEST(test_single_message_type_reliable);
     TEST(test_single_message_type_reliable_blocks);
-    // TEST(test_single_message_type_unreliable);
+    TEST(test_single_message_type_unreliable);
 
-    // TEST(test_client_server_messages_network_sim_leak);
+    TEST(test_client_server_messages_network_sim_leak);
+} else {
+    // These both seem to have memory leaks, but I can't find them, and they're both degenerate cases.
+    // TEST(test_reliable_outbound_sequence_outdated);
+    // TEST(test_client_server_message_receive_queue_overflow);
 
+    /*
+    =========================
+    queue overflow
+    =========================
+    ----- 393,216 bytes in 1 allocation -----
+    NewArray                          C:/dojo/jai/modules/Basic/module.jai:541
+    resize                            C:/dojo/jai/modules/Hash_Table.jai:188
+    expand                            C:/dojo/jai/modules/Hash_Table.jai:457
+    table_add                         C:/dojo/jai/modules/Hash_Table.jai:284
+    allocate_new_memory               C:/dojo/jai/modules/Unmapping_Allocator/module.jai:212
+    unmapping_allocator_proc          C:/dojo/jai/modules/Unmapping_Allocator/module.jai:118
+    alloc                             C:/dojo/jai/modules/Basic/module.jai:109
+    New                               C:/dojo/jai/modules/Basic/module.jai:510
+                                    c:/Users/User/Documents/Development/dlb_002/yojimbo_test_shared.jai:36
+    message_factory_create_message    c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/message.jai:118
+    serialize_messages                c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/channel_packet_data.jai:140
+    channel_packet_data_serialize     c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/channel_packet_data.jai:75
+    connection_packet_serialize       c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/connection.jai:49
+    connection_read_packet            c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/connection.jai:183
+    connection_process_packet         c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/connection.jai:198
+    server_process_packet_function    c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/server.jai:311
+    reliable_endpoint_receive_packet  c:/Users/User/Documents/Development/dlb_002/modules/Reliable/module.jai:356
+    server_receive_packets            c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/server.jai:159
+    pump_client_server_update         c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:1004
+    test                              c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:1663
+    yojimbo_test                      c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:64
+    main                              c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:19
+
+    Total: 393,216 bytes in 1 allocation.
+
+    Marked as non-leaks: 96 bytes in 1 allocation.
+
+    =========================
+    sequence outdated
+    =========================
+    ----- 1,572,864 bytes in 1 allocation -----
+    NewArray                                  C:/dojo/jai/modules/Basic/module.jai:541
+    resize                                    C:/dojo/jai/modules/Hash_Table.jai:188
+    expand                                    C:/dojo/jai/modules/Hash_Table.jai:457
+    table_add                                 C:/dojo/jai/modules/Hash_Table.jai:284
+    allocate_new_memory                       C:/dojo/jai/modules/Unmapping_Allocator/module.jai:212
+    unmapping_allocator_proc                  C:/dojo/jai/modules/Unmapping_Allocator/module.jai:118
+    alloc                                     C:/dojo/jai/modules/Basic/module.jai:109
+    NewArray                                  C:/dojo/jai/modules/Basic/module.jai:541
+    netcode_create_payload_packet             c:/Users/User/Documents/Development/dlb_002/modules/Netcode/module.jai:1805
+    netcode_read_packet                       c:/Users/User/Documents/Development/dlb_002/modules/Netcode/module.jai:2268
+    netcode_server_read_and_process_packet    c:/Users/User/Documents/Development/dlb_002/modules/Netcode/module.jai:3957
+    netcode_server_receive_packets            c:/Users/User/Documents/Development/dlb_002/modules/Netcode/module.jai:4010
+    netcode_server_update                     c:/Users/User/Documents/Development/dlb_002/modules/Netcode/module.jai:582
+    server_advance_time                       c:/Users/User/Documents/Development/dlb_002/modules/Yojimbo/server.jai:172
+    pump_client_server_update                 c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:1014
+    test_reliable_outbound_sequence_outdated  c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:1761
+    TEST                                      c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:81
+    yojimbo_test                              c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:64
+    main                                      c:/Users/User/Documents/Development/dlb_002/yojimbo_tests.jai:20
+
+    Total: 1,572,864 bytes in 1 allocation.
+
+    Marked as non-leaks: 96 bytes in 1 allocation.
+    */
+}
     log("Passed!\n");
 }
 
@@ -71,7 +136,7 @@ yojimbo_test :: () {
 #import "Assertive";
 #import "Reliable";
 
-TEST :: (test: (), call := #caller_code) #expand {
+TEST :: (test: (), $call := #caller_code) {
     if !yojimbo_init() {
         log("error: failed to initialize yojimbo\n");
         exit(1);
@@ -161,7 +226,7 @@ test_address :: () {
         assert_equal(address.data.v4[1], 77);
         assert_equal(address.data.v4[2], 207);
         assert_equal(address.data.v4[3], 77);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -172,7 +237,7 @@ test_address :: () {
         assert_equal(address.data.v4[1], 0);
         assert_equal(address.data.v4[2], 0);
         assert_equal(address.data.v4[3], 1);
-        check(address_is_loopback(address));
+        assert_true(address_is_loopback(address));
     }
 
     {
@@ -183,7 +248,7 @@ test_address :: () {
         assert_equal(address.data.v4[1], 77);
         assert_equal(address.data.v4[2], 207);
         assert_equal(address.data.v4[3], 77);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -194,7 +259,7 @@ test_address :: () {
         assert_equal(address.data.v4[1], 0);
         assert_equal(address.data.v4[2], 0);
         assert_equal(address.data.v4[3], 1);
-        check(address_is_loopback(address));
+        assert_true(address_is_loopback(address));
     }
 
     {
@@ -209,7 +274,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0xb3ff);
         assert_equal(address.data.v6[6], 0xfe1e);
         assert_equal(address.data.v6[7], 0x8329);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -224,7 +289,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0x0000);
         assert_equal(address.data.v6[6], 0x0000);
         assert_equal(address.data.v6[7], 0x0000);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -239,7 +304,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0x0000);
         assert_equal(address.data.v6[6], 0x0000);
         assert_equal(address.data.v6[7], 0x0001);
-        check(address_is_loopback(address));
+        assert_true(address_is_loopback(address));
     }
 
     {
@@ -254,7 +319,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0xb3ff);
         assert_equal(address.data.v6[6], 0xfe1e);
         assert_equal(address.data.v6[7], 0x8329);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -269,7 +334,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0x0000);
         assert_equal(address.data.v6[6], 0x0000);
         assert_equal(address.data.v6[7], 0x0000);
-        check(!address_is_loopback(address));
+        assert_false(address_is_loopback(address));
     }
 
     {
@@ -284,7 +349,7 @@ test_address :: () {
         assert_equal(address.data.v6[5], 0x0000);
         assert_equal(address.data.v6[6], 0x0000);
         assert_equal(address.data.v6[7], 0x0001);
-        check(address_is_loopback(address));
+        assert_true(address_is_loopback(address));
     }
 
     {
@@ -412,10 +477,10 @@ test_bit_array :: () {
 
     // verify initial conditions
 
-    check(bit_array.count == Size);
+    assert_equal(bit_array.count, Size);
 
     for bit_array {
-        check(it == false);
+        assert_false(it);
     }
 
     // set every third bit and verify correct bits are set on read
@@ -428,9 +493,9 @@ test_bit_array :: () {
 
     for bit_array {
         if (it_index % 3) == 0 {
-            check(it == true);
+            assert_true(it);
         } else {
-            check(it == false);
+            assert_false(it);
         }
     }
 
@@ -443,7 +508,7 @@ test_bit_array :: () {
     }
 
     for bit_array {
-        check(it == false);
+        assert_false(it);
     }
 
     // now set some more bits
@@ -456,9 +521,9 @@ test_bit_array :: () {
 
     for bit_array {
         if (it_index % 10) == 0 {
-            check(it == true);
+            assert_true(it);
         } else {
-            check(it == false);
+            assert_false(it);
         }
     }
 
@@ -467,7 +532,7 @@ test_bit_array :: () {
     clear_all_bits(*bit_array);
 
     for bit_array {
-        check(it == false);
+        assert_false(it);
     }
 }
 
@@ -575,12 +640,6 @@ test_connection_reliable_ordered_messages :: () {
         connection_send_message(*sender, 0, message);
     }
 
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
-
     senderSequence: u16;
     receiverSequence: u16;
 
@@ -640,12 +699,6 @@ test_connection_reliable_ordered_blocks :: () {
         message.blockData = blockData;
         connection_send_message(*sender, 0, message);
     }
-
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
 
     senderSequence: u16;
     receiverSequence: u16;
@@ -721,12 +774,6 @@ test_connection_reliable_ordered_messages_and_blocks :: () {
             connection_send_message(*sender, 0, message);
         }
     }
-
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
 
     senderSequence: u16;
     receiverSequence: u16;
@@ -819,12 +866,6 @@ test_connection_reliable_ordered_messages_and_blocks_multiple_channels :: () {
         }
     }
 
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
-
     senderSequence: u16;
     receiverSequence: u16;
 
@@ -910,12 +951,6 @@ test_connection_unreliable_unordered_messages :: () {
         connection_send_message(*sender, 0, message);
     }
 
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
-
     senderSequence: u16;
     receiverSequence: u16;
 
@@ -976,12 +1011,6 @@ test_connection_unreliable_unordered_blocks :: () {
         message.blockData = blockData;
         connection_send_message(*sender, 0, message);
     }
-
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
 
     senderSequence: u16;
     receiverSequence: u16;
@@ -1850,12 +1879,6 @@ test_single_message_type_reliable :: () {
         connection_send_message(*sender, 0, message);
     }
 
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
-
     senderSequence: u16;
     receiverSequence: u16;
 
@@ -1918,12 +1941,6 @@ test_single_message_type_reliable_blocks :: () {
         connection_send_message(*sender, 0, message);
     }
 
-    SenderPort :: 10000;
-    ReceiverPort :: 10001;
-
-    senderAddress := address_init_auto_detect("::1", SenderPort);
-    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
-
     senderSequence: u16;
     receiverSequence: u16;
 
@@ -1964,4 +1981,217 @@ test_single_message_type_reliable_blocks :: () {
     }
 
     assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_single_message_type_unreliable :: () {
+    sender: Connection;
+    receiver: Connection;
+    time := seconds_to_apollo(100);
+
+    connectionConfig: ConnectionConfig;
+    connectionConfig.numChannels = 1;
+    connectionConfig.channel[0].type = .UnreliableUnordered;
+
+    connection_init(*sender, SingleTestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
+    connection_init(*receiver, SingleTestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
+
+    NumMessagesSent :: 16;
+
+    for 0..NumMessagesSent-1 {
+        message := cast(*TestMessage) message_factory_create_message(SingleTestMessageFactory, xx SINGLE_TEST_MESSAGE);
+        assert_not_null(message);
+        message.sequence = xx it;
+        connection_send_message(*sender, 0, message);
+    }
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 256;
+    numMessagesReceived := 0;
+
+    for 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence, APOLLO_100_MS, 0);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.type, xx SINGLE_TEST_MESSAGE);
+
+            testMessage := cast(*TestMessage) message;
+            assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+send_client_to_server_messages_sample :: (client: *Client, numMessagesToSend: int, channelIndex := 0) {
+    for 0..numMessagesToSend-1 {
+        if !client_can_send_message(client, channelIndex) {
+            break;
+        }
+
+        message := cast(*TestMessage) client_create_message(client, xx TEST_MESSAGE);
+        assert_not_null(message);
+        message.sequence = xx it;
+        client_send_message(client, channelIndex, message);
+    }
+}
+
+send_server_to_client_messages_sample :: (server: *Server, clientIndex: int, numMessagesToSend: int, channelIndex := 0) {
+    for 0..numMessagesToSend-1 {
+        if !server_can_send_message(server, clientIndex, channelIndex) {
+            break;
+        }
+
+        message := cast(*TestMessage) server_create_message(server, clientIndex, xx TEST_MESSAGE);
+        assert_not_null(message);
+        message.sequence = xx it;
+        server_send_message(server, clientIndex, channelIndex, message);
+    }
+}
+
+process_server_to_client_messages_sample :: (client: *Client, numMessagesReceivedFromServer: *int) {
+    while true {
+        message := client_receive_message(client, 0);
+        if message == null {
+            break;
+        }
+
+        if cast(TestMessageType) message.type == {
+            case TEST_MESSAGE;
+                numMessagesReceivedFromServer += 1;
+        }
+
+        client_release_message(client, message);
+    }
+}
+
+process_client_to_server_messages_sample :: (server: *Server, clientIndex: int, numMessagesReceivedFromClient: *int) {
+    while true {
+        message := server_receive_message(server, clientIndex, 0);
+        if message == null {
+            break;
+        }
+
+        if cast(TestMessageType) message.type == {
+            case TEST_MESSAGE;
+                assert_equal(message.blockData.count, 0);
+                numMessagesReceivedFromClient += 1;
+        }
+
+        server_release_message(server, clientIndex, message);
+    }
+}
+
+test_client_server_messages_network_sim_leak :: () {
+    clientId: u64 = 1;
+
+    clientAddress := address_init_v4("0.0.0.0", ClientPort);
+    serverAddress := address_init_v4("127.0.0.1", ServerPort);
+
+    time := seconds_to_apollo(100);
+
+    config: ClientServerConfig;
+    config.networkSimulator = true;
+    config.channel[0].type = .UnreliableUnordered;
+
+    client: Client;
+    client_init(*client, clientAddress, config, TestMessageFactory, time);
+    defer client_free(*client);
+
+    privateKey: [KeyBytes] u8;
+
+    server: Server;
+    server_init(*server, privateKey, serverAddress, config, TestMessageFactory, time);
+    defer server_free(*server);
+
+    server_start(*server, MaxClients);
+
+    network_simulator_set_latency(server.networkSimulator, 500);
+    network_simulator_set_jitter(server.networkSimulator, 100);
+    network_simulator_set_packet_loss(server.networkSimulator, 5.0);
+    network_simulator_set_duplicates(server.networkSimulator, 5.0);
+
+    clients := *Client.[ *client ];
+    servers := *Server.[ *server ];
+
+    for 0..1 {
+        client_insecure_connect(*client, privateKey, clientId, serverAddress);
+
+        network_simulator_set_latency(client.networkSimulator, 500);
+        network_simulator_set_jitter(client.networkSimulator, 100);
+        network_simulator_set_packet_loss(client.networkSimulator, 5.0);
+        network_simulator_set_duplicates(client.networkSimulator, 5.0);
+
+        NumIterations :: 10000;
+
+        for 0..NumIterations-1 {
+            pump_client_server_update(*time, clients, servers);
+
+            if client_connection_failed(*client) {
+                break;
+            }
+
+            if client_is_connected(*client) && server_get_num_connected_clients(*server) == 1 {
+                break;
+            }
+        }
+
+        assert_false(client_is_connecting(*client));
+        assert_true(client_is_connected(*client));
+        assert_equal(server_get_num_connected_clients(*server), 1);
+        assert_equal(client_get_client_index(*client), 0);
+        assert_true(server_is_client_connected(*server, 0));
+
+        NumMessagesSent :: 2000;
+
+        send_client_to_server_messages_sample(*client, NumMessagesSent);
+        send_server_to_client_messages_sample(*server, client_get_client_index(*client), NumMessagesSent);
+
+        numMessagesReceivedFromClient := 0;
+        numMessagesReceivedFromServer := 0;
+
+        for 0..99 {
+            if !client_is_connected(*client) {
+                break;
+            }
+
+            pump_client_server_update(*time, clients, servers);
+
+            process_server_to_client_messages_sample(*client, *numMessagesReceivedFromServer);
+            process_client_to_server_messages_sample(*server, client_get_client_index(*client), *numMessagesReceivedFromClient);
+        }
+
+        assert_true(client_is_connected(*client));
+        assert_true(server_is_client_connected(*server, client_get_client_index(*client)));
+
+        client_disconnect(*client);
+
+        for 0..NumIterations-1 {
+            pump_client_server_update(*time, clients, servers);
+
+            if !client_is_connected(*client) && server_get_num_connected_clients(*server) == 0 {
+                break;
+            }
+        }
+
+        assert_false(client_is_connected(*client));
+        assert_equal(server_get_num_connected_clients(*server), 0);
+    }
+
+    server_stop(*server);
 }

@@ -3,7 +3,8 @@
 Math :: #import "Math";
 #import "IPAddress"; //()(ENABLE_LOGGING=true);
 #import "Yojimbo"()(ENABLE_LOGGING=true);
-#import "Netcode"; //()(ENABLE_LOGGING=true);
+#import "Netcode"()(ENABLE_LOGGING=true);
+#import "Reliable"()(ENABLE_LOGGING=true);
 #import "Serialize";
 
 ProtocolId :: cast(u64) 0x11223344556677;
@@ -17,13 +18,14 @@ GetNumBitsForMessage :: (sequence: u16) -> int {
     return messageBitsArray[index];
 }
 
-using TestMessageType :: enum u16 {
+TestMessageType :: enum u16 {
     TEST_MESSAGE;
     TEST_BLOCK_MESSAGE;
     TEST_SERIALIZE_FAIL_ON_READ_MESSAGE;
     TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE;
     NUM_TEST_MESSAGE_TYPES;
 }
+using TestMessageType;
 
 TestMessage :: struct {
     using #as base: Message;
@@ -116,19 +118,21 @@ TestMessageFactory: MessageFactory : MessageSerializer.[
     TestExhaustStreamAllocatorOnReadMessage.serializer
 ];
 
-using SingleTestMessageType :: enum u16 {
+SingleTestMessageType :: enum u16 {
     SINGLE_TEST_MESSAGE;
     NUM_SINGLE_TEST_MESSAGE_TYPES;
 }
+using SingleTestMessageType;
 
 SingleTestMessageFactory: MessageFactory : MessageSerializer.[
     TestMessage.serializer
 ];
 
-using SingleBlockTestMessageType :: enum u16 {
+SingleBlockTestMessageType :: enum u16 {
     SINGLE_BLOCK_TEST_MESSAGE;
     NUM_SINGLE_BLOCK_TEST_MESSAGE_TYPES;
 }
+using SingleBlockTestMessageType;
 
 SingleBlockTestMessageFactory: MessageFactory : MessageSerializer.[
     TestBlockMessage.serializer

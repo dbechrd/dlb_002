@@ -79,7 +79,6 @@ connection_init :: (using connection: *Connection, _messageFactory: MessageFacto
 }
 
 connection_free :: (using connection: *Connection) {
-    connection_reset(connection);
     for 0..connectionConfig.numChannels-1 {
         channel_free(channels[it]);
         free(channels[it]);

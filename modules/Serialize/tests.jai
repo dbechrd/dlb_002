@@ -14,7 +14,7 @@ serialize_test :: () {
 #import "dlb";
 #import "Assertive";
 
-TEST :: (test: (), call := #caller_code) #expand {
+TEST :: (test: (), $call := #caller_code) {
     assert_test(test, ENABLE_LOGGING, call);
     reset_temporary_storage();
 }
