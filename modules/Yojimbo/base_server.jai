@@ -115,11 +115,11 @@ Create a message of the specified type for a specific client.
 @param clientIndex The index of the client this message belongs to. Determines which client heap is used to allocate the message.
 @param type The type of the message to create. The message types corresponds to the message factory set on the server.
 */
-server_create_message :: (using server: *BaseServer, clientIndex: int, type: int) -> *Message {
+server_create_message :: (using server: *BaseServer, clientIndex: int, type: u16) -> *Message {
     assert(clientIndex >= 0);
     assert(clientIndex < maxClients);
 
-    return messageFactory[type].create();
+    return message_factory_create_message(messageFactory, type);
 }
 
 // TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.

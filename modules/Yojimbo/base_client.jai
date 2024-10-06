@@ -132,8 +132,8 @@ client_connection_failed :: (using client: *BaseClient) -> bool {
 Create a message of the specified type.
 @param type The type of the message to create. The message types correspond to the message factory set on this client.
 */
-client_create_message :: (using client: *BaseClient, type: int) -> *Message {
-    return messageFactory[type].create();
+client_create_message :: (using client: *BaseClient, type: u16) -> *Message {
+    return message_factory_create_message(messageFactory, type);
 }
 
 // TODO(dlb)[cleanup]: This is kinda dumb, but maybe I'll keep it for compatibility reasons.

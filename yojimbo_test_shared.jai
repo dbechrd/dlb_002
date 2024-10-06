@@ -27,7 +27,6 @@ using TestMessageType :: enum u16 {
 
 TestMessage :: struct {
     using #as base: Message;
-    base.type = cast(u16) TestMessageType.TEST_MESSAGE;
 
     sequence: u16;
 
@@ -57,7 +56,6 @@ TestMessage :: struct {
 
 TestBlockMessage :: struct {
     using #as base: Message;
-    base.type = cast(u16) TestMessageType.TEST_BLOCK_MESSAGE;
 
     sequence: u16;
 
@@ -75,7 +73,6 @@ TestBlockMessage :: struct {
 
 TestSerializeFailOnReadMessage :: struct {
     using #as base: Message;
-    base.type = cast(u16) TestMessageType.TEST_SERIALIZE_FAIL_ON_READ_MESSAGE;
 
     serializer :: MessageSerializer.{
         create = () -> *Message {
@@ -89,7 +86,6 @@ TestSerializeFailOnReadMessage :: struct {
 
 TestExhaustStreamAllocatorOnReadMessage :: struct {
     using #as base: Message;
-    base.type = cast(u16) TestMessageType.TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE;
 
     serializer :: MessageSerializer.{
         create = () -> *Message {

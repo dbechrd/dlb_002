@@ -114,6 +114,12 @@ MessageSerializer :: struct {
 // IMPORTANT: The index of the type in the this array must be the message ID (i.e. it should match your enum).
 MessageFactory :: #type,isa [] MessageSerializer;
 
+message_factory_create_message :: (messageFactory: MessageFactory, messageType: u16) -> *Message {
+    msg := messageFactory[messageType].create();
+    msg.type = messageType;
+    return msg;
+}
+
 #scope_module
 
 /*

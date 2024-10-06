@@ -484,7 +484,7 @@ The next block fragment is selected by scanning left to right over the set of fr
 @param messageType The type of message the block is attached to. See MessageFactory.
 @returns Pointer to the fragment data.
 */
-channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> fragmentData: [] u8, messageId: u16, fragmentId: u16, numFragments: int, messageType: int {
+channel_get_fragment_to_send :: (using channel: *ReliableOrderedChannel) -> fragmentData: [] u8, messageId: u16, fragmentId: u16, numFragments: int, messageType: u16 {
     entry := sequence_buffer_find(*messageSendQueue, oldestUnackedMessageId);
     assert(entry != null);
 
@@ -544,7 +544,7 @@ This is the payload function that fills the channel packet data while we are sen
 @param messageType The type of message the block is attached to.
 @returns An estimate of the number of bits required to serialize the block message and fragment data (upper bound).
 */
-channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageId: u16, fragmentId: u16, fragmentData: [] u8, numFragments: int, messageType: int) -> int {
+channel_get_fragment_packet_data :: (using channel: *ReliableOrderedChannel, packetData: *ChannelPacketData, messageId: u16, fragmentId: u16, fragmentData: [] u8, numFragments: int, messageType: u16) -> int {
     packetData.channelIndex = cast(u16) channelIndex;
     packetData.flags |= .BlockMessage;
     packetData.block.fragmentData = fragmentData;

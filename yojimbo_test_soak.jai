@@ -113,7 +113,7 @@ soak_main :: () {
                     }
 
 					if yojimbo_random_int(1, 100) != 1 {
-						message := cast(*TestMessage) client_create_message(*client, cast(int) TEST_MESSAGE);
+						message := cast(*TestMessage) client_create_message(*client, xx TEST_MESSAGE);
 						if message != null {
 							message.sequence = cast,no_check(u16) numMessagesSentToServer;
                             client_send_message(*client, RELIABLE_ORDERED_CHANNEL, message);
@@ -127,7 +127,7 @@ soak_main :: () {
                                 break;
                             }
 
-    						blockMessage := cast(*TestBlockMessage) client_create_message(*client, cast(int) TEST_BLOCK_MESSAGE);
+    						blockMessage := cast(*TestBlockMessage) client_create_message(*client, xx TEST_BLOCK_MESSAGE);
     						if blockMessage != null {
     							blockMessage.sequence = cast,no_check(u16) numMessagesSentToServer;
     							blockSize := 1 + (numMessagesSentToServer * 33) % MaxBlockSize;
@@ -167,7 +167,7 @@ soak_main :: () {
                         }
 
                         if yojimbo_random_int(1, 100) != 1 {
-                            message := cast(*TestMessage) server_create_message(*server, clientIndex, cast(int) TEST_MESSAGE);
+                            message := cast(*TestMessage) server_create_message(*server, clientIndex, xx TEST_MESSAGE);
                             if message != null {
                                 message.sequence = cast,no_check(u16) numMessagesSentToClient;
                                 server_send_message(*server, clientIndex, RELIABLE_ORDERED_CHANNEL, message);
@@ -182,7 +182,7 @@ soak_main :: () {
                                     break;
                                 }
 
-                                blockMessage := cast(*TestBlockMessage) server_create_message(*server, clientIndex, cast(int) TEST_BLOCK_MESSAGE);
+                                blockMessage := cast(*TestBlockMessage) server_create_message(*server, clientIndex, xx TEST_BLOCK_MESSAGE);
                                 if blockMessage != null {
                                     blockMessage.sequence = cast,no_check(u16) numMessagesSentToClient;
                                     blockSize := 1 + (numMessagesSentToClient * 33) % MaxBlockSize;

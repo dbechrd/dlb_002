@@ -19,7 +19,7 @@ ChannelPacketData :: struct {
         messageId    : u16;
         fragmentId   : u16;
         numFragments : u16;
-        messageType  : int;
+        messageType  : u16;
     }
 
     channelIndex: u16;
@@ -110,9 +110,9 @@ serialize_messages :: (stream: *Stream, messageFactory: MessageFactory, messages
         messages.* = NewArray(msgCount, *Message);
     }
 
-    messageTypes: [] int = NewArray(messages.count, int,, temp);
+    messageTypes := NewArray(messages.count, u16,, temp);
     #if ordered {
-        messageIds: [] u16 = NewArray(messages.count, u16,, temp);
+        messageIds := NewArray(messages.count, u16,, temp);
     }
 
     if stream.isWriting {
@@ -133,11 +133,11 @@ serialize_messages :: (stream: *Stream, messageFactory: MessageFactory, messages
     }
 
     for 0..messages.count-1 {
-        serialize_int(stream, *messageTypes[it], 0, messageFactory.count-1);
+        assert(messageFactory.count > 0);
+        serialize_int(stream, *messageTypes[it], 0, cast(u16) messageFactory.count-1);
 
         if stream.isReading {
-            messages.*[it] = message_acquire(messageFactory[messageTypes[it]].create());
-
+            messages.*[it] = message_acquire(message_factory_create_message(messageFactory, messageTypes[it]));
             if messages.*[it] == null {
                 yojimbo_log(.ERROR, "error: failed to create message of type % (serialize_messages[ordered = %]\n", messageTypes[it], ordered);
                 return false;
@@ -203,11 +203,11 @@ serialize_block_fragment :: (stream: *Stream, messageFactory: MessageFactory, bl
     if block.fragmentId == 0 {
         // block message
 
-        maxMessageType := messageFactory.count - 1;
-        serialize_int(stream, *block.messageType, 0, maxMessageType);
+        assert(messageFactory.count > 0);
+        serialize_int(stream, *block.messageType, 0, cast(u16) messageFactory.count-1);
 
         if stream.isReading {
-            block.message = message_acquire(messageFactory[block.messageType].create());
+            block.message = message_acquire(message_factory_create_message(messageFactory, block.messageType));
         }
 
         assert(block.message != null);

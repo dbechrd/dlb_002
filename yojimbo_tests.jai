@@ -7,24 +7,6 @@ SOAK :: 0;
 check :: assert;
 
 main :: () {
-    logger :: (message: string, data: *void, info: Log_Info) {
-        if !message then return;
-
-        if info.common_flags & .VERY_VERBOSE_ONLY && context.log_level < .VERY_VERBOSE {
-            return;
-        }
-        if info.common_flags & .VERBOSE_ONLY && context.log_level < .VERBOSE {
-            return;
-        }
-
-        to_standard_error := false; //(info.common_flags & .ERROR) != 0;
-
-        if message[message.count-1] != #char "\n" {
-            write_strings(message, "\n", to_standard_error = to_standard_error);
-        } else {
-            write_string(message, to_standard_error = to_standard_error);
-        }
-    }
     context.logger = logger;
 
     // push_allocator(get_unmapping_allocator());
@@ -44,7 +26,6 @@ main :: () {
 }
 
 yojimbo_test :: () {
-#if 1 {
     address_test();
     serialize_test();
     netcode_test();
@@ -76,13 +57,11 @@ yojimbo_test :: () {
     TEST(test_reliable_outbound_sequence_outdated);
 
     TEST(test_single_message_type_reliable);
-    // TEST(test_single_message_type_reliable_blocks);
+    TEST(test_single_message_type_reliable_blocks);
     // TEST(test_single_message_type_unreliable);
 
     // TEST(test_client_server_messages_network_sim_leak);
-} else {
-    TEST(test_client_server_message_receive_queue_overflow);
-}
+
     log("Passed!\n");
 }
 
@@ -590,7 +569,7 @@ test_connection_reliable_ordered_messages :: () {
     NumMessagesSent :: 64;
 
     for 0..NumMessagesSent-1 {
-        message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+        message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
         assert_not_null(message);
         message.sequence = xx it;
         connection_send_message(*sender, 0, message);
@@ -649,7 +628,7 @@ test_connection_reliable_ordered_blocks :: () {
     NumMessagesSent :: 32;
 
     for msgIndex: 0..NumMessagesSent-1 {
-        message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+        message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
         assert_not_null(message);
         message.sequence = xx msgIndex;
 
@@ -725,12 +704,12 @@ test_connection_reliable_ordered_messages_and_blocks :: () {
 
     for msgIndex: 0..NumMessagesSent-1 {
         if yojimbo_random_int(0, 1) == 1 {
-            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
             connection_send_message(*sender, 0, message);
         } else {
-            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
             blockSize := 1 + ((msgIndex * 901) % 3333);
@@ -821,12 +800,12 @@ test_connection_reliable_ordered_messages_and_blocks_multiple_channels :: () {
     for channelIndex: 0..NumChannels-1 {
         for msgIndex: 0..NumMessagesSent-1 {
             if yojimbo_random_int(0, 1) == 1 {
-                message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+                message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
                 assert_not_null(message);
                 message.sequence = xx msgIndex;
                 connection_send_message(*sender, channelIndex, message);
             } else {
-                message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+                message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
                 assert_not_null(message);
                 message.sequence = xx msgIndex;
                 blockSize := 1 + ((msgIndex * 901) % 3333);
@@ -925,7 +904,7 @@ test_connection_unreliable_unordered_messages :: () {
     NumMessagesSent :: 16;
 
      for 0..NumMessagesSent-1 {
-        message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+        message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
         assert_not_null(message);
         message.sequence = xx it;
         connection_send_message(*sender, 0, message);
@@ -985,7 +964,7 @@ test_connection_unreliable_unordered_blocks :: () {
     NumMessagesSent :: 8;
 
     for msgIndex: 0..NumMessagesSent-1 {
-        message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+        message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
         assert_not_null(message);
         message.sequence = xx msgIndex;
 
@@ -1080,12 +1059,12 @@ send_client_to_server_messages :: (client: *Client, numMessagesToSend: int, chan
 
         // 90% normal, 10% blocks
         if (yojimbo_random_int(1, 10) != 1) {
-            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
             client_send_message(client, channelIndex, message);
         } else {
-            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
 
@@ -1108,12 +1087,12 @@ send_server_to_client_messages :: (server: *Server, clientIndex: int, numMessage
 
         // 90% normal, 10% blocks
         if (yojimbo_random_int(1, 10) != 1) {
-            message := cast(*TestMessage) TestMessageFactory[TEST_MESSAGE].create();
+            message := cast(*TestMessage) message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
             server_send_message(server, clientIndex, channelIndex, message);
         } else {
-            message := cast(*TestBlockMessage) TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+            message := cast(*TestBlockMessage) message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
             assert_not_null(message);
             message.sequence = xx msgIndex;
 
@@ -1497,7 +1476,7 @@ test_client_server_message_failed_to_serialize_reliable_ordered :: () {
 
     // send a message from client to server that fails to serialize on read, this should disconnect the client from the server
 
-    message := TestMessageFactory[TEST_SERIALIZE_FAIL_ON_READ_MESSAGE].create();
+    message := message_factory_create_message(TestMessageFactory, xx TEST_SERIALIZE_FAIL_ON_READ_MESSAGE);
     assert_not_null(message);
     client_send_message(*client, 0, message);
 
@@ -1569,7 +1548,7 @@ test_client_server_message_failed_to_serialize_unreliable_unordered :: () {
     // send a message from client to server that fails to serialize on read, this should disconnect the client from the server
 
     for 0..255 {
-        message := TestMessageFactory[TEST_SERIALIZE_FAIL_ON_READ_MESSAGE].create();
+        message := message_factory_create_message(TestMessageFactory, xx TEST_SERIALIZE_FAIL_ON_READ_MESSAGE);
         assert_not_null(message);
         client_send_message(*client, 0, message);
 
@@ -1639,7 +1618,7 @@ test_client_server_message_exhaust_stream_allocator :: () {
 
     // send a message from client to server that exhausts the stream allocator on read, this should disconnect the client from the server
 
-    message := TestMessageFactory[TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE].create();
+    message := message_factory_create_message(TestMessageFactory, xx TEST_EXHAUST_STREAM_ALLOCATOR_ON_READ_MESSAGE);
     assert_not_null(message);
     client_send_message(*client, 0, message);
 
@@ -1775,13 +1754,13 @@ test_reliable_outbound_sequence_outdated :: () {
 
     numMessagesSent := 0;
 
-    message := TestMessageFactory[TEST_MESSAGE].create();
+    message := message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
     assert_not_null(message);
     client_send_message(*client, 0, message);
 
     numMessagesSent += 1;
 
-    blockMessage := TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+    blockMessage := message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
     assert_not_null(blockMessage);
     blockMessage.blockData = NewArray(BlockSize, u8);
     client_send_message(*client, 1, blockMessage);
@@ -1793,13 +1772,13 @@ test_reliable_outbound_sequence_outdated :: () {
         client_send_packets(*client);
     }
 
-    message2 := TestMessageFactory[TEST_MESSAGE].create();
+    message2 := message_factory_create_message(TestMessageFactory, xx TEST_MESSAGE);
     assert_not_null(message2);
     client_send_message(*client, 0, message2);
 
     numMessagesSent += 1;
 
-    blockMessage2 := TestMessageFactory[TEST_BLOCK_MESSAGE].create();
+    blockMessage2 := message_factory_create_message(TestMessageFactory, xx TEST_BLOCK_MESSAGE);
     assert_not_null(blockMessage2);
     blockMessage2.blockData = NewArray(BlockSize, u8);
     client_send_message(*client, 1, blockMessage2);
@@ -1865,7 +1844,7 @@ test_single_message_type_reliable :: () {
     NumMessagesSent :: 64;
 
     for 0..NumMessagesSent-1 {
-        message := cast(*TestMessage) SingleTestMessageFactory[SINGLE_TEST_MESSAGE].create();
+        message := cast(*TestMessage) message_factory_create_message(SingleTestMessageFactory, xx SINGLE_TEST_MESSAGE);
         assert_not_null(message);
         message.sequence = xx it;
         connection_send_message(*sender, 0, message);
@@ -1897,6 +1876,83 @@ test_single_message_type_reliable :: () {
 
             testMessage := cast(*TestMessage) message;
             assert_equal(testMessage.sequence, xx numMessagesReceived);
+
+            message_release(message);
+            numMessagesReceived += 1;
+        }
+
+        if numMessagesReceived == NumMessagesSent {
+            break;
+        }
+    }
+
+    assert_equal(numMessagesReceived, NumMessagesSent);
+}
+
+test_single_message_type_reliable_blocks :: () {
+    sender: Connection;
+    receiver: Connection;
+    connectionConfig: ConnectionConfig;
+    time := seconds_to_apollo(100);
+
+    connection_init(*sender, SingleBlockTestMessageFactory, connectionConfig, time);
+    defer connection_free(*sender);
+    connection_init(*receiver, SingleBlockTestMessageFactory, connectionConfig, time);
+    defer connection_free(*receiver);
+
+    NumMessagesSent :: 32;
+
+    for msgIndex: 0..NumMessagesSent-1 {
+        message := cast(*TestBlockMessage) message_factory_create_message(SingleBlockTestMessageFactory, xx SINGLE_BLOCK_TEST_MESSAGE);
+
+        assert(message.type == xx SINGLE_BLOCK_TEST_MESSAGE);
+
+        assert_not_null(message);
+        message.sequence = xx msgIndex;
+        blockSize := 1 + ((msgIndex * 901) % 3333);
+        blockData := NewArray(blockSize, u8);
+        for * blockData {
+            it.* = cast,no_check(u8) (msgIndex + it_index);
+        }
+        message.blockData = blockData;
+        connection_send_message(*sender, 0, message);
+    }
+
+    SenderPort :: 10000;
+    ReceiverPort :: 10001;
+
+    senderAddress := address_init_auto_detect("::1", SenderPort);
+    receiverAddress := address_init_auto_detect("::1", ReceiverPort);
+
+    senderSequence: u16;
+    receiverSequence: u16;
+
+    NumIterations :: 10000;
+    numMessagesReceived := 0;
+
+    for iter: 0..NumIterations-1 {
+        pump_connection_update(connectionConfig, *time, *sender, *receiver, *senderSequence, *receiverSequence);
+
+        while true {
+            message := connection_receive_message(*receiver, 0);
+            if message == null {
+                break;
+            }
+
+            assert_equal(message.id, xx numMessagesReceived);
+            assert_equal(message.type, xx SINGLE_BLOCK_TEST_MESSAGE);
+
+            blockMessage := cast(*TestBlockMessage) message;
+            assert_equal(blockMessage.sequence, xx numMessagesReceived);
+
+            blockSize := blockMessage.blockData.count;
+            assert_equal(blockSize, 1 + ((numMessagesReceived * 901) % 3333));
+
+            assert_not_null(blockMessage.blockData.data);
+
+            for blockMessage.blockData {
+                assert_equal(it, cast,no_check(u8) (numMessagesReceived + it_index));
+            }
 
             message_release(message);
             numMessagesReceived += 1;
