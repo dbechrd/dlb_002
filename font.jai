@@ -1,11 +1,11 @@
 font: *Simp.Dynamic_Font;
 
-dlb_init_fonts :: (window_size: Size) {
+init_fonts :: (state: *State) {
     if font != null {
         Simp.release_font(font);
     }
 
-    pixel_height := window_size.y / 36;
+    pixel_height := state.window_size.y / 36;
 
     // @Cleanup: Don't have path + name be separate.
     font = Simp.get_font_at_size(".", "KarminaBold.otf", pixel_height);

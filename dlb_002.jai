@@ -1,198 +1,106 @@
-// jai dlb_002.jai -output_path bin -exe dlb_002 -plug Performance_Report -plug Codex
+/*
+------------------------------------------------------------------------------------------------------------------------
+Random dev notes:
+------------------------------------------------------------------------------------------------------------------------
+jai dlb_002.jai -output_path bin -exe dlb_002 -plug Performance_Report -plug Codex
+------------------------------------------------------------------------------------------------------------------------
+NOTE: Need to patch codex_view to make it work with VS Code.
+examples/codex_view/src/draw_metrics.jai:
+
+  open_editor_to_file_and_line :: (filename: string, line: s64) {
+      command := tprint("C:/Users/User/AppData/Local/Programs/Microsoft VS Code/Code.exe -g %:%", filename, line);
+      strings := Process.break_command_into_strings(command);
+      log("Running: %\n", strings);
+      Process.run_command(..strings);
+  }
+------------------------------------------------------------------------------------------------------------------------
+*/
+
+MEMORY_DEBUGGER :: true;
 
 main :: () {
-    context.logger = logger;
-    context.log_level = .VERY_VERBOSE;
-    context.print_style.default_format_struct.use_long_form_if_more_than_this_many_members = -1;
-    context.print_style.default_format_struct.use_newlines_if_long_form = true;
-    context.print_style.default_format_array.stop_printing_after_this_many_elements = 1000;
-
-    log_cpu_info();
-    address_test();
-    serialize_test();
-    reliable_test();
-    netcode_test();
-    // yojimbo_init();
-    // yojimbo_tests();
-
     //config: netcode_client_config_t;
     //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
 
+    init();
     run_game();
+    free_game();
+
+    report_memory_leaks();
 }
 
-#scope_file
-
-// NOTE: Need to patch codex_view to make it work with VS Code.
-// examples/codex_view/src/draw_metrics.jai:
-//
-//   open_editor_to_file_and_line :: (filename: string, line: s64) {
-//       command := tprint("C:/Users/User/AppData/Local/Programs/Microsoft VS Code/Code.exe -g %:%", filename, line);
-//       strings := Process.break_command_into_strings(command);
-//       log("Running: %\n", strings);
-//       Process.run_command(..strings);
-//   }
-//
-MEMORY_DEBUGGER :: false;
-
-/*
-Player :: struct {
-    transform: Transform;
-    transform.position.y = 20;  // fun thing with default values in structs
-}
-*/
-
-log_cpu_info :: () {
-    log("\n--- CPU Info -------------------------------------------------------------------\n");
-    cpu_info := get_cpu_info();
-    log("Vendor: %\n", cpu_info.vendor);
-    log("SSE  : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE) then "Supported" else "Not Supported");
-    log("SSE2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.SSE2) then "Supported" else "Not Supported");
-    log("AVX2 : %\n", ifx check_feature(cpu_info.feature_leaves, x86_Feature_Flag.AVX2) then "Supported" else "Not Supported");
-}
-
-#import "dlb";
-#import "IPAddress";//()(ENABLE_LOGGING=true);
-#import "Serialize";//()(ENABLE_LOGGING=true);
-#import "Reliable";//()(ENABLE_LOGGING=true);
-#import "Netcode";//()(ENABLE_LOGGING=true);
-#import "Yojimbo";//()(ENABLE_LOGGING=true);
-#import "Socket";
-
-logger :: (message: string, data: *void, info: Log_Info) {
-    if !message then return;
-
-    if info.common_flags & .VERY_VERBOSE_ONLY && context.log_level < .VERY_VERBOSE {
-        return;
-    }
-    if info.common_flags & .VERBOSE_ONLY && context.log_level < .VERBOSE {
-        return;
-    }
-
-    to_standard_error := false; //(info.common_flags & .ERROR) != 0;
-
-    if message[message.count-1] != #char "\n" {
-        write_strings(message, "\n", to_standard_error = to_standard_error);
-    } else {
-        write_string(message, to_standard_error = to_standard_error);
-    }
-}
-
-Input :: #import "Input";
-
-#import "Window_Creation";
-#import "Machine_X64";
-
-#import "Basic"()(MEMORY_DEBUGGER=MEMORY_DEBUGGER);
-#import "Random";
-#import "Math";
-#import "Thread";
-#import "Atomics";
-
-#load "common.jai";
-#load "fonts.jai";
+#load "font.jai";
+#load "init.jai";
+#load "input.jai";
+#load "log.jai";
 
 State :: struct {
+    quit: bool;
+    window: Window_Type;
+    window_info: Saved_Window_Info;
     window_size := Size.{ 1280, 720 };
+    fullscreen: bool;
+
+    inputCmd: InputCommand;
+
     box_offset: Vector2;
     nav_history: [..] *Type_Info;
     scroll_vel: Vector2;
 }
 
-state: State;
+#scope_file
 
-InputCommand :: struct {
-    nav_forward: bool;
-    nav_back: bool;
-    nav_motion: bool;
+#import "Basic"()(MEMORY_DEBUGGER=MEMORY_DEBUGGER);
+#import "DLB_Basic";
+#import "Math";
+#import "Window_Creation";
+// #import "Atomics";
+// #import "Random";
+// #import "Thread";
 
-    mouse_position: Vector2;
-    motion: Vector2;
+// #import "IPAddress";//()(ENABLE_LOGGING=true);
+// #import "Serialize";//()(ENABLE_LOGGING=true);
+// #import "Reliable";//()(ENABLE_LOGGING=true);
+// #import "Netcode";//()(ENABLE_LOGGING=true);
+// #import "Yojimbo";//()(ENABLE_LOGGING=true);
+// #import "Socket";
+
+state_init :: (using state: *State) {
+    array_add(*nav_history, type_info(State));
+
+    state.window = create_window(state.window_size.x, state.window_size.y, "dlb_002");
+    Simp.set_render_target(state.window);
+    state.window_size.x, state.window_size.y = Simp.get_render_dimensions(state.window);
+
+    init_fonts(state);
 }
 
-capture_input_command :: (using inputCmd: *InputCommand) {
-    nav_motion = Input.input_button_states[Input.Key_Code.MOUSE_BUTTON_MIDDLE] == .DOWN;
-    x, y := get_mouse_pointer_position();
-    mouse_position = .{ xx x, xx y };
-    motion = .{cast(float)Input.mouse_delta_x, cast(float)-Input.mouse_delta_y};
+update_state :: (using state: *State) {
+    scroll_vel *= 0.9;
+
+    if inputCmd.nav_back && state.nav_history.count > 1 {
+        array_ordered_remove_by_index(*state.nav_history, state.nav_history.count-1);
+    }
+}
+
+state_free :: (using state: *State) {
+    array_free(nav_history);
 }
 
 run_game :: () {
-    log("\n--- Game -----------------------------------------------------------------------\n");
-    dlb_init_common();
+    log_preamble();
+    log("\n--- Game ---\n");
+    log("Playing...\n");
 
-    window := create_window(state.window_size.x, state.window_size.y, "dlb_002");
-    Simp.set_render_target(window);
-    dlb_init_fonts(state.window_size);
+    state: State;
+    state_init(*state);
 
-    state.window_size.x, state.window_size.y = Simp.get_render_dimensions(window);
-    array_add(*state.nav_history, type_info(netcode_server_t));
+    while !state.quit {
+        process_input(*state);
+        update_state(*state);
 
-    fullscreen := false;
-    window_info: Saved_Window_Info;
-
-    quit := false;
-    while !quit {
-        Input.update_window_events();
-
-        inputCmd: InputCommand;
-        capture_input_command(*inputCmd);
-        state.scroll_vel *= 0.9;
-
-        for Input.events_this_frame {
-            if it.type == {
-                case .QUIT;
-                    quit = true;
-                case .KEYBOARD;
-                    if it.key_pressed && !it.repeat {
-                        if it.key_code == {
-                            case .ESCAPE;
-                                quit = true;
-                            case xx #char "0";
-                                state.box_offset = .{};
-                            case .F5;
-                                log_error("Not implemented\n");
-                            case .F11;
-                                #if OS == .WINDOWS {
-                                    toggle_fullscreen(window, !fullscreen, *window_info);
-                                    fullscreen = !fullscreen;
-                                }
-                            case xx #char "L";
-                                log_error("Not implemented\n");
-                            case .MOUSE_BUTTON_LEFT;
-                                inputCmd.nav_forward = true;
-                            case .BACKSPACE;
-                                inputCmd.nav_back = true;
-                        }
-                    }
-                case .MOUSE_WHEEL;
-                    if it.wheel_delta {
-                        factor := it.wheel_delta / cast(float) it.typical_wheel_delta * 10;
-                        if Input.input_button_states[Input.Key_Code.SHIFT] != .NONE {
-                            state.scroll_vel += .{ factor, 0 };
-                        } else {
-                            state.scroll_vel += .{ 0, factor };
-                        }
-                    }
-            }
-        }
-
-        for Input.get_window_resizes() {
-            Simp.update_window(it.window);  // Simp will do nothing if it doesn't care about this window.
-
-            if it.window == window && (it.width != state.window_size.x || it.height != state.window_size.y) {
-                state.window_size.x  = it.width;
-                state.window_size.y = it.height;
-                dlb_init_fonts(state.window_size);  // Resize the font for the new window size.
-            }
-        }
-
-        if inputCmd.nav_back && state.nav_history.count > 1 {
-            array_ordered_remove_by_index(*state.nav_history, state.nav_history.count-1);
-        }
-
-        draw_one_frame(inputCmd);
-        Simp.swap_buffers(window);
+        draw_one_frame(*state);
+        Simp.swap_buffers(state.window);
 
         memory_visualizer_per_frame_update();
         reset_temporary_storage();
@@ -200,6 +108,10 @@ run_game :: () {
         sleep_milliseconds(10);
     }
 
+    state_free(*state);
+}
+
+free_game :: () {
     log("Thanks for playing!\n");
 }
 
@@ -239,14 +151,14 @@ draw_quad :: (x: float, y: float, w: float, h: float, layout: Layout) -> clicked
     return hover && layout.inputCmd.nav_forward;
 }
 
-draw_one_frame :: (inputCmd: InputCommand) {
+draw_one_frame :: (state: *State) {
     Simp.clear_render_target(.15, .08, .08, 1);
 
     Simp.set_shader_for_color(true);
 
     box_offset: Vector2;
-    if inputCmd.nav_motion {
-        box_offset = inputCmd.motion;
+    if state.inputCmd.nav_grab {
+        box_offset = state.inputCmd.motion;
     }
     box_offset -= state.scroll_vel;
 
@@ -276,7 +188,7 @@ draw_one_frame :: (inputCmd: InputCommand) {
     text_y := state.window_size.y + cast(s64)state.box_offset.y + cast(s64)box_offset.y - font.typical_ascender - font.em_width;
 
     layout := Layout.{
-        state            = *state,
+        state            = state,
         top_left         = .{ xx text_x, xx text_y },
         cursor           = .{ xx text_x, xx text_y },
         border_thickness = 2,
@@ -285,7 +197,7 @@ draw_one_frame :: (inputCmd: InputCommand) {
         font_y_offset    = font.y_offset_for_centering,
         line_spacing     = xx font.default_line_spacing,
         depth            = 0,
-        inputCmd         = inputCmd
+        inputCmd         = state.inputCmd
     };
 
     column_width := floor((state.window_size.x - layout.pad * (layout.column_widths.count + 1)) / layout.column_widths.count);
