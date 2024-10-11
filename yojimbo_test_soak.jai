@@ -65,7 +65,7 @@ soak_main :: () {
 
     iters := 0;
     while iters < 500 {
-        iters += 1;
+        // iters += 1;
 
         client_send_packets(*client);
         server_send_packets(*server);

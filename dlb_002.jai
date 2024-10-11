@@ -18,13 +18,30 @@ examples/codex_view/src/draw_metrics.jai:
 
 MEMORY_DEBUGGER :: true;
 
-main :: () {
-    //config: netcode_client_config_t;
-    //client := netcode_client_create("192.168.0.143", *config, current_time_monotonic());
+tpj_logo: Simp.Texture;
 
-    init();
-    run_game();
-    free_game();
+main :: () {
+    state: State;
+    init(*state);
+
+    filename := "tpj.png";
+
+    if !Simp.texture_load_from_file(*tpj_logo, "tpj.png") {
+        log_error("Failed to convert PNG to texture\n");
+    }
+
+    // if !Simp.texture_load_from_memory(*g_texture, cast([] u8) png, false, true) {
+    //     log_error("Failed to convert PNG to texture\n");
+    // }
+
+    // 82936
+    // for 0..255 {
+    //     png[82937] = cast(u8) it;
+    //     write_entire_file(tprint("challenge_%.png", it), png.data, png.count);
+    // }
+
+    run_game(*state);
+    free_game(*state);
 
     report_memory_leaks();
 }
@@ -44,8 +61,85 @@ State :: struct {
     inputCmd: InputCommand;
 
     box_offset: Vector2;
-    nav_history: [..] *Type_Info;
+    nav_history: [..] Any;
     scroll_vel: Vector2;
+    populated_cities := string.[
+        "Tokyo, Japan",
+        "Delhi, India",
+        "Shanghai, China",
+        "São Paulo, Brazil",
+        "Mexico City, Mexico",
+        "Cairo, Egypt",
+        "Mumbai, India",
+        "Beijing, China",
+        "Dhaka, Bangladesh",
+        "Osaka, Japan",
+        "New York City, United States",
+        "Tehran, Iran",
+        "Karachi, Pakistan",
+        "Buenos Aires, Argentina",
+        "Chongqing, China",
+        "Istanbul, Turkey",
+        "Kolkata, India",
+        "Manila, Philippines",
+        "Lagos, Nigeria",
+        "Rio de Janeiro, Brazil",
+        "Tianjin, China",
+        "Kinshasa, DR Congo",
+        "Guangzhou, China",
+        "Los Angeles, United States",
+        "Moscow, Russia",
+        "Shenzhen, China",
+        "Lahore, Pakistan",
+        "Bangalore, India",
+        "Paris, France",
+        "Bogotá, Colombia",
+        "Jakarta, Indonesia",
+        "Chennai, India",
+        "Lima, Peru",
+        "Bangkok, Thailand",
+        "Seoul, South Korea",
+        "Nagoya, Japan",
+        "Hyderabad, India",
+        "London, United Kingdom",
+        "Chicago, United States",
+        "Chengdu, China",
+        "Nanjing, China",
+        "Wuhan, China",
+        "Ho Chi Minh City, Vietnam",
+        "Luanda, Angola",
+        "Ahmedabad, India",
+        "Kuala Lumpur, Malaysia",
+        "Xi'an, China",
+        "Hong Kong, Hong Kong",
+        "Dongguan, China",
+        "Hangzhou, China",
+        "Foshan, China",
+        "Shenyang, China",
+        "Riyadh, Saudi Arabia",
+        "Baghdad, Iraq",
+        "Santiago, Chile",
+        "Surat, India",
+        "Madrid, Spain",
+        "Suzhou, China",
+        "Pune, India",
+        "Harbin, China",
+        "Houston, United States",
+        "Dallas, United States",
+        "Toronto, Canada",
+        "Dar es Salaam, Tanzania",
+        "Miami, United States",
+        "Belo Horizonte, Brazil",
+        "Singapore, Singapore",
+        "Philadelphia, United States",
+        "Atlanta, United States",
+        "Fukuoka, Japan",
+        "Khartoum, Sudan",
+        "Barcelona, Spain",
+        "Johannesburg, South Africa",
+        "Yangon, Myanmar",
+        "Guadalajara, Mexico",
+    ];
 }
 
 #scope_file
@@ -65,16 +159,6 @@ State :: struct {
 // #import "Yojimbo";//()(ENABLE_LOGGING=true);
 // #import "Socket";
 
-state_init :: (using state: *State) {
-    array_add(*nav_history, type_info(State));
-
-    state.window = create_window(state.window_size.x, state.window_size.y, "dlb_002");
-    Simp.set_render_target(state.window);
-    state.window_size.x, state.window_size.y = Simp.get_render_dimensions(state.window);
-
-    init_fonts(state);
-}
-
 update_state :: (using state: *State) {
     scroll_vel *= 0.9;
 
@@ -87,19 +171,20 @@ state_free :: (using state: *State) {
     array_free(nav_history);
 }
 
-run_game :: () {
+run_game :: (state: *State) {
     log_preamble();
     log("\n--- Game ---\n");
     log("Playing...\n");
 
-    state: State;
-    state_init(*state);
-
     while !state.quit {
-        process_input(*state);
-        update_state(*state);
+        process_input(state);
+        update_state(state);
 
-        draw_one_frame(*state);
+        Simp.clear_render_target(.15, .08, .08, 1);
+
+        draw_one_frame(state);
+        draw_rect(4, 4, cast(float) font.character_height * 1.2, cast(float) font.character_height * 1.2, *tpj_logo);
+        Simp.draw_text(font, cast(int) (8 + font.character_height * 1.2), font.character_height / 2, "© 2024 The Programming Junkie");
         Simp.swap_buffers(state.window);
 
         memory_visualizer_per_frame_update();
@@ -107,12 +192,22 @@ run_game :: () {
 
         sleep_milliseconds(10);
     }
-
-    state_free(*state);
 }
 
-free_game :: () {
+free_game :: (state: *State) {
+    state_free(state);
     log("Thanks for playing!\n");
+}
+
+draw_rect :: (x: float, y: float, w: float, h: float, texture: *Simp.Texture = null, color := Vector4.{1,1,1,1}) {
+    x0, y0, x1, y1 := x, y, x + w, y + h;
+
+    if texture {
+        Simp.set_shader_for_images(texture);
+    } else {
+        Simp.set_shader_for_color();
+    }
+    Simp.immediate_quad(x0, y0, x1, y1, color);
 }
 
 Layout :: struct {
@@ -121,7 +216,7 @@ Layout :: struct {
     cursor: Vector2;
     border_thickness: float;
     pad: float;
-    column_widths: [2] float;
+    column_widths: [4] float;
     font_y_offset: int;
     line_spacing: float;
     depth: int;
@@ -152,8 +247,6 @@ draw_quad :: (x: float, y: float, w: float, h: float, layout: Layout) -> clicked
 }
 
 draw_one_frame :: (state: *State) {
-    Simp.clear_render_target(.15, .08, .08, 1);
-
     Simp.set_shader_for_color(true);
 
     box_offset: Vector2;
@@ -193,7 +286,7 @@ draw_one_frame :: (state: *State) {
         cursor           = .{ xx text_x, xx text_y },
         border_thickness = 2,
         pad              = 8,
-        column_widths    = .[0, 0],
+        column_widths    = .[0, 0, 0, 0],
         font_y_offset    = font.y_offset_for_centering,
         line_spacing     = xx font.default_line_spacing,
         depth            = 0,
@@ -205,91 +298,215 @@ draw_one_frame :: (state: *State) {
         it.* = column_width;
     }
 
-    get_type_details :: (ti: *Type_Info) -> string {
-        if ti.type == {
-            case .STRUCT;
-                using _ := cast(*Type_Info_Struct) ti;
-                if textual_flags & .UNION {
-                    return tprint("% (% bytes)", ifx name then name else "UNION", ti.runtime_size);
-                } else {
-                    return tprint("% (% bytes)", ifx name then name else "STRUCT", ti.runtime_size);
-                }
+    get_type_string :: (any: Any) -> string {
+        if any.type.type == {
+            /*
+            INTEGER              :: 0;
+            FLOAT                :: 1;
+            BOOL                 :: 2;
+            STRING               :: 3;
+            POINTER              :: 4;
+            PROCEDURE            :: 5;
+            VOID                 :: 6;
+            STRUCT               :: 7;
+            ARRAY                :: 8;
+            OVERLOAD_SET         :: 9;
+            ANY                  :: 10;
+            ENUM                 :: 11;
+            POLYMORPHIC_VARIABLE :: 12;
+            TYPE                 :: 13;
+            CODE                 :: 14;
+            */
             case .INTEGER;
-                using _ := cast(*Type_Info_Integer) ti;
-                return tprint("%0%", ifx signed then "s" else "u", ti.runtime_size * 8);
-            case .POINTER;
-                using _ := cast(*Type_Info_Pointer) ti;
-                if pointer_to.type == .STRUCT {
-                    pointee := cast(*Type_Info_Struct) pointer_to;
-                    return tprint("*% (% bytes)", pointee.name, ti.runtime_size);
+                using _ := cast(*Type_Info_Integer) any.type;
+                return ifx signed {
+                    tprint("s%", any.type.runtime_size * 8);
                 } else {
-                    return tprint("*% (% bytes)", pointer_to.type, ti.runtime_size);
+                    tprint("u%", any.type.runtime_size * 8);
+                };
+            case .FLOAT;
+                using _ := cast(*Type_Info_Integer) any.type;
+                return ifx any.type.runtime_size == 4 then "float" else "float64";
+            case .BOOL;
+                return "bool";
+            case .POINTER;
+                using _ := cast(*Type_Info_Pointer) any.type;
+                if pointer_to.type == {
+                    case .STRUCT;
+                        pointee := cast(*Type_Info_Struct) pointer_to;
+                        return tprint("*%", pointee.name);
+                    case;
+                        return tprint("*%", pointer_to.type);
+                }
+             case .STRUCT;
+                using _ := cast(*Type_Info_Struct) any.type;
+                if textual_flags & .UNION {
+                    return tprint("%", ifx name then name else "UNION");
+                } else {
+                    return tprint("%", ifx name then name else "STRUCT");
                 }
             case;
-                return tprint("% (% bytes)", ti.type, ti.runtime_size);
+                return tprint("%", any.type.type);
         }
     }
 
-    draw_row :: (label: string, value: string, layout: *Layout) -> clicked_column: int {
+    get_value_string :: (any: Any) -> string {
+        if any.type.type == {
+            case .INTEGER;
+                using _ := cast(*Type_Info_Integer) any.type;
+                if signed {
+                    if runtime_size == {
+                        case 1; return tprint("%", (cast(*s8) any.value_pointer).*);
+                        case 2; return tprint("%", (cast(*s16) any.value_pointer).*);
+                        case 4; return tprint("%", (cast(*s32) any.value_pointer).*);
+                        case 8; return tprint("%", (cast(*s64) any.value_pointer).*);
+                        case; assert(false, "weird integer"); return "???";
+                    }
+                } else {
+                    if runtime_size == {
+                        case 1; return tprint("%", (cast(*u8) any.value_pointer).*);
+                        case 2; return tprint("%", (cast(*u16) any.value_pointer).*);
+                        case 4; return tprint("%", (cast(*u32) any.value_pointer).*);
+                        case 8; return tprint("%", (cast(*u64) any.value_pointer).*);
+                        case; assert(false, "weird integer"); return "???";
+                    }
+                }
+            case .FLOAT;
+                using _ := cast(*Type_Info_Integer) any.type;
+                return ifx any.type.runtime_size == 4 {
+                    tprint("%", (cast(*float) any.value_pointer).*);
+                } else {
+                    tprint("%", (cast(*float64) any.value_pointer).*);
+                };
+            case .BOOL;
+                return ifx (cast(*bool) any.value_pointer).* then "true" else "false";
+            case .STRING;
+                return (cast(*string) any.value_pointer).*;
+            case .POINTER;
+                return tprint("%", (cast(**void) any.value_pointer).*);
+            case .STRUCT;
+                if any.type == {
+                    case type_info(Vector2);
+                        v := cast(*Vector2) any.value_pointer;
+                        return tprint("%, %", v.x, v.y);
+                    case type_info(Size);
+                        s := cast(*Size) any.value_pointer;
+                        return tprint("%, %", s.x, s.y);
+                }
+                using _ := cast(*Type_Info_Struct) any.type;
+                if textual_flags & .UNION {
+                    return "...";
+                } else {
+                    return "...";
+                }
+            case .ARRAY;
+                info_array := cast(*Type_Info_Array) any.type;
+
+                count: s64;
+                if info_array.array_type == .FIXED {
+                    count = info_array.array_count;
+                } else {
+                    count = << cast(*s64)  (any.value_pointer);
+                }
+
+                return tprint("[%] %", count, info_array.element_type.type);
+            case .ANY;
+                any_value := cast(*Any) any.value_pointer;
+                return get_value_string(any_value.*);
+            case;
+                return tprint("{%}", any.type.type);
+        }
+    }
+
+    draw_row :: (cols: [] string, layout: *Layout) -> clicked_column: int {
         clicked_column := -1;
-
         layout.cursor.x = layout.top_left.x + layout.pad;
-        if draw_quad(layout.cursor.x, layout.cursor.y, layout.column_widths[0], layout.line_spacing, layout) {
-            clicked_column = 0;
+
+        colors := Vector4.[.{1, 1, .92, 1}, .{0.38, 0.61, 0.84, 1}, .{.6, .6, .6, 1}, .{1, 1, 1, 1}];
+
+        for cols {
+            if draw_quad(layout.cursor.x, layout.cursor.y, layout.column_widths[it_index], layout.line_spacing, layout) {
+                clicked_column = it_index;
+            }
+
+            indent := 4 + ifx it_index == 0 then layout.depth * 8 else 0;
+
+            Simp.prepare_text(font, it);
+            Simp.draw_prepared_text(font, xx (layout.cursor.x + indent), xx (layout.cursor.y + layout.font_y_offset), colors[it_index]);
+            layout.cursor.x += layout.column_widths[it_index] + layout.pad;
         }
-
-        indent := layout.depth * 16;
-
-        Simp.prepare_text(font, label);
-        Simp.draw_prepared_text(font, xx (layout.cursor.x + indent), xx (layout.cursor.y + layout.font_y_offset), .{1, 1, .92, 1});
-
-        layout.cursor.x += layout.column_widths[0] + layout.pad;
-
-        if draw_quad(layout.cursor.x, layout.cursor.y, layout.column_widths[0], layout.line_spacing, layout) {
-            clicked_column = 1;
-        }
-
-        Simp.prepare_text(font, value);
-        Simp.draw_prepared_text(font, xx layout.cursor.x, xx (layout.cursor.y + layout.font_y_offset), .{0.38, 0.61, 0.84, 1});
 
         layout.cursor.y -= layout.line_spacing + layout.border_thickness;
-
         return clicked_column;
     }
 
     Nav :: struct {
-        forward_request: *Type_Info;
+        forward_request: Any;
         back_request := false;
     }
 
-    draw_type_info :: (name: string, ti: *Type_Info, layout: *Layout, nav: *Nav) {
-        label := tprint("%", name);
-        value := get_type_details(ti);
+    draw_type_info :: (name: string, any: Any, layout: *Layout, nav: *Nav) {
+        type_str := get_type_string(any);
+        size_str := tprint("%", any.type.runtime_size);
+        value_str := get_value_string(any);
 
         if layout.depth == 0 {
             if layout.state.nav_history.count > 1 {
                 // nav row
-                clicked_column := draw_row("< Back", .{}, layout);
+                clicked_column := draw_row(.["< Back"], layout);
                 if clicked_column == 0 {
                     nav.back_request = true;
                 }
             }
 
             // display value as root node
-            draw_row(value, .{}, layout);
+            draw_row(.[type_str, tprint("%", any.value_pointer), "", size_str], layout);
         } else {
-            clicked_column := draw_row(label, value, layout);
-            if clicked_column >= 0 && ti != layout.state.nav_history[layout.state.nav_history.count-1] {
-                nav.forward_request = ti;
+            clicked_column := draw_row(.[name, value_str, type_str, size_str], layout);
+            nav_current := layout.state.nav_history[layout.state.nav_history.count-1];
+            if clicked_column >= 0 && (any.type != nav_current.type || any.value_pointer != nav_current.value_pointer) {
+                nav.forward_request = any;
             }
         }
 
-        if layout.depth == 0 && ti.type == .STRUCT {
-            tis := cast(*Type_Info_Struct) ti;
-            for tis.members {
-                layout.depth += 1;
-                draw_type_info(it.name, it.type, layout, nav);
-                layout.depth -= 1;
+        if layout.depth == 0 {
+            if any.type.type == {
+                case .STRUCT;
+                    info_struct := cast(*Type_Info_Struct) any.type;
+                    for info_struct.members {
+                        layout.depth += 1;
+                        member_any := Any.{ it.type, any.value_pointer + it.offset_in_bytes };
+                        draw_type_info(it.name, member_any, layout, nav);
+                        layout.depth -= 1;
+                    }
+                case .ARRAY;
+                    info_array := cast(*Type_Info_Array) any.type;
+
+                    count: s64;
+                    data: *void;
+                    if info_array.array_type == .FIXED {
+                        count = info_array.array_count;
+                        data  = any.value_pointer;
+                    } else {
+                        count = << cast(*s64)  (any.value_pointer);
+                        data  = << cast(**void)(any.value_pointer + 8);
+                    }
+
+                    to_print := count;
+                    limit := 64;
+                    if limit >= 0 then to_print = min(to_print, limit);
+
+                    elem_type := info_array.element_type;
+                    for 0..to_print-1 {
+                        pointer := data + info_array.element_type.runtime_size * it;
+                        item: Any = ---;
+                        item.type = elem_type;
+                        item.value_pointer = pointer;
+
+                        layout.depth += 1;
+                        draw_type_info(tprint("[%]", it), item, layout, nav);
+                        layout.depth -= 1;
+                    }
             }
         }
     }
@@ -297,11 +514,13 @@ draw_one_frame :: (state: *State) {
     nav: Nav;
     draw_type_info("[root]", state.nav_history[state.nav_history.count-1], *layout, *nav);
 
-    if nav.forward_request {
-        if nav.forward_request.type == .STRUCT {
-            array_add(*layout.state.nav_history, nav.forward_request);
-            state.box_offset = .{};
-            state.scroll_vel = .{};
+    if nav.forward_request.value_pointer {
+        if nav.forward_request.type.type == {
+            case .STRUCT; #through;
+            case .ARRAY;
+                array_add(*layout.state.nav_history, nav.forward_request);
+                state.box_offset = .{};
+                state.scroll_vel = .{};
         }
     } else if nav.back_request && layout.state.nav_history.count > 1 {
         array_ordered_remove_by_index(*layout.state.nav_history, layout.state.nav_history.count-1);
@@ -313,5 +532,4 @@ draw_one_frame :: (state: *State) {
     // labels := string.["Server Time", "Frame Time"];
     // time := seconds_since_init();
     // tprint("%", FormatFloat.{ value=time, trailing_width=2, zero_removal=.NO });
-
 }
