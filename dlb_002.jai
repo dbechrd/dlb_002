@@ -25,31 +25,25 @@ main :: () {
     init(*state);
 
     filename := "tpj.png";
-
-    if !Simp.texture_load_from_file(*tpj_logo, "tpj.png") {
+    if !Simp.texture_load_from_file(*tpj_logo, filename) {
         log_error("Failed to convert PNG to texture\n");
     }
 
-    // if !Simp.texture_load_from_memory(*g_texture, cast([] u8) png, false, true) {
-    //     log_error("Failed to convert PNG to texture\n");
-    // }
-
-    // 82936
-    // for 0..255 {
-    //     png[82937] = cast(u8) it;
-    //     write_entire_file(tprint("challenge_%.png", it), png.data, png.count);
-    // }
+    // array_reset_keeping_memory(*state.nav_history);
+    // array_add(*state.nav_history, Any.{ type_info(type_of(missing_ogg_stream.*)), missing_ogg_stream });
 
     run_game(*state);
-    free_game(*state);
+    deinit(*state);
 
     report_memory_leaks();
 }
 
+#load "audio.jai";
 #load "font.jai";
 #load "init.jai";
 #load "input.jai";
 #load "log.jai";
+#load "missing_ogg.jai";
 
 State :: struct {
     quit: bool;
@@ -142,12 +136,16 @@ State :: struct {
     ];
 }
 
-#scope_file
-
 #import "Basic"()(MEMORY_DEBUGGER=MEMORY_DEBUGGER);
 #import "DLB_Basic";
+#import "File";
 #import "Math";
 #import "Window_Creation";
+Simp :: #import "Simp";
+using Sound :: #import "Sound_Player";
+
+#scope_file
+
 // #import "Atomics";
 // #import "Random";
 // #import "Thread";
@@ -167,10 +165,6 @@ update_state :: (using state: *State) {
     }
 }
 
-state_free :: (using state: *State) {
-    array_free(nav_history);
-}
-
 run_game :: (state: *State) {
     log_preamble();
     log("\n--- Game ---\n");
@@ -186,16 +180,14 @@ run_game :: (state: *State) {
         draw_rect(4, 4, cast(float) font.character_height * 1.2, cast(float) font.character_height * 1.2, *tpj_logo);
         Simp.draw_text(font, cast(int) (8 + font.character_height * 1.2), font.character_height / 2, "© 2024 The Programming Junkie");
         Simp.swap_buffers(state.window);
+        Sound.update();
 
         memory_visualizer_per_frame_update();
         reset_temporary_storage();
 
         sleep_milliseconds(10);
     }
-}
 
-free_game :: (state: *State) {
-    state_free(state);
     log("Thanks for playing!\n");
 }
 

@@ -42,6 +42,10 @@ process_input :: (state: *State) {
                             log_error("Not implemented\n");
                         case .MOUSE_BUTTON_LEFT;
                             inputCmd.nav_forward = true;
+                            stream := make_stream(*missing_ogg);
+                            // HACK: Our .ogg isn't big enough to finish loading "initial pages", so we need to disable that feature.
+                            stream.internal_flags &= ~.WAITING_FOR_INITIAL_DECODER_PAGES;
+                            start_playing(stream);
                         case .BACKSPACE;
                             inputCmd.nav_back = true;
                     }
