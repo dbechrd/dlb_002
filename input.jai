@@ -7,7 +7,7 @@ InputCommand :: struct {
     motion: Vector2;
 }
 
-capture_input_command :: (using inputCmd: *InputCommand) {
+capture_input_command :: (using input_cmd: *InputCommand) {
     nav_grab = Input.input_button_states[Input.Key_Code.MOUSE_BUTTON_MIDDLE] == .DOWN;
     x, y := get_mouse_pointer_position();
     mouse_position = .{ xx x, xx y };
@@ -17,8 +17,8 @@ capture_input_command :: (using inputCmd: *InputCommand) {
 process_input :: (state: *State) {
     Input.update_window_events();
 
-    inputCmd: InputCommand;
-    capture_input_command(*inputCmd);
+    input_cmd: InputCommand;
+    capture_input_command(*input_cmd);
 
     for Input.events_this_frame {
         if it.type == {
@@ -40,14 +40,23 @@ process_input :: (state: *State) {
                             }
                         case xx #char "L";
                             log_error("Not implemented\n");
+                        case xx #char "R";
+                            if state.ring_mode == {
+                                case .NONE;
+                                    state.ring_mode = .DIALTONE;
+                                case .DIALTONE;
+                                    state.ring_mode = .RINGING;
+                                case .RINGING;
+                                    state.ring_mode = .DIALTONE;
+                            }
                         case .MOUSE_BUTTON_LEFT;
-                            inputCmd.nav_forward = true;
+                            input_cmd.nav_forward = true;
                             stream := make_stream(*missing_ogg);
                             // HACK: Our .ogg isn't big enough to finish loading "initial pages", so we need to disable that feature.
                             stream.internal_flags &= ~.WAITING_FOR_INITIAL_DECODER_PAGES;
                             start_playing(stream);
                         case .BACKSPACE;
-                            inputCmd.nav_back = true;
+                            input_cmd.nav_back = true;
                     }
                 }
             case .MOUSE_WHEEL;
@@ -71,7 +80,7 @@ process_input :: (state: *State) {
         }
     }
 
-    state.inputCmd = inputCmd;
+    state.input_cmd = input_cmd;
 }
 
 #scope_file

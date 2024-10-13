@@ -45,6 +45,12 @@ main :: () {
 #load "log.jai";
 #load "missing_ogg.jai";
 
+RingMode :: enum {
+    NONE;
+    DIALTONE;
+    RINGING;
+};
+
 State :: struct {
     quit: bool;
     window: Window_Type;
@@ -52,7 +58,11 @@ State :: struct {
     window_size := Size.{ 1280, 720 };
     fullscreen: bool;
 
-    inputCmd: InputCommand;
+    input_cmd: InputCommand;
+    prev_ring_mode: RingMode;
+    ring_mode: RingMode;
+    ring_interval_started_at: Apollo_Time;  // if ring_mode == RINGING, when the ring or silence interval started
+    ring_interval_silent: bool;  // toggles back and forth to create an intervaled ring
 
     box_offset: Vector2;
     nav_history: [..] Any;
@@ -160,8 +170,44 @@ using Sound :: #import "Sound_Player";
 update_state :: (using state: *State) {
     scroll_vel *= 0.9;
 
-    if inputCmd.nav_back && state.nav_history.count > 1 {
-        array_ordered_remove_by_index(*state.nav_history, state.nav_history.count-1);
+    if input_cmd.nav_back && nav_history.count > 1 {
+        array_ordered_remove_by_index(*nav_history, nav_history.count-1);
+    }
+
+    now := current_time_monotonic();
+
+    if ring_mode != prev_ring_mode {
+        stop_all_sounds_abruptly(0);
+        if ring_mode == {
+            case .DIALTONE;
+                log("started dialtone\n");
+                play_sound(*sine_350, true);
+                play_sound(*sine_440, true);
+            case .RINGING;
+                log("started ringing\n");
+                ring_interval_started_at = now;
+                ring_interval_silent = false;
+                play_sound(*sine_440, true);
+                play_sound(*sine_480, true);
+
+        }
+        prev_ring_mode = ring_mode;
+    }
+
+    if ring_mode == .RINGING {
+        interval_duration := now - ring_interval_started_at;
+        if ring_interval_silent && interval_duration > seconds_to_apollo(4) {
+            log("started ring interval\n");
+            ring_interval_silent = false;
+            ring_interval_started_at = now;
+            play_sound(*sine_440, true);
+            play_sound(*sine_480, true);
+        } else if !ring_interval_silent && interval_duration > seconds_to_apollo(2) {
+            log("started ring silence interval\n");
+            stop_all_sounds_abruptly(0);
+            ring_interval_silent = true;
+            ring_interval_started_at = now;
+        }
     }
 }
 
@@ -176,7 +222,7 @@ run_game :: (state: *State) {
 
         Simp.clear_render_target(.15, .08, .08, 1);
 
-        draw_one_frame(state);
+        // draw_one_frame(state);
         draw_rect(4, 4, cast(float) font.character_height * 1.2, cast(float) font.character_height * 1.2, *tpj_logo);
         Simp.draw_text(font, cast(int) (8 + font.character_height * 1.2), font.character_height / 2, "© 2024 The Programming Junkie");
         Simp.swap_buffers(state.window);
@@ -212,13 +258,13 @@ Layout :: struct {
     font_y_offset: int;
     line_spacing: float;
     depth: int;
-    inputCmd: InputCommand;
+    input_cmd: InputCommand;
 }
 
 draw_quad :: (x: float, y: float, w: float, h: float, layout: Layout) -> clicked: bool {
     x0, y0, x1, y1 := x, y, x + w, y + h;
 
-    m := layout.inputCmd.mouse_position;
+    m := layout.input_cmd.mouse_position;
     m.y = layout.state.window_size.y - m.y;
     hover := m.x >= x0 && m.y >= y0 && m.x <= x1 && m.y <= y1;
 
@@ -235,15 +281,15 @@ draw_quad :: (x: float, y: float, w: float, h: float, layout: Layout) -> clicked
         Simp.immediate_quad(x0 - b, y0 - b, x0    , y1 + b, .{0, 0, 0, 1});  // left border
     }
 
-    return hover && layout.inputCmd.nav_forward;
+    return hover && layout.input_cmd.nav_forward;
 }
 
 draw_one_frame :: (state: *State) {
     Simp.set_shader_for_color(true);
 
     box_offset: Vector2;
-    if state.inputCmd.nav_grab {
-        box_offset = state.inputCmd.motion;
+    if state.input_cmd.nav_grab {
+        box_offset = state.input_cmd.motion;
     }
     box_offset -= state.scroll_vel;
 
@@ -282,7 +328,7 @@ draw_one_frame :: (state: *State) {
         font_y_offset    = font.y_offset_for_centering,
         line_spacing     = xx font.default_line_spacing,
         depth            = 0,
-        inputCmd         = state.inputCmd
+        input_cmd        = state.input_cmd
     };
 
     column_width := floor((state.window_size.x - layout.pad * (layout.column_widths.count + 1)) / layout.column_widths.count);

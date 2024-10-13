@@ -1,6 +1,7 @@
 missing_ogg: Sound_Data;
-dialtone_f4: Sound_Data;
-dialtone_a4: Sound_Data;
+sine_350: Sound_Data;
+sine_440: Sound_Data;
+sine_480: Sound_Data;
 
 init_audio :: (state: *State) {
     devices := get_devices();
@@ -15,14 +16,9 @@ init_audio :: (state: *State) {
 
     //------------------------------------------------------------
 
-    generate_sine_wave(*dialtone_f4, "dialtone_f4", 350.0);
-    generate_sine_wave(*dialtone_a4, "dialtone_a4", 440.0);
-    dialtone_f4_stream := make_stream(*dialtone_f4);
-    dialtone_a4_stream := make_stream(*dialtone_a4);
-    set_repeating(dialtone_f4_stream, true);
-    set_repeating(dialtone_a4_stream, true);
-    start_playing(dialtone_f4_stream);
-    start_playing(dialtone_a4_stream);
+    generate_sine_wave(*sine_350, "sine_350", 350.0);
+    generate_sine_wave(*sine_440, "sine_440", 440.0);
+    generate_sine_wave(*sine_480, "sine_480", 480.0);
 
     missing_ogg = load_audio_data("missing_ogg", MISSING_OGG_BYTES);
     //------------------------------------------------------------
@@ -30,6 +26,12 @@ init_audio :: (state: *State) {
 
 deinit_audio :: (state: *State) {
     sound_player_shutdown();
+}
+
+play_sound :: (sound_data: *Sound_Data, loop := false) {
+    stream := make_stream(sound_data);
+    set_repeating(stream, loop);
+    start_playing(stream);
 }
 
 #scope_file
