@@ -69,7 +69,7 @@ Math :: #import "Math";
 #import "IPAddress";
 #import "Reliable";
 #import "Netcode";
-#import "DLB_Basic";
+#import "Trivial";
 
 #load "base_client.jai";
 #load "base_server.jai";

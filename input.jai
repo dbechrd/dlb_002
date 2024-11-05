@@ -51,10 +51,10 @@ process_input :: (state: *State) {
                             }
                         case .MOUSE_BUTTON_LEFT;
                             input_cmd.nav_forward = true;
-                            stream := make_stream(*missing_ogg);
-                            // HACK: Our .ogg isn't big enough to finish loading "initial pages", so we need to disable that feature.
-                            stream.internal_flags &= ~.WAITING_FOR_INITIAL_DECODER_PAGES;
-                            start_playing(stream);
+                            // stream := make_stream(*missing_ogg);
+                            // // HACK: Our .ogg isn't big enough to finish loading "initial pages", so we need to disable that feature.
+                            // stream.internal_flags &= ~.WAITING_FOR_INITIAL_DECODER_PAGES;
+                            // start_playing(stream);
                         case .BACKSPACE;
                             input_cmd.nav_back = true;
                     }

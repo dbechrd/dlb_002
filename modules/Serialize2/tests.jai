@@ -11,7 +11,7 @@ serialize_test :: () {
 
 #import "Basic";
 #import "Random";
-#import "DLB_Basic";
+#import "Trivial";
 #import "Assertive";
 
 TEST :: (test: (), $call := #caller_code) {

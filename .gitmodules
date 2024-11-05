@@ -1,0 +1,3 @@
+[submodule "modules/Trivial"]
+	path = modules/Trivial
+	url = git@github.com:dbechrd/jai-trivial.git
