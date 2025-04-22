@@ -31,6 +31,7 @@ main :: () {
 
     // array_reset_keeping_memory(*state.nav_history);
     // array_add(*state.nav_history, Any.{ type_info(type_of(missing_ogg_stream.*)), missing_ogg_stream });
+    array_add(*state.nav_history, context);
 
     run_game(*state);
     deinit(*state);
@@ -348,10 +349,10 @@ draw_one_frame :: (state: *State) {
                 return tprint("%", (cast(**void) any.value_pointer).*);
             case .STRUCT;
                 if any.type == {
-                    case type_info(Vector2);
+                    case type_info(type_of(Vector2));
                         v := cast(*Vector2) any.value_pointer;
                         return tprint("%, %", v.x, v.y);
-                    case type_info(Size);
+                    case type_info(type_of(Size));
                         s := cast(*Size) any.value_pointer;
                         return tprint("%, %", s.x, s.y);
                 }
@@ -436,6 +437,9 @@ draw_one_frame :: (state: *State) {
                 case .STRUCT;
                     info_struct := cast(*Type_Info_Struct) any.type;
                     for info_struct.members {
+                        if it.flags & .IMPORTED {
+                            log("imported\n");
+                        }
                         layout.depth += 1;
                         member_any := Any.{ it.type, any.value_pointer + it.offset_in_bytes };
                         draw_type_info(it.name, member_any, layout, nav);

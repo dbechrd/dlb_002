@@ -8,6 +8,6 @@ init_fonts :: (state: *State) {
     pixel_height := state.window_size.y / 36;
 
     // @Cleanup: Don't have path + name be separate.
-    font = Simp.get_font_at_size(".", "KarminaBold.otf", pixel_height);
+    font = Simp.get_font_at_size("bin", "KarminaBold.otf", pixel_height);
     assert(font != null);
 }
